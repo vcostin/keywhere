@@ -123,10 +123,12 @@ impl Browser {
             Ok((lock, LockState::Acquired)) => (lock, None),
             // A lock left by a crashed/killed process on this machine is
             // safe to reclaim; anything else is the user's call.
-            Ok((_, LockState::HeldBy(h))) if VaultLock::is_stale(&h) => match VaultLock::take_over(&path) {
-                Ok(l) => (Some(l), None),
-                Err(_) => (None, Some(h)),
-            },
+            Ok((_, LockState::HeldBy(h))) if VaultLock::is_stale(&h) => {
+                match VaultLock::take_over(&path) {
+                    Ok(l) => (Some(l), None),
+                    Err(_) => (None, Some(h)),
+                }
+            }
             Ok((_, LockState::HeldBy(h))) => (None, Some(h)),
             Err(e) => (
                 None,
@@ -453,15 +455,27 @@ impl Browser {
         let Some(text) = r.text(kind).filter(|t| !t.is_empty()) else {
             return;
         };
+        let text = zeroize::Zeroizing::new(text.to_string());
+        self.copy_text(&text, label, cx);
+    }
+
+    fn copy_text(&mut self, text: &str, label: &str, cx: &mut Context<Self>) {
         // TODO(M3): per-OS "concealed / exclude from history" clipboard hints (keywhere-sys).
         self.clip_hash = Some(hash(text));
         self.clip_until = Some(Instant::now() + CLIPBOARD_CLEAR);
         cx.write_to_clipboard(ClipboardItem::new_string(text.to_string()));
-        self.toast = Some((
-            format!("{label} copied").into(),
-            Instant::now() + Duration::from_secs(3),
-        ));
+        self.toast(format!("{label} copied"));
         cx.notify();
+    }
+
+    fn copy_history(&mut self, i: usize, cx: &mut Context<Self>) {
+        let Some(r) = self.selected_record() else {
+            return;
+        };
+        let Some(e) = r.history().into_iter().rev().nth(i) else {
+            return;
+        };
+        self.copy_text(&e.password, "Old password", cx);
     }
 
     fn toggle_reveal(&mut self, cx: &mut Context<Self>) {
@@ -1009,10 +1023,13 @@ impl Browser {
         if let Some(t) = r.time(rec::PTIME) {
             meta.push(format!("Password changed {}", model::fmt_date(t)));
         }
-        let hist = model::history_count(r);
-        if hist > 0 {
-            meta.push(format!("Password history · {hist}"));
-        }
+        // Newest first; passwords stay masked, copy-only.
+        let history: Vec<String> = r
+            .history()
+            .iter()
+            .rev()
+            .map(|h| model::fmt_date(h.changed))
+            .collect();
 
         let initial: SharedString = e
             .title
@@ -1113,6 +1130,64 @@ impl Browser {
                 })
             })
             .child(fields)
+            .when(!history.is_empty(), |d| {
+                d.child(
+                    div()
+                        .mt_3()
+                        .rounded(px(9.))
+                        .border_1()
+                        .border_color(c(LINE))
+                        .bg(c(SURFACE))
+                        .overflow_hidden()
+                        .child(
+                            div()
+                                .px_3()
+                                .pt_2()
+                                .pb_1()
+                                .text_size(px(10.5))
+                                .text_color(c(DIM))
+                                .child(format!("PASSWORD HISTORY · {}", history.len())),
+                        )
+                        .children(history.into_iter().enumerate().map(|(i, date)| {
+                            div()
+                                .flex()
+                                .items_center()
+                                .gap_2()
+                                .px_3()
+                                .h(px(32.))
+                                .border_t_1()
+                                .border_color(c(LINE))
+                                .child(
+                                    div()
+                                        .w(px(110.))
+                                        .text_size(px(11.))
+                                        .text_color(c(MUTED))
+                                        .child(format!("set {date}")),
+                                )
+                                .child(div().flex_1().text_color(c(DIM)).child("••••••••••••"))
+                                .child(
+                                    div()
+                                        .id(("hist", i))
+                                        .size(px(24.))
+                                        .rounded(px(6.))
+                                        .flex()
+                                        .items_center()
+                                        .justify_center()
+                                        .cursor_pointer()
+                                        .hover(|d| d.bg(c(RAISED)))
+                                        .on_click(
+                                            cx.listener(move |t, _, _, cx| t.copy_history(i, cx)),
+                                        )
+                                        .child(
+                                            svg()
+                                                .path("icons/copy.svg")
+                                                .size(px(14.))
+                                                .text_color(c(MUTED)),
+                                        ),
+                                )
+                        })),
+                )
+            })
             .when_some(notes, |d, n| {
                 d.child(
                     div()
