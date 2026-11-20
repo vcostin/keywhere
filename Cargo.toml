@@ -1,8 +1,13 @@
 [workspace]
 resolver = "2"
-members = ["crates/keywhere-core"]
+members = ["crates/keywhere-core", "crates/keywhere-app"]
 
 [workspace.package]
 edition = "2021"
-license = "GPL-3.0-or-later"
+license = "MIT"
 version = "0.1.0"
+
+# gpui 0.2.2 -> zed-async-tar -> xattr 0.2.3 references libc::ENOATTR, removed for Linux in
+# newer libc. Patched copy; drop once gpui ships a newer dependency chain.
+[patch.crates-io]
+xattr = { path = "third_party/xattr" }

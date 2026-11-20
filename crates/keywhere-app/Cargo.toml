@@ -1,0 +1,11 @@
+[package]
+name = "keywhere"
+description = "Keywhere — a modern Password Safe (.psafe3) compatible password manager"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+keywhere-core = { path = "../keywhere-core" }
+gpui = "=0.2.2"
+zeroize = "1"
