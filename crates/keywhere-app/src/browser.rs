@@ -70,6 +70,9 @@ pub struct Browser {
     /// The file changed on disk since we opened it; our edit is unsaved.
     conflict: bool,
     save_error: Option<SharedString>,
+    /// Folded groups in the sidebar tree. Kept in memory only: group names
+    /// are vault content and must not be written to a plain config file.
+    collapsed: std::collections::HashSet<Vec<String>>,
     /// Pending delete confirmation: (uuid, title).
     confirm_delete: Option<(Vec<u8>, SharedString)>,
     /// "Upgrade to v3" dialog: master-password field + error.
@@ -174,6 +177,7 @@ impl Browser {
             conflict: false,
             save_error: None,
             confirm_delete: None,
+            collapsed: Default::default(),
             upgrade: None,
             dialog_focus: cx.focus_handle(),
             _ticker: ticker,
@@ -272,6 +276,14 @@ impl Browser {
                 false
             }
         }
+    }
+
+    #[cfg(feature = "devtools")]
+    pub fn dev_fold(&mut self, groups: &str, cx: &mut Context<Self>) {
+        for g in groups.split(',') {
+            self.collapsed.insert(vec![g.to_string()]);
+        }
+        cx.notify();
     }
 
     #[cfg(feature = "devtools")]
@@ -979,19 +991,98 @@ impl Browser {
                     .child(crate::i18n::t("GROUPS")),
             );
         for (i, g) in self.groups.iter().enumerate() {
-            let label: SharedString = g.path.last().cloned().unwrap_or_default().into();
-            col = col.child(self.nav_item(
-                SharedString::from(format!("g{i}")),
-                (g.path.len() == 1).then_some("icons/folder.svg"),
-                label,
-                g.count,
-                g.path.len() - 1,
-                Filter::Group(g.path.clone()),
-                None,
-                cx,
-            ));
+            // Hidden if any ancestor is collapsed.
+            if (1..g.path.len()).any(|d| self.collapsed.contains(&g.path[..d])) {
+                continue;
+            }
+            let has_children = self
+                .groups
+                .get(i + 1)
+                .is_some_and(|n| n.path.len() > g.path.len() && n.path.starts_with(&g.path));
+            col = col.child(self.group_row(i, g, has_children, cx));
         }
         col
+    }
+
+    /// One row of the group tree: fold chevron (if it has subgroups) + name.
+    fn group_row(
+        &self,
+        i: usize,
+        g: &GroupNode,
+        has_children: bool,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let filter = Filter::Group(g.path.clone());
+        let on = self.filter == filter;
+        let collapsed = self.collapsed.contains(&g.path);
+        let path = g.path.clone();
+        let label: SharedString = g.path.last().cloned().unwrap_or_default().into();
+        div()
+            .id(SharedString::from(format!("g{i}")))
+            .flex()
+            .items_center()
+            .gap_1()
+            .h(px(28.))
+            .pl(px(2. + (g.path.len() - 1) as f32 * 14.))
+            .pr_2()
+            .rounded(px(6.))
+            .cursor_pointer()
+            .text_color(c(if on { TEXT } else { TEXT_SOFT }))
+            .when(on, |d| d.bg(c(SELECTION)))
+            .when(!on, |d| d.hover(|d| d.bg(c(HOVER))))
+            .on_click(cx.listener(move |this, _, _, cx| this.set_filter(filter.clone(), cx)))
+            .child(
+                div()
+                    .id(SharedString::from(format!("gt{i}")))
+                    .size(px(18.))
+                    .flex_none()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .rounded(px(4.))
+                    .when(has_children, |d| {
+                        d.hover(|d| d.bg(c(RAISED)))
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                if !this.collapsed.remove(&path) {
+                                    this.collapsed.insert(path.clone());
+                                }
+                                cx.stop_propagation();
+                                cx.notify();
+                            }))
+                            .child(
+                                svg()
+                                    .path(if collapsed {
+                                        "icons/chevron-right.svg"
+                                    } else {
+                                        "icons/chevron-down.svg"
+                                    })
+                                    .size(px(12.))
+                                    .text_color(c(MUTED)),
+                            )
+                    }),
+            )
+            .when(g.path.len() == 1, |d| {
+                d.child(
+                    svg()
+                        .path("icons/folder.svg")
+                        .size(px(13.))
+                        .text_color(c(if on { TEXT } else { MUTED })),
+                )
+            })
+            .child(
+                div()
+                    .ml_1()
+                    .flex_1()
+                    .overflow_hidden()
+                    .whitespace_nowrap()
+                    .child(label),
+            )
+            .child(
+                div()
+                    .text_size(px(11.))
+                    .text_color(c(DIM))
+                    .child(g.count.to_string()),
+            )
     }
 
     fn render_list(&self, cx: &mut Context<Self>) -> impl IntoElement {

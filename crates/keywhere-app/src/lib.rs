@@ -163,6 +163,8 @@ impl Shell {
                     _ if t == "new" => b.start_edit(true, window, cx),
                     _ if t == "upgrade" => b.open_upgrade(window, cx),
                     #[cfg(feature = "devtools")]
+                    _ if t.starts_with("fold:") => b.dev_fold(&t["fold:".len()..], cx),
+                    #[cfg(feature = "devtools")]
                     _ if t.starts_with("group:") => {
                         b.start_edit(true, window, cx);
                         b.dev_group_menu(&t["group:".len()..], cx);
