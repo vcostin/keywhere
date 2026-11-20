@@ -275,6 +275,13 @@ impl Browser {
     }
 
     #[cfg(feature = "devtools")]
+    pub fn dev_group_menu(&mut self, typed: &str, cx: &mut Context<Self>) {
+        if let Some((ed, _)) = &self.editor {
+            ed.update(cx, |e, cx| e.dev_group_menu(typed, cx));
+        }
+    }
+
+    #[cfg(feature = "devtools")]
     pub fn dev_long_passphrase(&mut self, cx: &mut Context<Self>) {
         if let Some((ed, _)) = &self.editor {
             ed.update(cx, |e, cx| e.dev_long_passphrase(cx));
@@ -302,7 +309,8 @@ impl Browser {
         if !new && record.is_none() {
             return;
         }
-        let ed = cx.new(|cx| EntryEditor::new(record.as_ref(), &default_group, window, cx));
+        let groups: Vec<Vec<String>> = self.groups.iter().map(|g| g.path.clone()).collect();
+        let ed = cx.new(|cx| EntryEditor::new(record.as_ref(), &default_group, groups, window, cx));
         let sub = cx.subscribe_in(&ed, window, |this, ed, ev, window, cx| match ev {
             EditorEvent::Cancel => {
                 this.editor = None;

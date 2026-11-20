@@ -36,6 +36,10 @@ pub struct EntryEditor {
     gen_opts: Options,
     gen_preview: Zeroizing<String>,
     pub error: Option<SharedString>,
+    /// Existing groups (display form "Work / Dev") for the group combobox.
+    groups: Vec<String>,
+    group_menu: bool,
+    group_hl: usize,
     focus: FocusHandle,
 }
 
@@ -98,6 +102,7 @@ impl EntryEditor {
     pub fn new(
         record: Option<&Record>,
         default_group: &[String],
+        groups: Vec<Vec<String>>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -105,11 +110,7 @@ impl EntryEditor {
             cx.new(|cx| TextField::new(cx, ph, secret))
         };
         let title = field(cx, "Title (required)", false);
-        let group = field(
-            cx,
-            crate::i18n::t("Group — levels separated by “ / ”, e.g. Work / Dev"),
-            false,
-        );
+        let group = field(cx, "Group — pick or type, levels separated by “ / ”", false);
         let username = field(cx, "Username", false);
         let password = field(cx, "Password", true);
         let url = field(cx, "https://…", false);
@@ -144,9 +145,32 @@ impl EntryEditor {
             set(&notes, &n, cx);
         }
 
-        for f in [
-            &title, &group, &username, &password, &url, &email, &expiry, &notes,
-        ] {
+        // Group field: a combobox (suggestions from existing groups).
+        cx.subscribe_in(&group, window, |this, _, ev, _, cx| {
+            match ev {
+                FieldEvent::Changed => {
+                    this.group_menu = true;
+                    this.group_hl = 0;
+                    this.error = None;
+                }
+                FieldEvent::Submit => {
+                    if this.group_menu && this.pick_group(cx) {
+                        return;
+                    }
+                    cx.emit(EditorEvent::Save);
+                }
+                FieldEvent::Escape => {
+                    if this.group_menu {
+                        this.group_menu = false;
+                    } else {
+                        cx.emit(EditorEvent::Cancel);
+                    }
+                }
+            }
+            cx.notify();
+        })
+        .detach();
+        for f in [&title, &username, &password, &url, &email, &expiry, &notes] {
             cx.subscribe_in(f, window, |this, _, ev, _, cx| match ev {
                 FieldEvent::Submit => cx.emit(EditorEvent::Save),
                 FieldEvent::Escape => cx.emit(EditorEvent::Cancel),
@@ -164,6 +188,9 @@ impl EntryEditor {
         let mut this = Self {
             target: record.and_then(|r| r.uuid()).map(<[u8]>::to_vec),
             original_group: g,
+            groups: groups.iter().map(|g| group_display(g)).collect(),
+            group_menu: false,
+            group_hl: 0,
             title,
             group,
             username,
@@ -204,6 +231,177 @@ impl EntryEditor {
         });
         self.gen_preview = Zeroizing::new(long);
         cx.notify();
+    }
+
+    #[cfg(feature = "devtools")]
+    pub fn dev_group_menu(&mut self, typed: &str, cx: &mut Context<Self>) {
+        self.group.update(cx, |f, cx| f.set_text(typed, cx));
+        self.group_menu = true;
+        self.group_hl = 0;
+        cx.notify();
+    }
+
+    /// Existing groups matching what's typed (all of them when empty), and
+    /// the typed text as a new group if it isn't one already.
+    fn group_suggestions(&self, cx: &App) -> (Vec<String>, Option<String>) {
+        let typed = self.group.read(cx).text().trim().to_string();
+        let q = typed.to_lowercase();
+        let matches: Vec<String> = self
+            .groups
+            .iter()
+            .filter(|g| q.is_empty() || g.to_lowercase().contains(&q))
+            .cloned()
+            .collect();
+        let normalized = group_display(&parse_group(&typed));
+        let new =
+            (!normalized.is_empty() && !self.groups.contains(&normalized)).then_some(normalized);
+        (matches, new)
+    }
+
+    /// Apply the highlighted suggestion. Returns false if there was nothing
+    /// to pick (Enter then saves the form).
+    fn pick_group(&mut self, cx: &mut Context<Self>) -> bool {
+        let (matches, new) = self.group_suggestions(cx);
+        let choice = matches
+            .get(self.group_hl)
+            .cloned()
+            .or(if self.group_hl == matches.len() {
+                new
+            } else {
+                None
+            });
+        self.group_menu = false;
+        match choice {
+            Some(g) => {
+                self.group.update(cx, |f, cx| f.set_text(&g, cx));
+                self.group_menu = false; // set_text emitted Changed
+                cx.notify();
+                true
+            }
+            None => false,
+        }
+    }
+
+    fn render_group(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let (matches, new) = if self.group_menu {
+            self.group_suggestions(cx)
+        } else {
+            (vec![], None)
+        };
+        let total = matches.len() + new.is_some() as usize;
+        let hl = self.group_hl.min(total.saturating_sub(1));
+        let row = |id: (&'static str, usize), on: bool| {
+            div()
+                .id(id)
+                .h(px(30.))
+                .px_2()
+                .flex()
+                .items_center()
+                .gap_2()
+                .rounded(px(6.))
+                .cursor_pointer()
+                .text_size(px(12.5))
+                .text_color(c(TEXT_SOFT))
+                .when(on, |d| d.bg(c(SELECTION)).text_color(c(TEXT)))
+                .when(!on, |d| d.hover(|d| d.bg(c(HOVER))))
+                .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
+        };
+        let list = (self.group_menu && total > 0).then(|| {
+            gpui::deferred(
+                gpui::anchored()
+                    .offset(gpui::point(px(0.), px(34.)))
+                    .snap_to_window_with_margin(px(8.))
+                    .child(
+                        div()
+                            .id("group-list")
+                            .occlude()
+                            .w(px(360.))
+                            .max_h(px(240.))
+                            .overflow_y_scroll()
+                            .p_1()
+                            .rounded(px(9.))
+                            .bg(c(PANEL))
+                            .border_1()
+                            .border_color(c(0x2A4A85))
+                            .shadow_lg()
+                            .on_mouse_down_out(cx.listener(|this, _, _, cx| {
+                                this.group_menu = false;
+                                cx.notify();
+                            }))
+                            .children(matches.iter().enumerate().map(|(i, g)| {
+                                let g2 = g.clone();
+                                row(("grp", i), i == hl)
+                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                        this.group.update(cx, |f, cx| f.set_text(&g2, cx));
+                                        this.group_menu = false;
+                                        cx.notify();
+                                    }))
+                                    .child(
+                                        svg()
+                                            .path("icons/folder.svg")
+                                            .size(px(13.))
+                                            .text_color(c(MUTED)),
+                                    )
+                                    .child(SharedString::from(g.clone()))
+                            }))
+                            .when_some(new.clone(), |d, n| {
+                                let n2 = n.clone();
+                                let i = matches.len();
+                                d.child(
+                                    row(("grp-new", i), i == hl)
+                                        .on_click(cx.listener(move |this, _, _, cx| {
+                                            this.group.update(cx, |f, cx| f.set_text(&n2, cx));
+                                            this.group_menu = false;
+                                            cx.notify();
+                                        }))
+                                        .child(div().text_color(c(ACCENT)).child("+"))
+                                        .child(SharedString::from(tf(
+                                            "New group: {name}",
+                                            &[("name", &n)],
+                                        ))),
+                                )
+                            }),
+                    ),
+            )
+            .with_priority(1)
+        });
+        div()
+            .flex()
+            .flex_col()
+            .child(
+                div()
+                    .flex()
+                    .gap_2()
+                    .child(div().flex_1().min_w_0().child(self.group.clone()))
+                    .child(
+                        div()
+                            .id("group-toggle")
+                            .size(px(30.))
+                            .flex_none()
+                            .rounded(px(7.))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .cursor_pointer()
+                            .bg(c(RAISED))
+                            .border_1()
+                            .border_color(c(BORDER))
+                            .hover(|d| d.bg(c(HOVER)))
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.group_menu = !this.group_menu;
+                                this.group_hl = 0;
+                                window.focus(&this.group.focus_handle(cx));
+                                cx.notify();
+                            }))
+                            .child(
+                                svg()
+                                    .path("icons/chevron-down.svg")
+                                    .size(px(14.))
+                                    .text_color(c(MUTED)),
+                            ),
+                    ),
+            )
+            .children(list)
     }
 
     fn regenerate(&mut self) {
@@ -566,6 +764,20 @@ impl Render for EntryEditor {
         div()
             .id("editor")
             .key_context("Editor")
+            .on_key_down(cx.listener(|this, ev: &gpui::KeyDownEvent, _, cx| {
+                if !this.group_menu {
+                    return;
+                }
+                let (m, n) = this.group_suggestions(cx);
+                let total = m.len() + n.is_some() as usize;
+                match ev.keystroke.key.as_str() {
+                    "down" => this.group_hl = (this.group_hl + 1).min(total.saturating_sub(1)),
+                    "up" => this.group_hl = this.group_hl.saturating_sub(1),
+                    _ => return,
+                }
+                cx.stop_propagation();
+                cx.notify();
+            }))
             .track_focus(&self.focus)
             .size_full()
             .min_w_0()
@@ -601,7 +813,7 @@ impl Render for EntryEditor {
                     ),
             )
             .child(Self::row(crate::i18n::t("Title"), self.title.clone()))
-            .child(Self::row(crate::i18n::t("Group"), self.group.clone()))
+            .child(Self::row(crate::i18n::t("Group"), self.render_group(cx)))
             .child(Self::row(crate::i18n::t("Username"), self.username.clone()))
             .child(Self::row(
                 crate::i18n::t("Password"),
