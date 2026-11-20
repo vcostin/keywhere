@@ -537,6 +537,19 @@ impl Render for EntryEditor {
             _ => OK,
         };
         let new = self.target.is_none();
+        // Characters beyond U+FFFF (emoji etc.) don't survive Password
+        // Gorilla (Tcl 8.x only handles the Basic Multilingual Plane).
+        let beyond_bmp = [
+            &self.title,
+            &self.group,
+            &self.username,
+            &self.password,
+            &self.url,
+            &self.email,
+            &self.notes,
+        ]
+        .iter()
+        .any(|f| f.read(cx).text().chars().any(|c| c as u32 > 0xFFFF));
 
         div()
             .id("editor")
@@ -625,6 +638,14 @@ impl Render for EntryEditor {
             .child(Self::row("Email", self.email.clone()))
             .child(Self::row("Expires", self.expiry.clone()))
             .child(Self::row("Notes", self.notes.clone()))
+            // Quiet compatibility hint (no colour, no icon, never blocks).
+            .when(beyond_bmp, |d| {
+                d.child(
+                    div().mt_1().text_size(px(11.)).text_color(c(DIM)).child(
+                        "Note: emoji and similar characters don't display in Password Gorilla.",
+                    ),
+                )
+            })
             .child(
                 div()
                     .mt_2()
