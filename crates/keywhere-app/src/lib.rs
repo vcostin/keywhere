@@ -304,6 +304,8 @@ pub fn run(path: Option<PathBuf>) {
 /// screenshots can be automated. Not compiled into release builds by default.
 #[cfg(feature = "devtools")]
 pub fn run_preunlocked(path: PathBuf, vault: Vault, select: Option<String>) {
+    #[cfg(unix)]
+    sys::instance::use_dev_socket();
     run_inner(Some(path), Some((vault, None)), select)
 }
 
@@ -410,6 +412,9 @@ fn open_main_window(
                     traffic_light_position: Some(gpui::point(px(14.), px(14.))),
                 }),
                 window_decorations: Some(gpui::WindowDecorations::Client),
+                // The resize/shadow margin around the rounded frame must be
+                // see-through, not painted opaque by the compositor.
+                window_background: gpui::WindowBackgroundAppearance::Transparent,
                 window_min_size: Some(size(px(820.), px(520.))),
                 ..Default::default()
             },

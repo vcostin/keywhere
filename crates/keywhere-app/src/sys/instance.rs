@@ -33,6 +33,22 @@ pub fn show_command() -> String {
     }
 }
 
+static DEV: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Dev/test instances (pre-unlocked screenshot harness) use their own socket
+/// so they can never talk to — or be driven instead of — the real app.
+pub fn use_dev_socket() {
+    DEV.store(true, std::sync::atomic::Ordering::Relaxed);
+}
+
+fn socket_name() -> &'static str {
+    if DEV.load(std::sync::atomic::Ordering::Relaxed) {
+        "keywhere-dev.sock"
+    } else {
+        "keywhere.sock"
+    }
+}
+
 /// Unix socket paths are limited to ~108 bytes (sun_path).
 const MAX_SOCKET_PATH: usize = 100;
 
@@ -52,7 +68,7 @@ fn trusted_dir(dir: &Path) -> bool {
 fn socket_path() -> Option<PathBuf> {
     if let Some(d) = std::env::var_os("XDG_RUNTIME_DIR") {
         let dir = PathBuf::from(d);
-        let p = dir.join("keywhere.sock");
+        let p = dir.join(socket_name());
         if p.as_os_str().len() <= MAX_SOCKET_PATH && trusted_dir(&dir) {
             return Some(p);
         }
@@ -68,7 +84,7 @@ fn socket_path() -> Option<PathBuf> {
         );
         return None;
     }
-    let p = dir.join("keywhere.sock");
+    let p = dir.join(socket_name());
     (p.as_os_str().len() <= MAX_SOCKET_PATH).then_some(p)
 }
 
