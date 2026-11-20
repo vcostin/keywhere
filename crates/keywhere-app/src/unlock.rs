@@ -272,17 +272,11 @@ impl Render for UnlockView {
                                         "Unlock"
                                     }),
                             )
-                            .child(
-                                div()
-                                    .mt_4()
-                                    .flex()
-                                    .gap_4()
-                                    .text_size(px(11.5))
-                                    .child(link("choose", "Open another vault…").on_click(
-                                        cx.listener(|this, _, window, cx| this.choose(window, cx)),
-                                    ))
-                                    .child(div().text_color(c(DIM)).child("Read‑only (M1)")),
-                            ),
+                            .child(div().mt_4().flex().gap_4().text_size(px(11.5)).child(
+                                link("choose", "Open another vault…").on_click(
+                                    cx.listener(|this, _, window, cx| this.choose(window, cx)),
+                                ),
+                            )),
                     ),
             )
     }

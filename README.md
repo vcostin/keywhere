@@ -3,12 +3,15 @@
 <p align="center">A modern, cross‑platform password manager for <b>Password Safe v3</b> (<code>.psafe3</code>) vaults.<br>
 Works with files from Password Safe and Password Gorilla. No cloud account, no subscription, no nags.</p>
 
-> **Status: early development (M1, read‑only viewer).** The vault engine is tested against
-> Password Safe; the app can unlock, browse, search and copy. Editing comes in M2. Keep backups.
+> **Status: early development (M2, editor).** The vault engine is tested against Password Safe;
+> the app can unlock, browse, search, copy, add, edit, duplicate and delete entries, and generate
+> passwords. Every save keeps the previous file as `.ibak`. Keep backups anyway.
 
 <p align="center"><img src="docs/screenshots/browser.png" width="820" alt="Keywhere vault browser"></p>
 
-## Using it (M1)
+<p align="center"><img src="docs/screenshots/generator.png" width="820" alt="New entry with password generator"></p>
+
+## Using it
 
 ```sh
 cargo run --release -p keywhere -- path/to/vault.psafe3
@@ -22,7 +25,14 @@ cargo run --release -p keywhere -- path/to/vault.psafe3
 | `Ctrl+C` / `Ctrl+B` | Copy password / username (clipboard clears after 30 s) |
 | `Ctrl+R` | Reveal password for 15 s |
 | `Ctrl+U` | Open website |
+| `Ctrl+N` / `Ctrl+E` / `Ctrl+D` | New / edit / duplicate entry |
+| `Delete` | Delete entry (asks first) |
+| `Enter` / `Ctrl+Enter` in editor | Save (`Esc` cancels) |
 | `Ctrl+L` | Lock (also automatic after 5 min idle) |
+
+Saving is safe for synced folders: Keywhere refuses to overwrite a vault that changed on disk
+since you opened it (another device, Password Safe, Gorilla) and asks you what to do. It also
+honours Password Safe's `.plk` lock file and opens read‑only while another app has the vault.
 
 ## Why
 

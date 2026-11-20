@@ -8,9 +8,11 @@ use gpui::{
     EventEmitter, FocusHandle, Focusable, FontWeight, ScrollStrategy, SharedString, Task,
     UniformListScrollHandle, Window,
 };
-use keywhere_core::{now_secs, rec, Vault};
+use keywhere_core::lock::{LockState, VaultLock};
+use keywhere_core::{now_secs, rec, Error, Record, Vault};
 use sha2::{Digest, Sha256};
 
+use crate::editor::{EditorEvent, EntryEditor};
 use crate::field::{FieldEvent, TextField};
 use crate::model::{self, EntryVm, Filter, GroupNode};
 use crate::{chrome, config, theme::*};
@@ -25,7 +27,11 @@ actions!(
         CopyPassword,
         CopyUsername,
         OpenUrl,
-        ToggleReveal
+        ToggleReveal,
+        NewEntry,
+        EditEntry,
+        DuplicateEntry,
+        DeleteEntry
     ]
 );
 
@@ -53,6 +59,14 @@ pub struct Browser {
     clip_hash: Option<[u8; 32]>,
     clip_until: Option<Instant>,
     toast: Option<(SharedString, Instant)>,
+    editor: Option<(Entity<EntryEditor>, gpui::Subscription)>,
+    /// Our Password Safe `.plk` lock; `None` when read-only.
+    vault_lock: Option<VaultLock>,
+    /// Who holds the lock when we are read-only.
+    locked_by: Option<String>,
+    /// The file changed on disk since we opened it; our edit is unsaved.
+    conflict: bool,
+    save_error: Option<SharedString>,
     _ticker: Task<()>,
     _on_quit: gpui::Subscription,
 }
@@ -104,6 +118,22 @@ impl Browser {
             async {}
         });
 
+        // Password Safe compatible lock: someone else holding it => read-only.
+        let (vault_lock, locked_by) = match VaultLock::acquire(&path) {
+            Ok((lock, LockState::Acquired)) => (lock, None),
+            // A lock left by a crashed/killed process on this machine is
+            // safe to reclaim; anything else is the user's call.
+            Ok((_, LockState::HeldBy(h))) if VaultLock::is_stale(&h) => match VaultLock::take_over(&path) {
+                Ok(l) => (Some(l), None),
+                Err(_) => (None, Some(h)),
+            },
+            Ok((_, LockState::HeldBy(h))) => (None, Some(h)),
+            Err(e) => (
+                None,
+                Some(format!("unknown (could not create lock file: {e})")),
+            ),
+        };
+
         let focus = cx.focus_handle();
         window.focus(&focus);
         let mut this = Self {
@@ -122,11 +152,219 @@ impl Browser {
             clip_hash: None,
             clip_until: None,
             toast: None,
+            editor: None,
+            vault_lock,
+            locked_by,
+            conflict: false,
+            save_error: None,
             _ticker: ticker,
             _on_quit: on_quit,
         };
         this.refilter(cx);
         this
+    }
+
+    pub fn read_only(&self) -> bool {
+        self.vault_lock.is_none()
+    }
+
+    fn selected_record(&self) -> Option<&Record> {
+        self.selected
+            .map(|s| &self.vault.records[self.entries[s].index])
+    }
+
+    /// Rebuild the view model after the vault changed and re-select `uuid`.
+    fn rebuild(&mut self, select_uuid: Option<Vec<u8>>, cx: &mut Context<Self>) {
+        self.entries = model::build(&self.vault);
+        self.groups = model::groups(&self.entries);
+        if let Filter::Group(p) = &self.filter {
+            if !self.groups.iter().any(|g| &g.path == p) {
+                self.filter = Filter::All;
+            }
+        }
+        self.selected = select_uuid.and_then(|u| {
+            let idx = self.vault.find(&u)?;
+            self.entries.iter().position(|e| e.index == idx)
+        });
+        self.refilter(cx);
+        if let Some(pos) = self.selected_pos() {
+            self.scroll.scroll_to_item(pos, ScrollStrategy::Center);
+        }
+    }
+
+    fn toast(&mut self, msg: impl Into<SharedString>) {
+        self.toast = Some((msg.into(), Instant::now() + Duration::from_secs(3)));
+    }
+
+    /// Write the vault to disk (safe save). On a conflict the change stays in
+    /// memory and a banner offers Overwrite / Lock & reload.
+    fn persist(&mut self, overwrite: bool, cx: &mut Context<Self>) -> bool {
+        cx.notify();
+        let res = if overwrite {
+            self.vault.save_overwrite(&self.path)
+        } else {
+            self.vault.save(&self.path)
+        };
+        match res {
+            Ok(()) => {
+                self.conflict = false;
+                self.save_error = None;
+                self.toast("Saved");
+                true
+            }
+            Err(Error::Conflict) => {
+                self.conflict = true;
+                false
+            }
+            Err(e) => {
+                self.save_error = Some(format!("Save failed: {e}").into());
+                false
+            }
+        }
+    }
+
+    pub fn start_edit(&mut self, new: bool, window: &mut Window, cx: &mut Context<Self>) {
+        if self.read_only() {
+            return;
+        }
+        let default_group = match &self.filter {
+            Filter::Group(p) => p.clone(),
+            _ => vec![],
+        };
+        let record = if new {
+            None
+        } else {
+            self.selected_record().cloned()
+        };
+        if !new && record.is_none() {
+            return;
+        }
+        let ed = cx.new(|cx| EntryEditor::new(record.as_ref(), &default_group, window, cx));
+        let sub = cx.subscribe_in(&ed, window, |this, ed, ev, window, cx| match ev {
+            EditorEvent::Cancel => {
+                this.editor = None;
+                window.focus(&this.focus);
+                cx.notify();
+            }
+            EditorEvent::Save => this.commit_editor(ed.clone(), window, cx),
+        });
+        self.editor = Some((ed, sub));
+        cx.notify();
+    }
+
+    fn commit_editor(
+        &mut self,
+        ed: Entity<EntryEditor>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let (form, target) = {
+            let e = ed.read(cx);
+            (e.form(cx), e.target.clone())
+        };
+        let form = match form {
+            Ok(f) => f,
+            Err(msg) => {
+                ed.update(cx, |e, cx| {
+                    e.error = Some(msg.into());
+                    cx.notify();
+                });
+                return;
+            }
+        };
+        let now = now_secs();
+        let uuid = match target.as_deref().and_then(|u| self.vault.find(u)) {
+            Some(i) => {
+                form.apply(&mut self.vault.records[i], now);
+                target.unwrap()
+            }
+            None => {
+                let Ok(mut r) = Record::new() else { return };
+                form.apply(&mut r, now);
+                let u = r.uuid().map(<[u8]>::to_vec).unwrap_or_default();
+                self.vault.records.push(r);
+                u
+            }
+        };
+        self.editor = None;
+        self.rebuild(Some(uuid), cx);
+        self.persist(false, cx);
+        window.focus(&self.focus);
+        cx.notify();
+    }
+
+    fn duplicate(&mut self, cx: &mut Context<Self>) {
+        if self.read_only() {
+            return;
+        }
+        let Some(src) = self.selected_record().cloned() else {
+            return;
+        };
+        let Ok(mut r) = Record::new() else { return };
+        let uuid = r.uuid().map(<[u8]>::to_vec).unwrap_or_default();
+        for f in &src.fields {
+            if !matches!(
+                f.kind,
+                rec::UUID | rec::CTIME | rec::MTIME | rec::PTIME | rec::PW_HISTORY
+            ) {
+                r.fields.push(f.clone());
+            }
+        }
+        r.set_text(rec::TITLE, &format!("{} (copy)", src.title()));
+        self.vault.records.push(r);
+        self.rebuild(Some(uuid), cx);
+        self.persist(false, cx);
+    }
+
+    fn delete(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.read_only() {
+            return;
+        }
+        let Some(r) = self.selected_record() else {
+            return;
+        };
+        let Some(uuid) = r.uuid().map(<[u8]>::to_vec) else {
+            return;
+        };
+        let msg = format!("Delete “{}”?", r.title());
+        let answer = window.prompt(
+            gpui::PromptLevel::Warning,
+            &msg,
+            Some("The entry is removed from the vault file. A copy of the previous file is kept as .ibak."),
+            &["Delete", "Cancel"],
+            cx,
+        );
+        cx.spawn_in(window, async move |this, cx| {
+            if answer.await.ok() != Some(0) {
+                return;
+            }
+            this.update(cx, |this, cx| {
+                if let Some(i) = this.vault.find(&uuid) {
+                    let pos = this.selected_pos().unwrap_or(0);
+                    this.vault.records.remove(i); // fields zeroize on drop
+                    this.rebuild(None, cx);
+                    if !this.visible.is_empty() {
+                        this.select_visible(pos.min(this.visible.len() - 1), cx);
+                    }
+                    this.persist(false, cx);
+                    cx.notify();
+                }
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    fn take_over_lock(&mut self, cx: &mut Context<Self>) {
+        match VaultLock::take_over(&self.path) {
+            Ok(l) => {
+                self.vault_lock = Some(l);
+                self.locked_by = None;
+                self.toast("Lock taken over — editing enabled");
+            }
+            Err(e) => self.save_error = Some(format!("Could not take lock: {e}").into()),
+        }
+        cx.notify();
     }
 
     fn tick(&mut self, cx: &mut Context<Self>) {
@@ -546,6 +784,47 @@ impl Browser {
             .child(svg().path(icon).size(px(14.)).text_color(c(MUTED)))
     }
 
+    fn text_btn(id: &'static str, label: &'static str) -> gpui::Stateful<gpui::Div> {
+        div()
+            .id(id)
+            .h(px(26.))
+            .px_2()
+            .flex()
+            .items_center()
+            .rounded(px(7.))
+            .border_1()
+            .border_color(c(BORDER))
+            .bg(c(RAISED))
+            .text_size(px(11.5))
+            .text_color(c(TEXT_SOFT))
+            .cursor_pointer()
+            .hover(|d| d.bg(c(HOVER)))
+            .child(label)
+    }
+
+    fn banner(id: &'static str, col: u32, msg: SharedString) -> gpui::Stateful<gpui::Div> {
+        div()
+            .id(id)
+            .flex_none()
+            .flex()
+            .items_center()
+            .gap_2()
+            .px_3()
+            .py(px(7.))
+            .bg(ca(col, 0x1c))
+            .border_b_1()
+            .border_color(ca(col, 0x55))
+            .text_size(px(12.))
+            .text_color(c(col))
+            .child(
+                svg()
+                    .path("icons/warning.svg")
+                    .size(px(13.))
+                    .text_color(c(col)),
+            )
+            .child(div().flex_1().child(msg))
+    }
+
     fn field_row(label: &'static str, value: impl IntoElement) -> gpui::Div {
         div()
             .flex()
@@ -576,6 +855,9 @@ impl Browser {
 
     fn render_detail(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let base = div().flex_1().h_full().bg(c(PANEL));
+        if let Some((ed, _)) = &self.editor {
+            return base.child(ed.clone()).into_any_element();
+        }
         let Some(sel) = self.selected else {
             return base
                 .flex()
@@ -782,7 +1064,25 @@ impl Browser {
                                     e.group_label.clone()
                                 },
                             )),
-                    ),
+                    )
+                    .when(!self.read_only(), |d| {
+                        d.child(
+                            div()
+                                .flex()
+                                .gap_1()
+                                .child(Self::text_btn("ed", "Edit").on_click(
+                                    cx.listener(|t, _, w, cx| t.start_edit(false, w, cx)),
+                                ))
+                                .child(
+                                    Self::text_btn("dup", "Duplicate")
+                                        .on_click(cx.listener(|t, _, _, cx| t.duplicate(cx))),
+                                )
+                                .child(
+                                    Self::text_btn("del", "Delete")
+                                        .on_click(cx.listener(|t, _, w, cx| t.delete(w, cx))),
+                                ),
+                        )
+                    }),
             )
             .when_some(e.expiry, |d, exp| {
                 let (msg, past) = model::fmt_relative_expiry(exp, now);
@@ -896,6 +1196,18 @@ impl Render for Browser {
             )
             .on_action(cx.listener(|this, _: &OpenUrl, _, cx| this.open_url(cx)))
             .on_action(cx.listener(|this, _: &ToggleReveal, _, cx| this.toggle_reveal(cx)))
+            .on_action(cx.listener(|this, _: &NewEntry, w, cx| this.start_edit(true, w, cx)))
+            .on_action(cx.listener(|this, _: &EditEntry, w, cx| {
+                if this.editor.is_none() {
+                    this.start_edit(false, w, cx)
+                }
+            }))
+            .on_action(cx.listener(|this, _: &DuplicateEntry, _, cx| this.duplicate(cx)))
+            .on_action(cx.listener(|this, _: &DeleteEntry, w, cx| {
+                if this.editor.is_none() {
+                    this.delete(w, cx)
+                }
+            }))
             // toolbar = title bar (drag on logo/empty space, window buttons at right)
             .child(
                 div()
@@ -929,6 +1241,28 @@ impl Render for Browser {
                     .child(chrome::drag_area("tb-mid-l").h_full().flex_1())
                     .child(div().w(px(340.)).flex_none().child(self.search.clone()))
                     .child(chrome::drag_area("tb-mid-r").h_full().flex_1())
+                    .when(!self.read_only(), |d| {
+                        d.child(
+                            div()
+                                .id("new")
+                                .flex()
+                                .flex_none()
+                                .items_center()
+                                .gap_1()
+                                .px_2()
+                                .mr_2()
+                                .h(px(26.))
+                                .rounded(px(7.))
+                                .bg(c(ACCENT))
+                                .text_color(c(ACCENT_INK))
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .cursor_pointer()
+                                .hover(|d| d.opacity(0.9))
+                                .on_click(cx.listener(|t, _, w, cx| t.start_edit(true, w, cx)))
+                                .child(div().text_size(px(15.)).child("+"))
+                                .child(div().text_size(px(11.5)).child("New")),
+                        )
+                    })
                     .child(
                         div()
                             .id("lock")
@@ -958,6 +1292,38 @@ impl Render for Browser {
                     )
                     .child(chrome::window_controls(window)),
             )
+            .when_some(self.locked_by.clone(), |d, who| {
+                let stale = VaultLock::is_stale(&who);
+                d.child(
+                    Self::banner(
+                        "ro",
+                        WARN,
+                        format!(
+                            "Read-only: the vault is open in another app ({who}){}.",
+                            if stale { " — that process is no longer running" } else { "" }
+                        )
+                        .into(),
+                    )
+                    .child(Self::text_btn("takeover", "Take over lock").on_click(cx.listener(|t, _, _, cx| t.take_over_lock(cx)))),
+                )
+            })
+            .when(self.conflict, |d| {
+                d.child(
+                    Self::banner(
+                        "conflict",
+                        DANGER,
+                        "The vault file changed on disk (another device or app). Your last change is NOT saved yet.".into(),
+                    )
+                    .child(Self::text_btn("overwrite", "Overwrite file").on_click(cx.listener(|t, _, _, cx| {
+                        t.persist(true, cx);
+                        cx.notify();
+                    })))
+                    .child(Self::text_btn("reload", "Discard & reload").on_click(cx.listener(|_, _, _, cx| {
+                        cx.emit(BrowserEvent::LockRequested)
+                    }))),
+                )
+            })
+            .when_some(self.save_error.clone(), |d, e| d.child(Self::banner("saveerr", DANGER, e)))
             .child(
                 div()
                     .flex_1()
@@ -986,8 +1352,20 @@ impl Render for Browser {
                             .flex()
                             .items_center()
                             .gap_1()
-                            .child(div().size(px(7.)).rounded_full().bg(c(OK)))
-                            .child("Read‑only · psafe3"),
+                            .child(div().size(px(7.)).rounded_full().bg(c(if self.conflict {
+                                DANGER
+                            } else if self.read_only() {
+                                WARN
+                            } else {
+                                OK
+                            })))
+                            .child(if self.conflict {
+                                "Unsaved change · psafe3"
+                            } else if self.read_only() {
+                                "Read‑only · psafe3"
+                            } else {
+                                "Saved · psafe3"
+                            }),
                     )
                     .child(format!("{} entries", self.entries.len()))
                     .child(div().flex_1())
@@ -1011,9 +1389,9 @@ impl Render for Browser {
                         d.child(format!("Clipboard clears in {s}s"))
                     })
                     .child(if cfg!(target_os = "macos") {
-                        "⌘C password · ⌘B user · ⌘L lock"
+                        "⌘N new · ⌘E edit · ⌘C password · ⌘B user · ⌘L lock"
                     } else {
-                        "Ctrl+C password · Ctrl+B user · Ctrl+L lock"
+                        "Ctrl+N new · Ctrl+E edit · Ctrl+C password · Ctrl+B user · Ctrl+L lock"
                     }),
             )
     }

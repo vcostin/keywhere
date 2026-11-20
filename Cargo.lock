@@ -2859,6 +2859,7 @@ dependencies = [
  "cbc",
  "getrandom 0.2.17",
  "hmac",
+ "libc",
  "sha2 0.10.9",
  "subtle",
  "thiserror 1.0.69",

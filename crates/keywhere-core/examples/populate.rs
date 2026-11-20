@@ -103,9 +103,9 @@ fn main() {
         }
         v.records.push(r);
     }
-    v.save(&path, pw.as_bytes()).expect("save");
+    v.save(&path).expect("save");
     let check = Vault::open(&path, pw.as_bytes()).expect("reopen");
-    println!("saved {} records, {} iterations", check.records.len(), check.iterations);
+    println!("saved {} records, {} iterations", check.records.len(), check.iterations());
     for r in &check.records {
         println!("  [{}] {}", r.group_path().join(" / "), r.title());
     }

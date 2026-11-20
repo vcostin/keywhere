@@ -2,6 +2,8 @@
 //!
 //! The UI never touches bytes on disk; it goes through [`Vault`].
 
+pub mod generator;
+pub mod lock;
 pub mod psafe3;
 
 use std::fs;
@@ -10,7 +12,9 @@ use std::path::PathBuf;
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use psafe3::{Field, RawDb};
+use psafe3::{Field, KeyMaterial, RawDb};
+use sha2::{Digest, Sha256};
+use zeroize::Zeroizing;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -28,6 +32,8 @@ pub enum Error {
     BadIterations(u32),
     #[error("system random number generator failed")]
     Rng,
+    #[error("the vault file was changed by another program or device since it was opened")]
+    Conflict,
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
 }
@@ -125,6 +131,84 @@ impl Record {
     pub fn title(&self) -> &str {
         self.text(rec::TITLE).unwrap_or("")
     }
+
+    pub fn uuid(&self) -> Option<&[u8]> {
+        self.get(rec::UUID)
+    }
+
+    /// Set or clear (empty string) a text field.
+    pub fn set_or_clear(&mut self, kind: u8, s: &str) {
+        if s.is_empty() {
+            self.remove(kind);
+        } else {
+            self.set_text(kind, s);
+        }
+    }
+
+    pub fn remove(&mut self, kind: u8) {
+        self.fields.retain(|f| f.kind != kind); // Field zeroizes on drop
+    }
+
+    /// Change the password: pushes the old one onto the password history
+    /// (Password Safe format), updates PTIME and MTIME. No-op if unchanged.
+    pub fn set_password(&mut self, new: &str, now: u32) {
+        let old = Zeroizing::new(self.text(rec::PASSWORD).unwrap_or("").to_string());
+        if old.as_str() == new {
+            return;
+        }
+        if !old.is_empty() {
+            let mut hist = self.history();
+            let max = self.history_max().unwrap_or(DEFAULT_HISTORY_MAX);
+            let ptime = self.time(rec::PTIME).unwrap_or(now as u64);
+            hist.push(HistoryEntry { changed: ptime, password: old.clone() });
+            while hist.len() > max as usize {
+                hist.remove(0);
+            }
+            self.set_history(max, &hist);
+        }
+        self.set_text(rec::PASSWORD, new);
+        self.set_time(rec::PTIME, now);
+        self.set_time(rec::MTIME, now);
+    }
+
+    fn history_max(&self) -> Option<u8> {
+        let h = self.text(rec::PW_HISTORY)?;
+        u8::from_str_radix(h.get(1..3)?, 16).ok()
+    }
+
+    /// Parse the password history field:
+    /// `"1" | max(2 hex) | count(2 hex) | (time(8 hex) len(4 hex) password)*`.
+    /// Oldest first. Malformed tails are ignored.
+    pub fn history(&self) -> Vec<HistoryEntry> {
+        let mut out = Vec::new();
+        let Some(h) = self.text(rec::PW_HISTORY) else { return out };
+        let Some(count) = h.get(3..5).and_then(|n| usize::from_str_radix(n, 16).ok()) else {
+            return out;
+        };
+        let mut rest = h.get(5..).unwrap_or("");
+        for _ in 0..count {
+            let (Some(t), Some(l)) = (rest.get(0..8), rest.get(8..12)) else { break };
+            let (Ok(t), Ok(l)) = (u64::from_str_radix(t, 16), usize::from_str_radix(l, 16)) else { break };
+            // Length is in characters (Password Safe counts TCHARs).
+            let body = &rest[12..];
+            let end = body.char_indices().nth(l).map(|(i, _)| i).unwrap_or(body.len());
+            if body[..end].chars().count() != l {
+                break;
+            }
+            out.push(HistoryEntry { changed: t, password: Zeroizing::new(body[..end].to_string()) });
+            rest = &body[end..];
+        }
+        out
+    }
+
+    fn set_history(&mut self, max: u8, entries: &[HistoryEntry]) {
+        let mut s = Zeroizing::new(format!("1{:02x}{:02x}", max, entries.len()));
+        for e in entries {
+            s.push_str(&format!("{:08x}{:04x}", e.changed as u32, e.password.chars().count()));
+            s.push_str(&e.password);
+        }
+        self.set_text(rec::PW_HISTORY, &s);
+    }
     /// Group path segments; '.' separates levels, "\." is a literal dot.
     pub fn group_path(&self) -> Vec<String> {
         let Some(g) = self.text(rec::GROUP) else { return vec![] };
@@ -144,30 +228,76 @@ impl Record {
     }
 }
 
+/// Default number of previous passwords kept when Keywhere starts a history.
+pub const DEFAULT_HISTORY_MAX: u8 = 5;
+
+pub struct HistoryEntry {
+    /// When this password was set (Unix seconds).
+    pub changed: u64,
+    pub password: Zeroizing<String>,
+}
+
 pub fn now_secs() -> u32 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs() as u32).unwrap_or(0)
 }
 
 /// An unlocked vault.
 pub struct Vault {
-    pub iterations: u32,
     pub header: Vec<Field>,
     pub records: Vec<Record>,
+    key: KeyMaterial,
+    /// SHA-256 of the file bytes we last read or wrote; used to detect edits
+    /// made elsewhere (another device via a sync folder, Password Safe, ...).
+    disk_hash: Option<[u8; 32]>,
 }
 
 impl Vault {
+    /// Decrypt bytes. If the file uses fewer than `MIN_ITERATIONS_ON_SAVE`
+    /// rounds, a fresh salt + stronger key is derived now (we only have the
+    /// password at this moment), so the next save is upgraded.
     pub fn decrypt(bytes: &[u8], password: &[u8]) -> Result<Self, Error> {
-        let raw = psafe3::decode(bytes, password)?;
-        Ok(Vault {
-            iterations: raw.iterations,
+        let (raw, mut key) = psafe3::decode(bytes, password)?;
+        if key.iterations < psafe3::MIN_ITERATIONS_ON_SAVE {
+            key = KeyMaterial::derive(password, psafe3::MIN_ITERATIONS_ON_SAVE)?;
+        }
+        Ok(Self::from_raw(raw, key, Some(Sha256::digest(bytes).into())))
+    }
+
+    fn from_raw(raw: RawDb, key: KeyMaterial, disk_hash: Option<[u8; 32]>) -> Self {
+        Vault {
             header: raw.header.clone(),
             records: raw.records.iter().map(|r| Record { fields: r.clone() }).collect(),
-        })
+            key,
+            disk_hash,
+        }
+    }
+
+    /// A new, empty vault.
+    pub fn create(password: &[u8]) -> Result<Self, Error> {
+        let mut uuid = [0u8; 16];
+        getrandom::getrandom(&mut uuid).map_err(|_| Error::Rng)?;
+        let header = vec![
+            Field { kind: hdr::VERSION, data: vec![0x0d, 0x03] },
+            Field { kind: hdr::UUID, data: uuid.to_vec() },
+        ];
+        let key = KeyMaterial::derive(password, psafe3::MIN_ITERATIONS_ON_SAVE)?;
+        Ok(Vault { header, records: vec![], key, disk_hash: None })
     }
 
     pub fn open(path: &Path, password: &[u8]) -> Result<Self, Error> {
-        let bytes = zeroize::Zeroizing::new(fs::read(path)?);
+        let bytes = Zeroizing::new(fs::read(path)?);
         Self::decrypt(&bytes, password)
+    }
+
+    pub fn iterations(&self) -> u32 {
+        self.key.iterations
+    }
+
+    /// Re-key with a new master password (fresh salt; K/L/IV are fresh on
+    /// every save anyway).
+    pub fn change_password(&mut self, new_password: &[u8]) -> Result<(), Error> {
+        self.key = KeyMaterial::derive(new_password, self.key.iterations)?;
+        Ok(())
     }
 
     fn set_header(&mut self, kind: u8, data: Vec<u8>) {
@@ -179,7 +309,7 @@ impl Vault {
         }
     }
 
-    pub fn encrypt(&mut self, password: &[u8]) -> Result<Vec<u8>, Error> {
+    pub fn encrypt(&mut self) -> Result<Vec<u8>, Error> {
         if !self.header.iter().any(|f| f.kind == hdr::VERSION) {
             self.header.insert(0, Field { kind: hdr::VERSION, data: vec![0x0d, 0x03] });
         }
@@ -189,14 +319,34 @@ impl Vault {
             format!("Keywhere V{}", env!("CARGO_PKG_VERSION")).into_bytes(),
         );
         let raw = RawDb {
-            iterations: self.iterations,
+            iterations: self.key.iterations,
             header: self.header.clone(),
             records: self.records.iter().map(|r| r.fields.clone()).collect(),
         };
-        psafe3::encode(&raw, password)
+        psafe3::encode(&raw, &self.key)
     }
 
-    /// Safe save for synced folders:
+    /// Has the file on disk changed since we opened or last saved it?
+    pub fn changed_on_disk(&self, path: &Path) -> Result<bool, Error> {
+        let Some(ours) = self.disk_hash else { return Ok(path.exists()) };
+        match fs::read(path) {
+            Ok(b) => Ok(<[u8; 32]>::from(Sha256::digest(&b)) != ours),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(true),
+            Err(e) => Err(e.into()),
+        }
+    }
+
+    /// Safe save. Refuses with [`Error::Conflict`] if the file changed on
+    /// disk since we read it; use [`Vault::save_overwrite`] after the user
+    /// confirms.
+    pub fn save(&mut self, path: &Path) -> Result<(), Error> {
+        if self.changed_on_disk(path)? {
+            return Err(Error::Conflict);
+        }
+        self.save_overwrite(path)
+    }
+
+    /// Safe save for synced folders, without the conflict check:
     /// 1. write `<file>.tmp.<random>` (mode 0600) in the same directory, fsync;
     /// 2. re-read the temp file from disk and decrypt-verify it;
     /// 3. copy the current file to `<stem>.ibak` (Password Safe's name), fsync;
@@ -204,16 +354,16 @@ impl Vault {
     ///    MOVEFILE_REPLACE_EXISTING), then fsync the directory.
     ///
     /// The temp file is removed on any failure.
-    pub fn save(&mut self, path: &Path, password: &[u8]) -> Result<(), Error> {
-        let bytes = self.encrypt(password)?;
+    pub fn save_overwrite(&mut self, path: &Path) -> Result<(), Error> {
+        let bytes = self.encrypt()?;
         let tmp = temp_path(path)?;
         let result = (|| {
             write_new_file(&tmp, &bytes)?;
-            let on_disk = zeroize::Zeroizing::new(fs::read(&tmp)?);
-            Vault::decrypt(&on_disk, password)?;
+            let on_disk = Zeroizing::new(fs::read(&tmp)?);
+            psafe3::decode_with_key(&on_disk, &self.key)?;
             if path.exists() {
                 let bak = path.with_extension("ibak");
-                let prev = zeroize::Zeroizing::new(fs::read(path)?);
+                let prev = Zeroizing::new(fs::read(path)?);
                 let bak_tmp = temp_path(&bak)?;
                 let r = write_new_file(&bak_tmp, &prev).and_then(|()| Ok(fs::rename(&bak_tmp, &bak)?));
                 if r.is_err() {
@@ -231,8 +381,15 @@ impl Vault {
         })();
         if result.is_err() {
             let _ = fs::remove_file(&tmp);
+        } else {
+            self.disk_hash = Some(Sha256::digest(&bytes).into());
         }
         result
+    }
+
+    /// Index of the record with this UUID.
+    pub fn find(&self, uuid: &[u8]) -> Option<usize> {
+        self.records.iter().position(|r| r.uuid() == Some(uuid))
     }
 }
 
@@ -284,7 +441,8 @@ mod tests {
         let mut r = Record::new().unwrap();
         r.set_text(rec::TITLE, "x");
         v.records.push(r);
-        let mut bytes = v.encrypt(b"pw").unwrap();
+        v.change_password(b"pw").unwrap();
+        let mut bytes = v.encrypt().unwrap();
         // flip a ciphertext bit in the first record area
         bytes[152 + 16 * 3] ^= 1;
         assert!(Vault::decrypt(&bytes, b"pw").is_err());
@@ -315,7 +473,8 @@ mod tests {
             r.set_text(rec::PASSWORD, "hunter2hunter2");
             v.records.push(r);
         }
-        v.encrypt(b"pw").unwrap()
+        v.change_password(b"pw").unwrap();
+        v.encrypt().unwrap()
     }
 
     #[test]
@@ -327,7 +486,7 @@ mod tests {
         fs::write(&path, FIXTURE).unwrap();
         let mut v = Vault::open(&path, b"test123").unwrap();
         v.records.push(Record::new().unwrap());
-        v.save(&path, b"test123").unwrap();
+        v.save(&path).unwrap();
         assert_eq!(Vault::open(&path, b"test123").unwrap().records.len(), 1);
         assert_eq!(fs::read(dir.join("vault.ibak")).unwrap(), FIXTURE);
         #[cfg(unix)]
@@ -366,11 +525,93 @@ mod tests {
         r.set_text(rec::GROUP, "Work.Dev\\.ops");
         r.set(0x7e, vec![1, 2, 3]); // unknown type
         v.records.push(r);
-        let bytes = v.encrypt(b"secret").unwrap();
+        v.change_password(b"secret").unwrap();
+        let bytes = v.encrypt().unwrap();
         let v2 = Vault::decrypt(&bytes, b"secret").unwrap();
         assert_eq!(v2.records[0].title(), "Ünïcødé 🔑");
         assert_eq!(v2.records[0].group_path(), vec!["Work", "Dev.ops"]);
         assert_eq!(v2.records[0].get(0x7e), Some(&[1u8, 2, 3][..]));
-        assert!(v2.iterations >= psafe3::MIN_ITERATIONS_ON_SAVE);
+        assert!(v2.iterations() >= psafe3::MIN_ITERATIONS_ON_SAVE);
+    }
+
+    fn tmpdir(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("kw-{tag}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn save_detects_external_change() {
+        let dir = tmpdir("conflict");
+        let path = dir.join("v.psafe3");
+        fs::write(&path, FIXTURE).unwrap();
+        let mut a = Vault::open(&path, b"test123").unwrap();
+        let mut b = Vault::open(&path, b"test123").unwrap();
+        a.records.push(Record::new().unwrap());
+        a.save(&path).unwrap(); // first writer wins
+        b.records.push(Record::new().unwrap());
+        assert!(matches!(b.save(&path), Err(Error::Conflict)));
+        // a can keep saving: its hash tracks its own write
+        a.save(&path).unwrap();
+        b.save_overwrite(&path).unwrap();
+        assert_eq!(Vault::open(&path, b"test123").unwrap().records.len(), 1);
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn save_without_password_reuses_key() {
+        let dir = tmpdir("rekey");
+        let path = dir.join("v.psafe3");
+        fs::write(&path, FIXTURE).unwrap();
+        let mut v = Vault::open(&path, b"test123").unwrap();
+        v.save(&path).unwrap();
+        assert!(Vault::open(&path, b"test123").is_ok());
+        v.change_password(b"n3w").unwrap();
+        v.save(&path).unwrap();
+        assert!(matches!(Vault::open(&path, b"test123"), Err(Error::WrongPassword)));
+        assert!(Vault::open(&path, b"n3w").is_ok());
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn password_history_roundtrip() {
+        let mut r = Record::new().unwrap();
+        r.set_password("first", 1000);
+        assert!(r.history().is_empty());
+        r.set_password("sécond", 2000);
+        r.set_password("third", 3000);
+        r.set_password("third", 4000); // unchanged: no history entry
+        let h = r.history();
+        assert_eq!(h.len(), 2);
+        assert_eq!((h[0].changed, h[0].password.as_str()), (1000, "first"));
+        assert_eq!((h[1].changed, h[1].password.as_str()), (2000, "sécond"));
+        assert_eq!(r.text(rec::PASSWORD), Some("third"));
+        for i in 0..10 {
+            r.set_password(&format!("p{i}"), 5000 + i);
+        }
+        assert_eq!(r.history().len(), DEFAULT_HISTORY_MAX as usize);
+    }
+
+    #[test]
+    fn parses_password_safe_history_format() {
+        let mut r = Record::default();
+        r.set_text(rec::PW_HISTORY, "1050263b2a4000006hunter64b2a4110003abc");
+        let h = r.history();
+        assert_eq!(h.len(), 2);
+        assert_eq!(h[0].password.as_str(), "hunter");
+        assert_eq!(h[1].password.as_str(), "abc");
+    }
+
+    #[test]
+    fn new_vault_roundtrip() {
+        let mut v = Vault::create(b"pw").unwrap();
+        let mut r = Record::new().unwrap();
+        r.set_text(rec::TITLE, "x");
+        v.records.push(r);
+        let bytes = v.encrypt().unwrap();
+        let v2 = Vault::decrypt(&bytes, b"pw").unwrap();
+        assert_eq!(v2.records[0].title(), "x");
+        assert_eq!(v2.iterations(), psafe3::MIN_ITERATIONS_ON_SAVE);
     }
 }

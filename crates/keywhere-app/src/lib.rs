@@ -4,6 +4,7 @@ pub mod assets;
 pub mod browser;
 pub mod chrome;
 pub mod config;
+pub mod editor;
 pub mod field;
 pub mod model;
 pub mod secret_text;
@@ -70,8 +71,16 @@ impl Shell {
         };
         if let (Some(v), Some(p)) = (preunlocked, path) {
             this.show_vault(p, v, window, cx);
+            // Dev screenshots: "Title", "edit:Title" or "new".
             if let (Some(t), Screen::Vault(b)) = (select, &this.screen) {
-                b.update(cx, |b, cx| b.select_title(&t, cx));
+                b.update(cx, |b, cx| match t.split_once(':') {
+                    Some(("edit", title)) => {
+                        b.select_title(title, cx);
+                        b.start_edit(false, window, cx);
+                    }
+                    _ if t == "new" => b.start_edit(true, window, cx),
+                    _ => b.select_title(&t, cx),
+                });
             }
         }
         this
@@ -189,6 +198,14 @@ fn run_inner(path: Option<PathBuf>, preunlocked: Option<Vault>, select: Option<S
                 KeyBinding::new("secondary-b", CopyUsername, Some("Browser")),
                 KeyBinding::new("secondary-u", OpenUrl, Some("Browser")),
                 KeyBinding::new("secondary-r", ToggleReveal, Some("Browser")),
+                KeyBinding::new("secondary-n", NewEntry, Some("Browser")),
+                KeyBinding::new("secondary-e", EditEntry, Some("Browser")),
+                KeyBinding::new("secondary-d", DuplicateEntry, Some("Browser")),
+                KeyBinding::new(
+                    "delete",
+                    DeleteEntry,
+                    Some("Browser && !TextField && !Editor"),
+                ),
                 KeyBinding::new("secondary-q", Quit, None),
             ]);
             cx.on_action(|_: &Quit, cx| cx.quit());

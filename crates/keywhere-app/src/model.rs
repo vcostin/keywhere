@@ -174,6 +174,43 @@ fn ago(days: u64) -> String {
     }
 }
 
+/// (year, month, day) → Unix seconds at 00:00 UTC.
+fn days_from_civil(y: i64, m: u32, d: u32) -> i64 {
+    let y = if m <= 2 { y - 1 } else { y };
+    let era = y.div_euclid(400);
+    let yoe = y.rem_euclid(400);
+    let mp = (m as i64 + 9) % 12;
+    let doy = (153 * mp + 2) / 5 + d as i64 - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    era * 146_097 + doe - 719_468
+}
+
+pub fn fmt_iso_date(secs: u64) -> String {
+    let (y, m, d) = civil(secs);
+    format!("{y:04}-{m:02}-{d:02}")
+}
+
+/// Parse `YYYY-MM-DD` (UTC midnight) into Unix seconds that fit psafe3's u32.
+pub fn parse_iso_date(s: &str) -> Option<u32> {
+    let mut it = s.trim().split('-');
+    let y: i64 = it.next()?.parse().ok()?;
+    let m: u32 = it.next()?.parse().ok()?;
+    let d: u32 = it.next()?.parse().ok()?;
+    if it.next().is_some()
+        || !(1970..=2105).contains(&y)
+        || !(1..=12).contains(&m)
+        || !(1..=31).contains(&d)
+    {
+        return None;
+    }
+    let secs = days_from_civil(y, m, d) * 86_400;
+    // Reject e.g. Feb 31 by round-tripping.
+    if civil(secs as u64) != (y, m, d) {
+        return None;
+    }
+    u32::try_from(secs).ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -183,6 +220,14 @@ mod tests {
         assert_eq!(civil(0), (1970, 1, 1));
         assert_eq!(civil(951_782_400), (2000, 2, 29));
         assert_eq!(fmt_date(1_795_132_800), "Nov 20, 2026");
+    }
+
+    #[test]
+    fn iso_dates() {
+        assert_eq!(parse_iso_date("2026-11-20"), Some(1_795_132_800));
+        assert_eq!(fmt_iso_date(1_795_132_800), "2026-11-20");
+        assert_eq!(parse_iso_date("2026-02-31"), None);
+        assert_eq!(parse_iso_date("nope"), None);
     }
 
     #[test]

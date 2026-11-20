@@ -108,22 +108,68 @@ fn random<const N: usize>() -> Result<[u8; N], Error> {
     Ok(b)
 }
 
-/// Decrypt and parse a psafe3 file.
-pub fn decode(bytes: &[u8], password: &[u8]) -> Result<RawDb, Error> {
+/// The password-derived key for one vault: salt, iteration count and the
+/// stretched key P'. Lets an unlocked vault be saved again without keeping the
+/// master password in memory. Zeroized on drop; never written anywhere except
+/// as the file's own salt/iteration header.
+pub struct KeyMaterial {
+    salt: [u8; 32],
+    pub iterations: u32,
+    p_prime: Zeroizing<[u8; 32]>,
+}
+
+impl KeyMaterial {
+    /// Fresh salt + stretch (used for new vaults, password changes and
+    /// iteration upgrades). Iterations are clamped to the save floor.
+    pub fn derive(password: &[u8], iterations: u32) -> Result<Self, Error> {
+        let iterations = iterations.clamp(MIN_ITERATIONS_ON_SAVE, MAX_ITERATIONS);
+        let salt: [u8; 32] = random()?;
+        let p_prime = stretch(password, &salt, iterations);
+        Ok(Self { salt, iterations, p_prime })
+    }
+}
+
+impl std::fmt::Debug for KeyMaterial {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "KeyMaterial {{ iterations: {}, .. }}", self.iterations)
+    }
+}
+
+fn preamble(bytes: &[u8]) -> Result<(&[u8], u32), Error> {
     if bytes.len() < PREAMBLE_LEN + EOF_MARKER.len() + 32 || &bytes[..4] != TAG {
         return Err(Error::NotPsafe3);
     }
-    let salt = &bytes[4..36];
     let iterations = u32::from_le_bytes(bytes[36..40].try_into().unwrap());
     if !(MIN_ITERATIONS_ON_OPEN..=MAX_ITERATIONS).contains(&iterations) {
         return Err(Error::BadIterations(iterations));
     }
+    Ok((&bytes[4..36], iterations))
+}
+
+/// Decrypt and parse a psafe3 file with the master password.
+pub fn decode(bytes: &[u8], password: &[u8]) -> Result<(RawDb, KeyMaterial), Error> {
+    let (salt, iterations) = preamble(bytes)?;
+    let p_prime = stretch(password, salt, iterations);
+    let db = decode_core(bytes, &p_prime, iterations)?;
+    Ok((db, KeyMaterial { salt: salt.try_into().unwrap(), iterations, p_prime }))
+}
+
+/// Decrypt with key material we already hold (e.g. verifying our own save).
+/// Fails with `WrongPassword` if the file was re-keyed by someone else.
+pub fn decode_with_key(bytes: &[u8], key: &KeyMaterial) -> Result<RawDb, Error> {
+    let (salt, iterations) = preamble(bytes)?;
+    if !bool::from(salt.ct_eq(&key.salt)) || iterations != key.iterations {
+        return Err(Error::WrongPassword);
+    }
+    decode_core(bytes, &key.p_prime, iterations)
+}
+
+fn decode_core(bytes: &[u8], p_prime: &[u8; 32], iterations: u32) -> Result<RawDb, Error> {
     let stored_hp = &bytes[40..72];
     let b1b2 = &bytes[72..104];
     let b3b4 = &bytes[104..136];
     let iv: [u8; 16] = bytes[136..152].try_into().unwrap();
 
-    let p_prime = stretch(password, salt, iterations);
     let hp = Sha256::digest(&p_prime[..]);
     if !bool::from(hp.as_slice().ct_eq(stored_hp)) {
         return Err(Error::WrongPassword);
@@ -239,15 +285,16 @@ fn push_field(out: &mut Vec<u8>, mac: &mut Hmac<Sha256>, kind: u8, data: &[u8]) 
     Ok(())
 }
 
-/// Encrypt a database. Fresh salt, K, L and IV are generated on every save.
-pub fn encode(db: &RawDb, password: &[u8]) -> Result<Vec<u8>, Error> {
-    let iterations = db.iterations.clamp(MIN_ITERATIONS_ON_SAVE, MAX_ITERATIONS);
-    let salt: [u8; 32] = random()?;
+/// Encrypt a database under `key`. Fresh K, L and IV on every save; the salt
+/// changes whenever the key is re-derived (password change, iteration upgrade).
+pub fn encode(db: &RawDb, key: &KeyMaterial) -> Result<Vec<u8>, Error> {
+    let iterations = key.iterations;
+    let salt = key.salt;
     let k = Zeroizing::new(random::<32>()?);
     let l = Zeroizing::new(random::<32>()?);
     let iv: [u8; 16] = random()?;
 
-    let p_prime = stretch(password, &salt, iterations);
+    let p_prime = &key.p_prime;
     let hp = Sha256::digest(&p_prime[..]);
     let pc = twofish(&p_prime[..]);
 
