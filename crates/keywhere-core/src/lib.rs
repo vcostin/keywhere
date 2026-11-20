@@ -91,6 +91,9 @@ pub mod rec {
     pub const AUTOTYPE: u8 = 0x0e;
     pub const PW_HISTORY: u8 = 0x0f;
     pub const EMAIL: u8 = 0x14;
+    /// Keywhere extension: "favorite" star (data "1"). Password Safe has no
+    /// such field; it and Gorilla keep unknown record fields on save.
+    pub const KW_FAVORITE: u8 = 0xe0;
 }
 
 /// One vault entry. Unknown fields are kept verbatim for round-trip safety.
@@ -162,6 +165,18 @@ impl Record {
 
     pub fn title(&self) -> &str {
         self.text(rec::TITLE).unwrap_or("")
+    }
+
+    pub fn is_favorite(&self) -> bool {
+        self.get(rec::KW_FAVORITE) == Some(b"1")
+    }
+
+    pub fn set_favorite(&mut self, on: bool) {
+        if on {
+            self.set(rec::KW_FAVORITE, b"1".to_vec());
+        } else {
+            self.remove(rec::KW_FAVORITE);
+        }
     }
 
     pub fn uuid(&self) -> Option<&[u8]> {

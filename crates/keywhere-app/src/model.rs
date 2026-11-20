@@ -14,12 +14,23 @@ pub struct EntryVm {
     pub group: Vec<String>,
     pub group_label: SharedString,
     pub expiry: Option<u64>,
+    pub favorite: bool,
+    /// Password strength below `WEAK_BITS` (empty passwords don't count).
+    pub weak: bool,
+    /// Number of *other* entries with the same password.
+    pub reused_with: usize,
     haystack: String, // lowercase: title, user, url, email, group
 }
+
+/// Below this many bits of estimated strength a password counts as weak.
+pub const WEAK_BITS: f64 = 60.0;
 
 #[derive(Clone, PartialEq, Eq)]
 pub enum Filter {
     All,
+    Favorites,
+    Weak,
+    Reused,
     Expiring,
     Group(Vec<String>),
     /// Entries without any group.
@@ -32,6 +43,22 @@ pub struct GroupNode {
 }
 
 pub fn build(vault: &Vault) -> Vec<EntryVm> {
+    // Reuse detection compares SHA-256 digests, never the passwords
+    // themselves; digests are dropped when this function returns.
+    use sha2::{Digest, Sha256};
+    let digests: Vec<Option<[u8; 32]>> = vault
+        .records
+        .iter()
+        .map(|r| {
+            r.text(rec::PASSWORD)
+                .filter(|p| !p.is_empty())
+                .map(|p| Sha256::digest(p.as_bytes()).into())
+        })
+        .collect();
+    let mut counts: std::collections::HashMap<[u8; 32], usize> = Default::default();
+    for d in digests.iter().flatten() {
+        *counts.entry(*d).or_default() += 1;
+    }
     let mut v: Vec<EntryVm> = vault
         .records
         .iter()
@@ -56,6 +83,13 @@ pub fn build(vault: &Vault) -> Vec<EntryVm> {
                 username: username.into(),
                 group,
                 expiry: r.time(rec::EXPIRY).filter(|t| *t > 0),
+                favorite: r.is_favorite(),
+                weak: r
+                    .text(rec::PASSWORD)
+                    .is_some_and(|p| !p.is_empty() && strength_bits(p) < WEAK_BITS),
+                reused_with: digests[index]
+                    .and_then(|d| counts.get(&d))
+                    .map_or(0, |n| n - 1),
                 haystack,
             }
         })
@@ -93,6 +127,9 @@ pub fn is_expiring(e: &EntryVm, now: u64) -> bool {
 pub fn matches(e: &EntryVm, filter: &Filter, query: &str, now: u64) -> bool {
     let f = match filter {
         Filter::All => true,
+        Filter::Favorites => e.favorite,
+        Filter::Weak => e.weak,
+        Filter::Reused => e.reused_with > 0,
         Filter::Expiring => is_expiring(e, now),
         Filter::Group(p) => e.group.starts_with(p),
         Filter::NoGroup => e.group.is_empty(),

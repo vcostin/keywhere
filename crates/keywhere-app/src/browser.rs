@@ -422,6 +422,19 @@ impl Browser {
         cx.notify();
     }
 
+    fn toggle_favorite(&mut self, cx: &mut Context<Self>) {
+        if self.read_only() {
+            return;
+        }
+        let Some(sel) = self.selected else { return };
+        let idx = self.entries[sel].index;
+        let uuid = self.vault().records[idx].uuid().map(<[u8]>::to_vec);
+        let on = !self.vault().records[idx].is_favorite();
+        self.vault_mut().records[idx].set_favorite(on);
+        self.rebuild(uuid, cx);
+        self.persist(false, cx);
+    }
+
     fn duplicate(&mut self, cx: &mut Context<Self>) {
         if self.read_only() || self.editor.is_some() {
             return;
@@ -1290,6 +1303,9 @@ impl Browser {
             .iter()
             .filter(|e| model::is_expiring(e, now))
             .count();
+        let favorites = self.entries.iter().filter(|e| e.favorite).count();
+        let weak = self.entries.iter().filter(|e| e.weak).count();
+        let reused = self.entries.iter().filter(|e| e.reused_with > 0).count();
         let mut col = div()
             .id("sidebar")
             .w(px(200.))
@@ -1315,6 +1331,16 @@ impl Browser {
                 cx,
             ))
             .child(self.nav_item(
+                "fav".into(),
+                Some("icons/star.svg"),
+                crate::i18n::t("Favorites").into(),
+                favorites,
+                0,
+                Filter::Favorites,
+                None,
+                cx,
+            ))
+            .child(self.nav_item(
                 "exp".into(),
                 Some("icons/clock.svg"),
                 crate::i18n::t("Expiring").into(),
@@ -1322,6 +1348,26 @@ impl Browser {
                 0,
                 Filter::Expiring,
                 Some(WARN),
+                cx,
+            ))
+            .child(self.nav_item(
+                "weak".into(),
+                Some("icons/shield.svg"),
+                crate::i18n::t("Weak").into(),
+                weak,
+                0,
+                Filter::Weak,
+                Some(DANGER),
+                cx,
+            ))
+            .child(self.nav_item(
+                "reused".into(),
+                Some("icons/copy.svg"),
+                crate::i18n::t("Reused").into(),
+                reused,
+                0,
+                Filter::Reused,
+                Some(DANGER),
                 cx,
             ))
             .child(
@@ -1466,6 +1512,9 @@ impl Browser {
         let title: SharedString = match &self.filter {
             Filter::All => crate::i18n::t("All entries").into(),
             Filter::Expiring => crate::i18n::t("Expiring").into(),
+            Filter::Favorites => crate::i18n::t("Favorites").into(),
+            Filter::Weak => crate::i18n::t("Weak").into(),
+            Filter::Reused => crate::i18n::t("Reused").into(),
             Filter::NoGroup => crate::i18n::t("No group").into(),
             Filter::Group(p) => p.join(" / ").into(),
         };
@@ -1597,12 +1646,27 @@ impl Browser {
                     .overflow_hidden()
                     .child(
                         div()
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .text_color(c(TEXT))
-                            .whitespace_nowrap()
-                            .overflow_hidden()
-                            .text_ellipsis()
-                            .child(e.title.clone()),
+                            .flex()
+                            .items_center()
+                            .gap_1()
+                            .child(
+                                div()
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .text_color(c(TEXT))
+                                    .whitespace_nowrap()
+                                    .overflow_hidden()
+                                    .text_ellipsis()
+                                    .child(e.title.clone()),
+                            )
+                            .when(e.favorite, |d| {
+                                d.child(
+                                    svg()
+                                        .path("icons/star-filled.svg")
+                                        .size(px(11.))
+                                        .flex_none()
+                                        .text_color(c(ACCENT)),
+                                )
+                            }),
                     )
                     .child(
                         div()
@@ -1935,6 +1999,35 @@ impl Browser {
                             div()
                                 .flex()
                                 .gap_1()
+                                .child(
+                                    div()
+                                        .id("fav-toggle")
+                                        .size(px(26.))
+                                        .flex()
+                                        .items_center()
+                                        .justify_center()
+                                        .rounded(px(7.))
+                                        .border_1()
+                                        .border_color(c(BORDER))
+                                        .bg(c(RAISED))
+                                        .cursor_pointer()
+                                        .hover(|d| d.bg(c(HOVER)))
+                                        .on_click(cx.listener(|t, _, _, cx| t.toggle_favorite(cx)))
+                                        .child(
+                                            svg()
+                                                .path(if e.favorite {
+                                                    "icons/star-filled.svg"
+                                                } else {
+                                                    "icons/star.svg"
+                                                })
+                                                .size(px(14.))
+                                                .text_color(c(if e.favorite {
+                                                    ACCENT
+                                                } else {
+                                                    MUTED
+                                                })),
+                                        ),
+                                )
                                 .child(Self::text_btn("ed", crate::i18n::t("Edit")).on_click(
                                     cx.listener(|t, _, w, cx| t.start_edit(false, w, cx)),
                                 ))
@@ -1949,6 +2042,50 @@ impl Browser {
                         )
                     }),
             )
+            .when(e.weak || e.reused_with > 0, |d| {
+                let mut msgs: Vec<(u32, String)> = vec![];
+                if e.reused_with > 0 {
+                    msgs.push((
+                        DANGER,
+                        if e.reused_with == 1 {
+                            crate::i18n::t("Same password as 1 other entry.").to_string()
+                        } else {
+                            tf(
+                                "Same password as {n} other entries.",
+                                &[("n", &e.reused_with.to_string())],
+                            )
+                        },
+                    ));
+                }
+                if e.weak {
+                    msgs.push((
+                        WARN,
+                        crate::i18n::t("Weak password: consider generating a new one.").to_string(),
+                    ));
+                }
+                d.children(msgs.into_iter().map(|(col, msg)| {
+                    div()
+                        .mt_3()
+                        .px_3()
+                        .py_2()
+                        .rounded(px(8.))
+                        .bg(ca(col, 0x1a))
+                        .border_1()
+                        .border_color(ca(col, 0x60))
+                        .text_color(c(col))
+                        .text_size(px(12.))
+                        .flex()
+                        .items_center()
+                        .gap_2()
+                        .child(
+                            svg()
+                                .path("icons/shield.svg")
+                                .size(px(13.))
+                                .text_color(c(col)),
+                        )
+                        .child(msg)
+                }))
+            })
             .when_some(e.expiry, |d, exp| {
                 let (msg, past) = model::fmt_relative_expiry(exp, now);
                 let col = if past { DANGER } else { WARN };

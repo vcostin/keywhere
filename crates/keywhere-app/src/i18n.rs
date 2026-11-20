@@ -108,6 +108,11 @@ static TABLE: &[(&str, &str)] = &[
     // sidebar / list
     ("All entries", "Toate intrările"),
     ("Expiring", "Expiră curând"),
+    ("Favorites", "Favorite"),
+    ("Reused", "Refolosite"),
+    ("Same password as 1 other entry.", "Aceeași parolă ca la încă o intrare."),
+    ("Same password as {n} other entries.", "Aceeași parolă ca la alte {n} intrări."),
+    ("Weak password: consider generating a new one.", "Parolă slabă: generați una nouă."),
     ("GROUPS", "GRUPURI"),
     ("No matching entries", "Nicio intrare găsită"),
     ("Select an entry", "Selectați o intrare"),
