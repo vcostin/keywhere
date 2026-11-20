@@ -215,8 +215,11 @@ impl Vault {
                 let bak = path.with_extension("ibak");
                 let prev = zeroize::Zeroizing::new(fs::read(path)?);
                 let bak_tmp = temp_path(&bak)?;
-                write_new_file(&bak_tmp, &prev)?;
-                fs::rename(&bak_tmp, &bak)?;
+                let r = write_new_file(&bak_tmp, &prev).and_then(|()| Ok(fs::rename(&bak_tmp, &bak)?));
+                if r.is_err() {
+                    let _ = fs::remove_file(&bak_tmp);
+                }
+                r?;
             }
             fs::rename(&tmp, path)?;
             if let Some(dir) = path.parent() {
