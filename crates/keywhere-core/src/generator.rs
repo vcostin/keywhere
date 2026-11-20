@@ -67,14 +67,26 @@ impl Options {
 
     fn classes(&self) -> Vec<Vec<char>> {
         let keep = |set: &str| -> Vec<char> {
-            set.chars().filter(|c| !(self.no_lookalikes && LOOKALIKES.contains(*c))).collect()
+            set.chars()
+                .filter(|c| !(self.no_lookalikes && LOOKALIKES.contains(*c)))
+                .collect()
         };
         let mut v = Vec::new();
-        if self.upper { v.push(keep(UPPER)); }
-        if self.lower { v.push(keep(LOWER)); }
-        if self.digits { v.push(keep(DIGITS)); }
-        if self.symbols { v.push(keep(SYMBOLS)); }
-        if v.is_empty() { v.push(keep(LOWER)); }
+        if self.upper {
+            v.push(keep(UPPER));
+        }
+        if self.lower {
+            v.push(keep(LOWER));
+        }
+        if self.digits {
+            v.push(keep(DIGITS));
+        }
+        if self.symbols {
+            v.push(keep(SYMBOLS));
+        }
+        if v.is_empty() {
+            v.push(keep(LOWER));
+        }
         v
     }
 
@@ -82,7 +94,9 @@ impl Options {
     pub fn entropy_bits(&self) -> f64 {
         let len = self.length.clamp(self.min_len(), self.max_len()) as f64;
         match self.mode {
-            Mode::Random => len * (self.classes().iter().map(Vec::len).sum::<usize>() as f64).log2(),
+            Mode::Random => {
+                len * (self.classes().iter().map(Vec::len).sum::<usize>() as f64).log2()
+            }
             Mode::Passphrase => len * (words().count() as f64).log2(),
             Mode::Pin => len * 10f64.log2(),
         }
@@ -135,7 +149,10 @@ pub fn generate(o: &Options) -> Result<Zeroizing<String>, Error> {
                 for _ in 0..len {
                     chars.push(all[uniform(all.len())?]);
                 }
-                if classes.iter().all(|cl| chars.iter().any(|c| cl.contains(c))) {
+                if classes
+                    .iter()
+                    .all(|cl| chars.iter().any(|c| cl.contains(c)))
+                {
                     out.extend(chars.iter());
                     break;
                 }
@@ -170,17 +187,34 @@ mod tests {
 
     #[test]
     fn lookalikes_excluded() {
-        let o = Options { no_lookalikes: true, length: 128, ..Default::default() };
+        let o = Options {
+            no_lookalikes: true,
+            length: 128,
+            ..Default::default()
+        };
         for _ in 0..20 {
-            assert!(!generate(&o).unwrap().chars().any(|c| LOOKALIKES.contains(c)));
+            assert!(!generate(&o)
+                .unwrap()
+                .chars()
+                .any(|c| LOOKALIKES.contains(c)));
         }
     }
 
     #[test]
     fn passphrase_and_pin() {
-        let p = generate(&Options { mode: Mode::Passphrase, length: 5, ..Default::default() }).unwrap();
+        let p = generate(&Options {
+            mode: Mode::Passphrase,
+            length: 5,
+            ..Default::default()
+        })
+        .unwrap();
         assert_eq!(p.split('-').count(), 5);
-        let pin = generate(&Options { mode: Mode::Pin, length: 6, ..Default::default() }).unwrap();
+        let pin = generate(&Options {
+            mode: Mode::Pin,
+            length: 6,
+            ..Default::default()
+        })
+        .unwrap();
         assert!(pin.len() == 6 && pin.chars().all(|c| c.is_ascii_digit()));
     }
 }

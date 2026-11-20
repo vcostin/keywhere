@@ -9,7 +9,7 @@ use gpui::{
     UniformListScrollHandle, Window,
 };
 use keywhere_core::lock::{LockState, VaultLock};
-use keywhere_core::{now_secs, rec, Error, Record, Vault};
+use keywhere_core::{now_secs, rec, Error, Format, Record, Vault};
 use sha2::{Digest, Sha256};
 
 use crate::editor::{EditorEvent, EntryEditor};
@@ -70,6 +70,8 @@ pub struct Browser {
     save_error: Option<SharedString>,
     /// Pending delete confirmation: (uuid, title).
     confirm_delete: Option<(Vec<u8>, SharedString)>,
+    /// "Upgrade to v3" dialog: master-password field + error.
+    upgrade: Option<(Entity<TextField>, Option<SharedString>)>,
     dialog_focus: FocusHandle,
     _ticker: Task<()>,
     _on_quit: gpui::Subscription,
@@ -173,6 +175,7 @@ impl Browser {
             conflict: false,
             save_error: None,
             confirm_delete: None,
+            upgrade: None,
             dialog_focus: cx.focus_handle(),
             _ticker: ticker,
             _on_quit: on_quit,
@@ -420,6 +423,155 @@ impl Browser {
             self.persist(false, cx);
         }
         cx.notify();
+    }
+
+    pub fn open_upgrade(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.read_only() || self.editor.is_some() {
+            return;
+        }
+        let f =
+            cx.new(|cx| TextField::new(cx, "Master password", true).with_icon("icons/lock.svg"));
+        cx.subscribe_in(&f, window, |this, _, ev, window, cx| match ev {
+            FieldEvent::Submit => this.do_upgrade(window, cx),
+            FieldEvent::Escape => {
+                this.upgrade = None;
+                window.focus(&this.focus);
+                cx.notify();
+            }
+            FieldEvent::Changed => {}
+        })
+        .detach();
+        window.focus(&f.focus_handle(cx));
+        self.upgrade = Some((f, None));
+        cx.notify();
+    }
+
+    /// v2 → v3: re-check the password, write `<name>.psafe3` next to the v2
+    /// file (which stays untouched), and continue on the new file.
+    fn do_upgrade(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some((field, _)) = &self.upgrade else {
+            return;
+        };
+        let pw = zeroize::Zeroizing::new(field.read(cx).text().as_bytes().to_vec());
+        field.update(cx, |f, cx| f.clear(cx));
+        let new_path = self.path.with_extension("psafe3");
+        let fail = |this: &mut Self, msg: String, cx: &mut Context<Self>| {
+            if let Some((_, err)) = &mut this.upgrade {
+                *err = Some(msg.into());
+            }
+            cx.notify();
+        };
+        if new_path.exists() {
+            let name = new_path
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            return fail(
+                self,
+                format!("{name} already exists; move it away first."),
+                cx,
+            );
+        }
+        // All-or-nothing in the core: on failure the vault stays v2.
+        match self.vault_mut().upgrade_to_v3_at(&pw, &new_path) {
+            Ok(()) => {}
+            Err(Error::WrongPassword) => return fail(self, "Wrong master password.".into(), cx),
+            Err(e) => return fail(self, format!("Could not write the v3 file: {e}"), cx),
+        }
+        // Switch to the new file: release the v2 lock, take the v3 one.
+        self.vault_lock = None;
+        self.path = new_path.clone();
+        if let Ok((Some(l), _)) = VaultLock::acquire(&new_path) {
+            self.vault_lock = Some(l);
+        }
+        config::remember_vault(&new_path);
+        self.upgrade = None;
+        self.toast(format!(
+            "Upgraded — now using {} (the v2 file is unchanged)",
+            new_path
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default()
+        ));
+        window.focus(&self.focus);
+        cx.notify();
+    }
+
+    fn render_upgrade(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
+        let (field, err) = self.upgrade.as_ref()?;
+        let btn = |id: &'static str, label: &'static str, primary: bool| {
+            div()
+                .id(id)
+                .h(px(32.))
+                .px_4()
+                .flex()
+                .items_center()
+                .rounded(px(8.))
+                .cursor_pointer()
+                .text_size(px(12.5))
+                .when(primary, |d| {
+                    d.bg(c(ACCENT))
+                        .text_color(c(ACCENT_INK))
+                        .font_weight(FontWeight::SEMIBOLD)
+                })
+                .when(!primary, |d| {
+                    d.bg(c(RAISED))
+                        .border_1()
+                        .border_color(c(BORDER))
+                        .text_color(c(TEXT))
+                })
+                .child(label)
+        };
+        let target = self.path.with_extension("psafe3");
+        let target = target
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        Some(
+            div()
+                .id("upgrade-backdrop")
+                .absolute()
+                .inset_0()
+                .flex()
+                .items_center()
+                .justify_center()
+                .bg(ca(0x050B1A, 0xB0))
+                .occlude()
+                .child(
+                    div()
+                        .id("upgrade-card")
+                        .w(px(440.))
+                        .p_5()
+                        .rounded(px(12.))
+                        .bg(c(PANEL))
+                        .border_1()
+                        .border_color(c(0x2A4A85))
+                        .shadow_lg()
+                        .flex()
+                        .flex_col()
+                        .gap_3()
+                        .child(div().text_size(px(15.)).font_weight(FontWeight::BOLD).text_color(c(TEXT)).child("Upgrade to Password Safe v3"))
+                        .child(
+                            div().text_size(px(12.5)).text_color(c(TEXT_SOFT)).line_height(px(19.)).child(SharedString::from(format!(
+                                "Keywhere writes a new file, {target}, with modern encryption (262,144 key‑stretching rounds and tamper detection) and continues with it. The v2 file stays exactly as it is. Password Gorilla 1.5+ and Password Safe 3 open v3."
+                            ))),
+                        )
+                        .child(field.clone())
+                        .when_some(err.clone(), |d, e| d.child(div().text_size(px(11.5)).text_color(c(DANGER)).child(e)))
+                        .child(
+                            div()
+                                .flex()
+                                .justify_end()
+                                .gap_2()
+                                .child(btn("up-cancel", "Cancel", false).on_click(cx.listener(|t, _, w, cx| {
+                                    t.upgrade = None;
+                                    w.focus(&t.focus);
+                                    cx.notify();
+                                })))
+                                .child(btn("up-go", "Upgrade", true).on_click(cx.listener(|t, _, w, cx| t.do_upgrade(w, cx)))),
+                        ),
+                ),
+        )
     }
 
     fn render_confirm_delete(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
@@ -1587,6 +1739,18 @@ impl Render for Browser {
                     }))),
                 )
             })
+            .when(self.vault().format() == Format::V2, |d| {
+                d.child(
+                    Self::banner(
+                        "v2",
+                        WARN,
+                        "Legacy Password Safe v2 file (Password Gorilla). Kept in v2 so older apps can still open it, but v2 has weak key derivation and no tamper detection.".into(),
+                    )
+                    .when(!self.read_only(), |b| {
+                        b.child(Self::text_btn("upgrade", "Upgrade to v3…").on_click(cx.listener(|t, _, w, cx| t.open_upgrade(w, cx))))
+                    }),
+                )
+            })
             .when_some(self.save_error.clone(), |d, e| d.child(Self::banner("saveerr", DANGER, e)))
             .child(
                 div()
@@ -1623,13 +1787,20 @@ impl Render for Browser {
                             } else {
                                 OK
                             })))
-                            .child(if self.conflict {
-                                "Unsaved change · psafe3"
-                            } else if self.read_only() {
-                                "Read‑only · psafe3"
-                            } else {
-                                "Saved · psafe3"
-                            }),
+                            .child(format!(
+                                "{} · {}",
+                                if self.conflict {
+                                    "Unsaved change"
+                                } else if self.read_only() {
+                                    "Read‑only"
+                                } else {
+                                    "Saved"
+                                },
+                                match self.vault().format() {
+                                    Format::V3 => "psafe3",
+                                    Format::V2 => "Password Safe v2 (legacy)",
+                                }
+                            )),
                     )
                     .child(format!("{} entries", self.entries.len()))
                     .child(div().flex_1())
@@ -1669,6 +1840,7 @@ impl Render for Browser {
                     ),
             )
             .children(self.render_confirm_delete(cx))
+            .children(self.render_upgrade(cx))
             .into_any_element()
     }
 }

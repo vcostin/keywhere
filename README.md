@@ -47,6 +47,15 @@ cargo run --release -p keywhere -- path/to/vault.psafe3
 
 macOS/Windows: clipboard protection works; tray and lock‑on‑sleep hooks are not implemented yet.
 
+### Password Gorilla / Password Safe v2 files
+
+Keywhere opens legacy **v2** files (Password Gorilla's `.dat`) and **saves them back as v2**, so
+older apps keep working with the same file. Keywhere still shows and stores every field (URL,
+e‑mail, history…); older apps simply don't display the extras. Text is written as UTF‑8 (Gorilla
+honours this; Password Safe 3 reads it with a UTF‑8 system locale). A banner explains v2's
+weaknesses (unstretched SHA‑1 key, no tamper detection) and offers **Upgrade to v3…**, which writes
+`name.psafe3` next to the original and switches to it, leaving the v2 file untouched.
+
 Saving is safe for synced folders: Keywhere refuses to overwrite a vault that changed on disk
 since you opened it (another device, Password Safe, Gorilla) and asks you what to do. It also
 honours Password Safe's `.plk` lock file and opens read‑only while another app has the vault.

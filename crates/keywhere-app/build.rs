@@ -34,4 +34,8 @@ fn main() {
         }
     }
     println!("cargo:rerun-if-changed=build.rs");
+    // Re-check the dirty flag whenever sources change, not only on commits.
+    for dir in ["src", "../keywhere-core/src", "../../assets"] {
+        println!("cargo:rerun-if-changed={dir}");
+    }
 }

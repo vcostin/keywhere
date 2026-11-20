@@ -143,6 +143,7 @@ impl Shell {
                         b.start_edit(false, window, cx);
                     }
                     _ if t == "new" => b.start_edit(true, window, cx),
+                    _ if t == "upgrade" => b.open_upgrade(window, cx),
                     #[cfg(feature = "devtools")]
                     _ if t == "newpass" => {
                         b.start_edit(true, window, cx);

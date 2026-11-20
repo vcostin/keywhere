@@ -19,10 +19,10 @@
 //! * Key material and decrypted field data are zeroized on drop.
 //! * Unknown header / record field types are preserved for round-trip.
 
+use cbc::cipher::{block_padding::NoPadding, BlockDecryptMut, BlockEncryptMut, KeyIvInit};
 use hmac::{Hmac, Mac};
 use sha2::{Digest, Sha256};
 use subtle::ConstantTimeEq;
-use cbc::cipher::{block_padding::NoPadding, BlockDecryptMut, BlockEncryptMut, KeyIvInit};
 use twofish::cipher::{generic_array::GenericArray, BlockDecrypt, BlockEncrypt, KeyInit};
 use twofish::Twofish;
 use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
@@ -56,7 +56,12 @@ pub struct Field {
 impl std::fmt::Debug for Field {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         // Never print field contents.
-        write!(f, "Field {{ kind: {:#04x}, len: {} }}", self.kind, self.data.len())
+        write!(
+            f,
+            "Field {{ kind: {:#04x}, len: {} }}",
+            self.kind,
+            self.data.len()
+        )
     }
 }
 
@@ -125,7 +130,11 @@ impl KeyMaterial {
         let iterations = iterations.clamp(MIN_ITERATIONS_ON_SAVE, MAX_ITERATIONS);
         let salt: [u8; 32] = random()?;
         let p_prime = stretch(password, &salt, iterations);
-        Ok(Self { salt, iterations, p_prime })
+        Ok(Self {
+            salt,
+            iterations,
+            p_prime,
+        })
     }
 }
 
@@ -151,7 +160,14 @@ pub fn decode(bytes: &[u8], password: &[u8]) -> Result<(RawDb, KeyMaterial), Err
     let (salt, iterations) = preamble(bytes)?;
     let p_prime = stretch(password, salt, iterations);
     let db = decode_core(bytes, &p_prime, iterations)?;
-    Ok((db, KeyMaterial { salt: salt.try_into().unwrap(), iterations, p_prime }))
+    Ok((
+        db,
+        KeyMaterial {
+            salt: salt.try_into().unwrap(),
+            iterations,
+            p_prime,
+        },
+    ))
 }
 
 /// Decrypt with key material we already hold (e.g. verifying our own save).
@@ -188,7 +204,11 @@ fn decode_core(bytes: &[u8], p_prime: &[u8; 32], iterations: u32) -> Result<RawD
     // From here on the passphrase is known-good: every failure is reported as
     // a single, uniform integrity error so a tamperer learns nothing.
     parse_authenticated(&bytes[tail..tail + 16], enc, &iv, &k, &l, stored_mac)
-        .map(|(header, records)| RawDb { iterations, header, records })
+        .map(|(header, records)| RawDb {
+            iterations,
+            header,
+            records,
+        })
         .map_err(|()| Error::Integrity)
 }
 
@@ -248,7 +268,10 @@ fn parse_authenticated(
             saw_header_end = true;
             break;
         }
-        header.push(Field { kind, data: plain[a..b].to_vec() });
+        header.push(Field {
+            kind,
+            data: plain[a..b].to_vec(),
+        });
     }
     if !saw_header_end {
         return Err(());
@@ -259,7 +282,10 @@ fn parse_authenticated(
         if kind == END_OF_ENTRY {
             records.push(std::mem::take(&mut cur));
         } else {
-            cur.push(Field { kind, data: plain[a..b].to_vec() });
+            cur.push(Field {
+                kind,
+                data: plain[a..b].to_vec(),
+            });
         }
     }
     if !cur.is_empty() {
@@ -268,7 +294,12 @@ fn parse_authenticated(
     Ok((header, records))
 }
 
-fn push_field(out: &mut Vec<u8>, mac: &mut Hmac<Sha256>, kind: u8, data: &[u8]) -> Result<(), Error> {
+fn push_field(
+    out: &mut Vec<u8>,
+    mac: &mut Hmac<Sha256>,
+    kind: u8,
+    data: &[u8],
+) -> Result<(), Error> {
     mac.update(data);
     let len = u32::try_from(data.len()).map_err(|_| Error::Corrupt("field too large"))?;
     let total = (5 + data.len()).max(BLOCK).div_ceil(BLOCK) * BLOCK;

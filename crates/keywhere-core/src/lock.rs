@@ -68,14 +68,19 @@ fn encode_wide(s: &str) -> Vec<u8> {
 
 /// Decode a lock file written by Keywhere, Password Safe (any OS) or others.
 pub fn decode_holder(b: &[u8]) -> String {
-    let trim = |s: String| s.trim_matches(|c: char| c.is_whitespace() || c == '\0').to_string();
+    let trim = |s: String| {
+        s.trim_matches(|c: char| c.is_whitespace() || c == '\0')
+            .to_string()
+    };
     if !b.contains(&0) {
         return trim(String::from_utf8_lossy(b).into_owned());
     }
     if b.len().is_multiple_of(4) {
         let (quads, _) = b.as_chunks::<4>();
-        let utf32: Option<String> =
-            quads.iter().map(|c| char::from_u32(u32::from_le_bytes(*c))).collect();
+        let utf32: Option<String> = quads
+            .iter()
+            .map(|c| char::from_u32(u32::from_le_bytes(*c)))
+            .collect();
         if let Some(s) = utf32.filter(|s| s.chars().all(|c| c == '\0' || !c.is_control())) {
             return trim(s);
         }
@@ -129,7 +134,10 @@ impl VaultLock {
         }
         match opts.open(&path) {
             Ok(mut f) => {
-                if let Err(e) = f.write_all(&encode_wide(&ident)).and_then(|()| f.sync_all()) {
+                if let Err(e) = f
+                    .write_all(&encode_wide(&ident))
+                    .and_then(|()| f.sync_all())
+                {
                     drop(f);
                     let _ = fs::remove_file(&path);
                     return Err(e);
@@ -152,7 +160,9 @@ impl VaultLock {
                 ))
             }
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
-                let holder = fs::read(&path).map(|b| decode_holder(&b)).unwrap_or_default();
+                let holder = fs::read(&path)
+                    .map(|b| decode_holder(&b))
+                    .unwrap_or_default();
                 Ok((None, LockState::HeldBy(holder)))
             }
             Err(e) => Err(e),
@@ -177,12 +187,18 @@ impl VaultLock {
 
     /// Is a foreign lock's holder a dead process on this machine?
     pub fn is_stale(holder: &str) -> bool {
-        let Some((user_host, pid)) = holder.rsplit_once(':') else { return false };
-        let Some((_, host)) = user_host.split_once('@') else { return false };
+        let Some((user_host, pid)) = holder.rsplit_once(':') else {
+            return false;
+        };
+        let Some((_, host)) = user_host.split_once('@') else {
+            return false;
+        };
         if host != hostname() {
             return false; // can't tell for other machines
         }
-        let Ok(pid) = pid.trim().parse::<i32>() else { return false };
+        let Ok(pid) = pid.trim().parse::<i32>() else {
+            return false;
+        };
         if pid <= 0 || pid as u32 == std::process::id() {
             return false;
         }
@@ -209,7 +225,9 @@ impl Drop for VaultLock {
         if file_id(&self.path) != Some(self.ino) {
             return; // replaced by someone else (e.g. take_over): not ours
         }
-        let ours = fs::read(&self.path).map(|b| decode_holder(&b) == self.ident).unwrap_or(false);
+        let ours = fs::read(&self.path)
+            .map(|b| decode_holder(&b) == self.ident)
+            .unwrap_or(false);
         if ours {
             let _ = fs::remove_file(&self.path);
         }

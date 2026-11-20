@@ -4,12 +4,13 @@
 
 pub mod generator;
 pub mod lock;
+pub mod psafe2;
 pub mod psafe3;
 
 use std::fs;
 use std::io::Write;
-use std::path::PathBuf;
 use std::path::Path;
+use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use psafe3::{Field, KeyMaterial, RawDb};
@@ -88,7 +89,10 @@ impl Record {
     }
 
     pub fn get(&self, kind: u8) -> Option<&[u8]> {
-        self.fields.iter().find(|f| f.kind == kind).map(|f| f.data.as_slice())
+        self.fields
+            .iter()
+            .find(|f| f.kind == kind)
+            .map(|f| f.data.as_slice())
     }
 
     pub fn text(&self, kind: u8) -> Option<&str> {
@@ -117,7 +121,9 @@ impl Record {
         match d.len() {
             4 => Some(u32::from_le_bytes(d.try_into().ok()?) as u64),
             // pre-3.09 files stored times as 8 ASCII hex digits
-            8 => std::str::from_utf8(d).ok().and_then(|h| u64::from_str_radix(h, 16).ok()),
+            8 => std::str::from_utf8(d)
+                .ok()
+                .and_then(|h| u64::from_str_radix(h, 16).ok()),
             _ => None,
         }
     }
@@ -159,13 +165,18 @@ impl Record {
         // Keep history unless the user turned it off (status flag '0').
         // Skip passwords Windows Password Safe would mis-count (non-BMP chars
         // are 2 UTF-16 units there) or that don't fit the 4-hex-digit length.
-        let enabled = self.text(rec::PW_HISTORY).is_none_or(|h| h.starts_with('1'));
+        let enabled = self
+            .text(rec::PW_HISTORY)
+            .is_none_or(|h| h.starts_with('1'));
         let storable = old.chars().all(|c| (c as u32) <= 0xFFFF) && old.chars().count() <= 0xFFFF;
         if enabled && storable && !old.is_empty() {
             let mut hist = self.history();
             let max = self.history_max().unwrap_or(DEFAULT_HISTORY_MAX);
             let ptime = self.time(rec::PTIME).unwrap_or(now as u64);
-            hist.push(HistoryEntry { changed: ptime, password: old.clone() });
+            hist.push(HistoryEntry {
+                changed: ptime,
+                password: old.clone(),
+            });
             while hist.len() > max as usize {
                 hist.remove(0);
             }
@@ -186,21 +197,34 @@ impl Record {
     /// Oldest first. Malformed tails are ignored.
     pub fn history(&self) -> Vec<HistoryEntry> {
         let mut out = Vec::new();
-        let Some(h) = self.text(rec::PW_HISTORY) else { return out };
+        let Some(h) = self.text(rec::PW_HISTORY) else {
+            return out;
+        };
         let Some(count) = h.get(3..5).and_then(|n| usize::from_str_radix(n, 16).ok()) else {
             return out;
         };
         let mut rest = h.get(5..).unwrap_or("");
         for _ in 0..count {
-            let (Some(t), Some(l)) = (rest.get(0..8), rest.get(8..12)) else { break };
-            let (Ok(t), Ok(l)) = (u64::from_str_radix(t, 16), usize::from_str_radix(l, 16)) else { break };
+            let (Some(t), Some(l)) = (rest.get(0..8), rest.get(8..12)) else {
+                break;
+            };
+            let (Ok(t), Ok(l)) = (u64::from_str_radix(t, 16), usize::from_str_radix(l, 16)) else {
+                break;
+            };
             // Length is in characters (Password Safe counts TCHARs).
             let body = &rest[12..];
-            let end = body.char_indices().nth(l).map(|(i, _)| i).unwrap_or(body.len());
+            let end = body
+                .char_indices()
+                .nth(l)
+                .map(|(i, _)| i)
+                .unwrap_or(body.len());
             if body[..end].chars().count() != l {
                 break;
             }
-            out.push(HistoryEntry { changed: t, password: Zeroizing::new(body[..end].to_string()) });
+            out.push(HistoryEntry {
+                changed: t,
+                password: Zeroizing::new(body[..end].to_string()),
+            });
             rest = &body[end..];
         }
         out
@@ -209,14 +233,20 @@ impl Record {
     fn set_history(&mut self, max: u8, entries: &[HistoryEntry]) {
         let mut s = Zeroizing::new(format!("1{:02x}{:02x}", max, entries.len()));
         for e in entries {
-            s.push_str(&format!("{:08x}{:04x}", e.changed as u32, e.password.chars().count()));
+            s.push_str(&format!(
+                "{:08x}{:04x}",
+                e.changed as u32,
+                e.password.chars().count()
+            ));
             s.push_str(&e.password);
         }
         self.set_text(rec::PW_HISTORY, &s);
     }
     /// Group path segments; '.' separates levels, "\." is a literal dot.
     pub fn group_path(&self) -> Vec<String> {
-        let Some(g) = self.text(rec::GROUP) else { return vec![] };
+        let Some(g) = self.text(rec::GROUP) else {
+            return vec![];
+        };
         let mut out = vec![String::new()];
         let mut chars = g.chars().peekable();
         while let Some(c) = chars.next() {
@@ -243,14 +273,36 @@ pub struct HistoryEntry {
 }
 
 pub fn now_secs() -> u32 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs() as u32).unwrap_or(0)
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs() as u32)
+        .unwrap_or(0)
+}
+
+/// On-disk format of the open vault.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Format {
+    /// Password Safe v3 (`.psafe3`): the default.
+    V3,
+    /// Password Safe v2 (Password Gorilla's legacy `.dat`): kept in place for
+    /// compatibility; weak KDF and no integrity protection.
+    V2,
+}
+
+enum VaultKey {
+    V3(KeyMaterial),
+    V2 {
+        key: psafe2::V2Key,
+        prefs: String,
+        utf8: bool,
+    },
 }
 
 /// An unlocked vault.
 pub struct Vault {
     pub header: Vec<Field>,
     pub records: Vec<Record>,
-    key: KeyMaterial,
+    key: VaultKey,
     /// SHA-256 of the file bytes we last read or wrote; used to detect edits
     /// made elsewhere (another device via a sync folder, Password Safe, ...).
     disk_hash: Option<[u8; 32]>,
@@ -260,21 +312,117 @@ impl Vault {
     /// Decrypt bytes. If the file uses fewer than `MIN_ITERATIONS_ON_SAVE`
     /// rounds, a fresh salt + stronger key is derived now (we only have the
     /// password at this moment), so the next save is upgraded.
+    ///
+    /// Password Safe v2 files (Password Gorilla legacy) are detected and kept
+    /// in v2 on save; see [`Vault::format`] and [`Vault::upgrade_to_v3`].
     pub fn decrypt(bytes: &[u8], password: &[u8]) -> Result<Self, Error> {
-        let (raw, mut key) = psafe3::decode(bytes, password)?;
-        if key.iterations < psafe3::MIN_ITERATIONS_ON_SAVE {
-            key = KeyMaterial::derive(password, psafe3::MIN_ITERATIONS_ON_SAVE)?;
+        let disk_hash = Some(Sha256::digest(bytes).into());
+        if bytes.len() >= 4 && &bytes[..4] == b"PWS3" {
+            let (raw, mut key) = psafe3::decode(bytes, password)?;
+            if key.iterations < psafe3::MIN_ITERATIONS_ON_SAVE {
+                key = KeyMaterial::derive(password, psafe3::MIN_ITERATIONS_ON_SAVE)?;
+            }
+            return Ok(Vault {
+                header: raw.header.clone(),
+                records: raw
+                    .records
+                    .iter()
+                    .map(|r| Record { fields: r.clone() })
+                    .collect(),
+                key: VaultKey::V3(key),
+                disk_hash,
+            });
         }
-        Ok(Self::from_raw(raw, key, Some(Sha256::digest(bytes).into())))
+        if psafe2::looks_like_v2(bytes) {
+            let (raw, key) = psafe2::decode(bytes, password)?;
+            return Ok(Vault {
+                header: vec![],
+                records: raw
+                    .records
+                    .into_iter()
+                    .map(|fields| Record { fields })
+                    .collect(),
+                key: VaultKey::V2 {
+                    key,
+                    prefs: raw.prefs,
+                    utf8: raw.utf8,
+                },
+                disk_hash,
+            });
+        }
+        Err(Error::NotPsafe3)
     }
 
-    fn from_raw(raw: RawDb, key: KeyMaterial, disk_hash: Option<[u8; 32]>) -> Self {
-        Vault {
-            header: raw.header.clone(),
-            records: raw.records.iter().map(|r| Record { fields: r.clone() }).collect(),
-            key,
-            disk_hash,
+    pub fn format(&self) -> Format {
+        match self.key {
+            VaultKey::V3(_) => Format::V3,
+            VaultKey::V2 { .. } => Format::V2,
         }
+    }
+
+    /// Upgrade a v2 vault and write it to `new_path` (which must not exist),
+    /// all-or-nothing: on any failure the vault is restored to its v2 state
+    /// so later saves still go to the v2 file in v2.
+    pub fn upgrade_to_v3_at(&mut self, password: &[u8], new_path: &Path) -> Result<(), Error> {
+        if new_path.exists() {
+            return Err(Error::Io(std::io::Error::new(
+                std::io::ErrorKind::AlreadyExists,
+                "target file already exists",
+            )));
+        }
+        let VaultKey::V2 { key, prefs, utf8 } = &self.key else {
+            return Ok(());
+        };
+        if !key.verify(password) {
+            return Err(Error::WrongPassword);
+        }
+        // Snapshot the v2 state (the key holds no password, only RND/SALT/key).
+        let saved_key = VaultKey::V2 {
+            key: key.clone_key(),
+            prefs: prefs.clone(),
+            utf8: *utf8,
+        };
+        let saved_header = self.header.clone();
+        let saved_hash = self.disk_hash;
+        let res = self
+            .upgrade_to_v3(password)
+            .and_then(|()| self.save(new_path));
+        if res.is_err() {
+            self.key = saved_key;
+            self.header = saved_header;
+            self.disk_hash = saved_hash;
+        }
+        res
+    }
+
+    /// Convert an open v2 vault to v3 in memory (the caller then saves it to
+    /// a new `.psafe3` path). Needs the master password again, because v3
+    /// derives a fresh stretched key; it is checked against the v2 verifier.
+    pub fn upgrade_to_v3(&mut self, password: &[u8]) -> Result<(), Error> {
+        let VaultKey::V2 { key, .. } = &self.key else {
+            return Ok(());
+        };
+        if !key.verify(password) {
+            return Err(Error::WrongPassword);
+        }
+        let mut uuid = [0u8; 16];
+        getrandom::getrandom(&mut uuid).map_err(|_| Error::Rng)?;
+        self.header = vec![
+            Field {
+                kind: hdr::VERSION,
+                data: vec![0x0d, 0x03],
+            },
+            Field {
+                kind: hdr::UUID,
+                data: uuid.to_vec(),
+            },
+        ];
+        self.key = VaultKey::V3(KeyMaterial::derive(
+            password,
+            psafe3::MIN_ITERATIONS_ON_SAVE,
+        )?);
+        self.disk_hash = None; // the v3 file is new
+        Ok(())
     }
 
     /// A new, empty vault.
@@ -282,11 +430,22 @@ impl Vault {
         let mut uuid = [0u8; 16];
         getrandom::getrandom(&mut uuid).map_err(|_| Error::Rng)?;
         let header = vec![
-            Field { kind: hdr::VERSION, data: vec![0x0d, 0x03] },
-            Field { kind: hdr::UUID, data: uuid.to_vec() },
+            Field {
+                kind: hdr::VERSION,
+                data: vec![0x0d, 0x03],
+            },
+            Field {
+                kind: hdr::UUID,
+                data: uuid.to_vec(),
+            },
         ];
         let key = KeyMaterial::derive(password, psafe3::MIN_ITERATIONS_ON_SAVE)?;
-        Ok(Vault { header, records: vec![], key, disk_hash: None })
+        Ok(Vault {
+            header,
+            records: vec![],
+            key: VaultKey::V3(key),
+            disk_hash: None,
+        })
     }
 
     pub fn open(path: &Path, password: &[u8]) -> Result<Self, Error> {
@@ -294,14 +453,21 @@ impl Vault {
         Self::decrypt(&bytes, password)
     }
 
+    /// Key-stretch rounds (0 for v2, which has none).
     pub fn iterations(&self) -> u32 {
-        self.key.iterations
+        match &self.key {
+            VaultKey::V3(k) => k.iterations,
+            VaultKey::V2 { .. } => 0,
+        }
     }
 
     /// Re-key with a new master password (fresh salt; K/L/IV are fresh on
     /// every save anyway).
     pub fn change_password(&mut self, new_password: &[u8]) -> Result<(), Error> {
-        self.key = KeyMaterial::derive(new_password, self.key.iterations)?;
+        match &mut self.key {
+            VaultKey::V3(k) => *k = KeyMaterial::derive(new_password, k.iterations)?,
+            VaultKey::V2 { key, .. } => *key = psafe2::V2Key::derive(new_password)?,
+        }
         Ok(())
     }
 
@@ -315,25 +481,44 @@ impl Vault {
     }
 
     pub fn encrypt(&mut self) -> Result<Vec<u8>, Error> {
+        if let VaultKey::V2 { key, prefs, utf8 } = &self.key {
+            let raw = psafe2::RawDbV2 {
+                prefs: prefs.clone(),
+                utf8: *utf8,
+                records: self.records.iter().map(|r| r.fields.clone()).collect(),
+            };
+            return psafe2::encode(&raw, key);
+        }
         if !self.header.iter().any(|f| f.kind == hdr::VERSION) {
-            self.header.insert(0, Field { kind: hdr::VERSION, data: vec![0x0d, 0x03] });
+            self.header.insert(
+                0,
+                Field {
+                    kind: hdr::VERSION,
+                    data: vec![0x0d, 0x03],
+                },
+            );
         }
         self.set_header(hdr::LAST_SAVE_TIME, now_secs().to_le_bytes().to_vec());
         self.set_header(
             hdr::LAST_SAVE_WHAT,
             format!("Keywhere V{}", env!("CARGO_PKG_VERSION")).into_bytes(),
         );
+        let VaultKey::V3(key) = &self.key else {
+            unreachable!()
+        };
         let raw = RawDb {
-            iterations: self.key.iterations,
+            iterations: key.iterations,
             header: self.header.clone(),
             records: self.records.iter().map(|r| r.fields.clone()).collect(),
         };
-        psafe3::encode(&raw, &self.key)
+        psafe3::encode(&raw, key)
     }
 
     /// Has the file on disk changed since we opened or last saved it?
     pub fn changed_on_disk(&self, path: &Path) -> Result<bool, Error> {
-        let Some(ours) = self.disk_hash else { return Ok(path.exists()) };
+        let Some(ours) = self.disk_hash else {
+            return Ok(path.exists());
+        };
         match fs::read(path) {
             Ok(b) => Ok(<[u8; 32]>::from(Sha256::digest(&b)) != ours),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(true),
@@ -373,7 +558,10 @@ impl Vault {
         let result = (|| {
             write_new_file(&tmp, &bytes)?;
             let on_disk = Zeroizing::new(fs::read(&tmp)?);
-            psafe3::decode_with_key(&on_disk, &self.key)?;
+            match &self.key {
+                VaultKey::V3(k) => drop(psafe3::decode_with_key(&on_disk, k)?),
+                VaultKey::V2 { key, .. } => drop(psafe2::decode_with_key(&on_disk, key)?),
+            }
 
             let prev = match fs::read(path) {
                 Ok(b) => Some(Zeroizing::new(b)),
@@ -387,7 +575,8 @@ impl Vault {
             if let Some(prev) = &prev {
                 let bak = path.with_extension("ibak");
                 let bak_tmp = temp_path(&bak)?;
-                let r = write_new_file(&bak_tmp, prev).and_then(|()| Ok(fs::rename(&bak_tmp, &bak)?));
+                let r =
+                    write_new_file(&bak_tmp, prev).and_then(|()| Ok(fs::rename(&bak_tmp, &bak)?));
                 if r.is_err() {
                     let _ = fs::remove_file(&bak_tmp);
                 }
@@ -464,7 +653,10 @@ mod tests {
 
     #[test]
     fn wrong_password_rejected() {
-        assert!(matches!(Vault::decrypt(FIXTURE, b"nope"), Err(Error::WrongPassword)));
+        assert!(matches!(
+            Vault::decrypt(FIXTURE, b"nope"),
+            Err(Error::WrongPassword)
+        ));
     }
 
     #[test]
@@ -484,7 +676,10 @@ mod tests {
     fn hostile_iterations_rejected() {
         let mut b = FIXTURE.to_vec();
         b[36..40].copy_from_slice(&((1u32 << 24) + 1).to_le_bytes());
-        assert!(matches!(Vault::decrypt(&b, b"test123"), Err(Error::BadIterations(_))));
+        assert!(matches!(
+            Vault::decrypt(&b, b"test123"),
+            Err(Error::BadIterations(_))
+        ));
     }
 
     #[test]
@@ -493,7 +688,10 @@ mod tests {
         for i in (152..bytes.len() - 48).step_by(7) {
             let mut b = bytes.clone();
             b[i] ^= 0x40;
-            assert!(matches!(Vault::decrypt(&b, b"pw"), Err(Error::Integrity)), "offset {i}");
+            assert!(
+                matches!(Vault::decrypt(&b, b"pw"), Err(Error::Integrity)),
+                "offset {i}"
+            );
         }
     }
 
@@ -524,9 +722,13 @@ mod tests {
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            assert_eq!(fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o600);
+            assert_eq!(
+                fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+                0o600
+            );
         }
-        let leftovers: Vec<_> = fs::read_dir(&dir).unwrap()
+        let leftovers: Vec<_> = fs::read_dir(&dir)
+            .unwrap()
             .filter_map(|e| e.ok())
             .filter(|e| e.file_name().to_string_lossy().contains(".tmp."))
             .collect();
@@ -601,7 +803,10 @@ mod tests {
         assert!(Vault::open(&path, b"test123").is_ok());
         v.change_password(b"n3w").unwrap();
         v.save(&path).unwrap();
-        assert!(matches!(Vault::open(&path, b"test123"), Err(Error::WrongPassword)));
+        assert!(matches!(
+            Vault::open(&path, b"test123"),
+            Err(Error::WrongPassword)
+        ));
         assert!(Vault::open(&path, b"n3w").is_ok());
         fs::remove_dir_all(&dir).unwrap();
     }
@@ -649,7 +854,10 @@ mod tests {
         fs::write(&path, b"someone else wrote this").unwrap();
         assert!(matches!(a.save(&path), Err(Error::Conflict)));
         assert_eq!(fs::read(&path).unwrap(), b"someone else wrote this");
-        assert!(!dir.join("v.ibak").exists(), "no backup written on conflict");
+        assert!(
+            !dir.join("v.ibak").exists(),
+            "no backup written on conflict"
+        );
         fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -673,5 +881,49 @@ mod tests {
         let v2 = Vault::decrypt(&bytes, b"pw").unwrap();
         assert_eq!(v2.records[0].title(), "x");
         assert_eq!(v2.iterations(), psafe3::MIN_ITERATIONS_ON_SAVE);
+    }
+
+    const GORILLA_V2: &[u8] = include_bytes!("../../../fixtures/gorilla-v2-testkey.dat");
+
+    #[test]
+    fn v2_vault_saves_in_v2_and_upgrades() {
+        let dir = tmpdir("v2");
+        let path = dir.join("legacy.dat");
+        fs::write(&path, GORILLA_V2).unwrap();
+        let mut v = Vault::open(&path, b"TESTKEY").unwrap();
+        assert_eq!(v.format(), Format::V2);
+        assert_eq!(v.records.len(), 4);
+        let mut r = Record::new().unwrap();
+        r.set_text(rec::TITLE, "Added by Keywhere");
+        r.set_text(rec::URL, "https://example.com");
+        r.set_password("s3cret", 1000);
+        v.records.push(r);
+        v.save(&path).unwrap();
+        let v2 = Vault::open(&path, b"TESTKEY").unwrap();
+        assert_eq!(v2.format(), Format::V2, "stays v2 on disk");
+        assert_eq!(v2.records.len(), 5);
+        let added = v2
+            .records
+            .iter()
+            .find(|r| r.title() == "Added by Keywhere")
+            .unwrap();
+        assert_eq!(added.text(rec::URL), Some("https://example.com"));
+
+        let mut v3 = Vault::open(&path, b"TESTKEY").unwrap();
+        assert!(matches!(
+            v3.upgrade_to_v3(b"wrong"),
+            Err(Error::WrongPassword)
+        ));
+        v3.upgrade_to_v3(b"TESTKEY").unwrap();
+        let new_path = dir.join("legacy.psafe3");
+        v3.save(&new_path).unwrap();
+        let back = Vault::open(&new_path, b"TESTKEY").unwrap();
+        assert_eq!(back.format(), Format::V3);
+        assert_eq!(back.records.len(), 5);
+        assert!(
+            !fs::read(&path).unwrap().is_empty(),
+            "v2 original untouched"
+        );
+        fs::remove_dir_all(&dir).unwrap();
     }
 }
