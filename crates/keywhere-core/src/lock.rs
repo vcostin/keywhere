@@ -170,17 +170,45 @@ impl VaultLock {
     }
 
     /// Take over a lock the user confirmed (or we proved) is stale.
-    pub fn take_over(vault: &Path) -> std::io::Result<VaultLock> {
+    ///
+    /// `expected` is the holder string the decision was based on. The lock
+    /// file is first moved aside atomically, so exactly one file is captured;
+    /// if it no longer names `expected` (someone re-took the lock meanwhile),
+    /// it is put back and nothing is taken over.
+    pub fn take_over(vault: &Path, expected: &str) -> std::io::Result<VaultLock> {
         let path = lock_path(vault);
         if held().as_ref().is_some_and(|s| s.contains(&path)) {
             return Err(std::io::Error::other("this process already holds the lock"));
         }
-        let _ = fs::remove_file(&path);
+        let aside = path.with_extension(format!("plk.stale.{:08x}", rand_u32()));
+        match fs::rename(&path, &aside) {
+            Ok(()) => {
+                let holder = fs::read(&aside)
+                    .map(|b| decode_holder(&b))
+                    .unwrap_or_default();
+                if holder != expected {
+                    // Not the lock we judged: restore it (unless a new one
+                    // appeared in the meantime, which then wins).
+                    if fs::hard_link(&aside, &path).is_ok() || !path.exists() {
+                        let _ = fs::rename(&aside, &path);
+                    }
+                    let _ = fs::remove_file(&aside);
+                    return Err(std::io::Error::other(format!(
+                        "lock changed hands (now {})",
+                        sanitize_holder(&holder)
+                    )));
+                }
+                let _ = fs::remove_file(&aside);
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(e),
+        }
         match Self::acquire(vault)? {
             (Some(l), _) => Ok(l),
-            (None, LockState::HeldBy(h)) => {
-                Err(std::io::Error::other(format!("lock was re-taken by {h}")))
-            }
+            (None, LockState::HeldBy(h)) => Err(std::io::Error::other(format!(
+                "lock was re-taken by {}",
+                sanitize_holder(&h)
+            ))),
             (None, _) => Err(std::io::Error::other("could not take lock")),
         }
     }
@@ -234,6 +262,24 @@ impl Drop for VaultLock {
     }
 }
 
+/// Holder text is attacker-controlled (anyone who can write the folder can
+/// plant a `.plk`): keep it short and free of control / bidi characters
+/// before it is shown.
+pub fn sanitize_holder(h: &str) -> String {
+    let clean = crate::display_safe(h);
+    let mut out: String = clean.chars().take(64).collect();
+    if clean.chars().count() > 64 {
+        out.push('…');
+    }
+    out
+}
+
+fn rand_u32() -> u32 {
+    let mut b = [0u8; 4];
+    let _ = getrandom::getrandom(&mut b);
+    u32::from_le_bytes(b)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -271,9 +317,17 @@ mod tests {
         assert!(l.is_none());
         assert_eq!(st, LockState::HeldBy("alice@elsewhere:42".into()));
         assert!(!VaultLock::is_stale("alice@elsewhere:42"));
-        let l = VaultLock::take_over(&vault).unwrap();
+        // A take-over based on a different holder must not steal the lock.
+        assert!(VaultLock::take_over(&vault, "carol@elsewhere:7").is_err());
+        assert_eq!(
+            decode_holder(&fs::read(&plk).unwrap()),
+            "alice@elsewhere:42"
+        );
+        let l = VaultLock::take_over(&vault, "alice@elsewhere:42").unwrap();
         drop(l);
         assert!(!plk.exists());
+        assert_eq!(fs::read_dir(&dir).unwrap().count(), 0, "no stale leftovers");
+        assert_eq!(sanitize_holder("a\u{202e}b\u{7}c"), "abc");
 
         // We never delete a lock that isn't ours (contents replaced).
         let (l, _) = VaultLock::acquire(&vault).unwrap();

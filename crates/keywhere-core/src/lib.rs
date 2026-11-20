@@ -39,6 +39,35 @@ pub enum Error {
     Io(#[from] std::io::Error),
 }
 
+/// Is `c` invisible or able to reorder/hide surrounding text? (C0/C1
+/// controls, bidi embeddings/overrides/isolates and marks, zero-width
+/// characters, the BOM). Vault strings are attacker-controllable in a shared
+/// vault, so they are shown without these.
+pub fn is_deceptive_char(c: char) -> bool {
+    matches!(c,
+        '\u{0}'..='\u{1f}' | '\u{7f}'..='\u{9f}'
+        | '\u{200b}'..='\u{200f}'
+        | '\u{202a}'..='\u{202e}'
+        | '\u{2060}'..='\u{2069}'
+        | '\u{061c}' | '\u{feff}' | '\u{00ad}')
+}
+
+/// `s` without [`is_deceptive_char`]s (tab/newline become a space), for display.
+pub fn display_safe(s: &str) -> std::borrow::Cow<'_, str> {
+    if !s.chars().any(is_deceptive_char) {
+        return std::borrow::Cow::Borrowed(s);
+    }
+    std::borrow::Cow::Owned(
+        s.chars()
+            .filter_map(|c| match c {
+                '\t' | '\n' | '\r' => Some(' '),
+                c if is_deceptive_char(c) => None,
+                c => Some(c),
+            })
+            .collect(),
+    )
+}
+
 /// Header field types (subset Keywhere writes).
 pub mod hdr {
     pub const VERSION: u8 = 0x00;
@@ -354,7 +383,7 @@ impl Vault {
             if key.iterations < psafe3::MIN_ITERATIONS_ON_SAVE {
                 key = KeyMaterial::derive(password, psafe3::MIN_ITERATIONS_ON_SAVE)?;
             }
-            return Ok(Vault {
+            let mut v = Vault {
                 header: raw.header.clone(),
                 records: raw
                     .records
@@ -363,11 +392,13 @@ impl Vault {
                     .collect(),
                 key: VaultKey::V3(key),
                 disk_hash,
-            });
+            };
+            v.normalize_uuids()?;
+            return Ok(v);
         }
         if psafe2::looks_like_v2(bytes) {
             let (raw, key) = psafe2::decode(bytes, password)?;
-            return Ok(Vault {
+            let mut v = Vault {
                 header: vec![],
                 records: raw
                     .records
@@ -380,9 +411,38 @@ impl Vault {
                     utf8: raw.utf8,
                 },
                 disk_hash,
-            });
+            };
+            v.normalize_uuids()?;
+            return Ok(v);
         }
         Err(Error::NotPsafe3)
+    }
+
+    /// Every record must have a unique 16-byte UUID: edits and deletes find
+    /// records by it. Missing, malformed or duplicate ones get a fresh UUID
+    /// (written on the next save). Returns how many were replaced.
+    fn normalize_uuids(&mut self) -> Result<usize, Error> {
+        let mut seen = std::collections::HashSet::new();
+        let mut fixed = 0;
+        for r in &mut self.records {
+            let ok = r
+                .uuid()
+                .is_some_and(|u| u.len() == 16 && seen.insert(u.to_vec()));
+            if !ok {
+                let mut u = [0u8; 16];
+                loop {
+                    getrandom::getrandom(&mut u).map_err(|_| Error::Rng)?;
+                    u[6] = (u[6] & 0x0f) | 0x40;
+                    u[8] = (u[8] & 0x3f) | 0x80;
+                    if seen.insert(u.to_vec()) {
+                        break;
+                    }
+                }
+                r.set(rec::UUID, u.to_vec());
+                fixed += 1;
+            }
+        }
+        Ok(fixed)
     }
 
     pub fn format(&self) -> Format {
@@ -585,6 +645,8 @@ impl Vault {
     /// The temp file is removed on any failure. A residual window remains
     /// between step 5 and the rename; the `.plk` lock covers local writers.
     fn save_inner(&mut self, path: &Path, check: bool) -> Result<(), Error> {
+        let target = save_target(path)?;
+        let path = target.as_path();
         let bytes = self.encrypt()?;
         let tmp = temp_path(path)?;
         let result = (|| {
@@ -685,6 +747,102 @@ impl Vault {
     }
 }
 
+/// Where a save of `path` really lands: a symlinked vault (e.g. a link into
+/// a sync folder) is saved into its target, so the link survives and the sync
+/// client sees the change. A dangling link is an error.
+fn save_target(path: &Path) -> Result<PathBuf, Error> {
+    match fs::symlink_metadata(path) {
+        Ok(m) if m.file_type().is_symlink() => Ok(fs::canonicalize(path)?),
+        _ => Ok(path.to_path_buf()),
+    }
+}
+
+/// Can other local users read the vault file? True when the file grants
+/// group/other read *and* every ancestor directory lets that class through
+/// (so a `0644` file inside a `0700` home is fine). FUSE mounts without
+/// `allow_other` (rclone, sshfs, …) are private to their owner regardless of
+/// the mode bits they report.
+pub fn readable_by_others(path: &Path) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let Ok(real) = fs::canonicalize(path) else {
+            return false;
+        };
+        let Ok(meta) = fs::metadata(&real) else {
+            return false;
+        };
+        let mode = meta.permissions().mode();
+        let (mut group, mut other) = (mode & 0o040 != 0, mode & 0o004 != 0);
+        for dir in real.ancestors().skip(1) {
+            if !(group || other) {
+                break;
+            }
+            let Ok(m) = fs::metadata(dir) else {
+                return false;
+            };
+            let dm = m.permissions().mode();
+            group &= dm & 0o010 != 0;
+            other &= dm & 0o001 != 0;
+        }
+        (group || other) && !private_fuse_mount(&real)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = path;
+        false
+    }
+}
+
+/// Is `path` on a FUSE filesystem mounted without `allow_other`?
+#[cfg(unix)]
+fn private_fuse_mount(path: &Path) -> bool {
+    #[cfg(target_os = "linux")]
+    {
+        let Ok(info) = fs::read_to_string("/proc/self/mountinfo") else {
+            return false;
+        };
+        // The longest mount point that contains `path` is its mount.
+        let mut best: Option<(usize, bool)> = None;
+        for line in info.lines() {
+            let f: Vec<&str> = line.split(' ').collect();
+            let Some(sep) = f.iter().position(|x| *x == "-") else {
+                continue;
+            };
+            let (Some(mnt), Some(fstype), Some(opts)) = (f.get(4), f.get(sep + 1), f.get(sep + 3))
+            else {
+                continue;
+            };
+            let mnt = mnt.replace("\\040", " ");
+            if path.starts_with(&mnt) && best.is_none_or(|(l, _)| mnt.len() > l) {
+                let private =
+                    fstype.starts_with("fuse") && !opts.split(',').any(|o| o == "allow_other");
+                best = Some((mnt.len(), private));
+            }
+        }
+        best.is_some_and(|(_, p)| p)
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = path;
+        false
+    }
+}
+
+/// Make the vault file owner-only (`chmod 600`).
+pub fn restrict_permissions(path: &Path) -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(path, fs::Permissions::from_mode(0o600))
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = path;
+        Ok(())
+    }
+}
+
 fn temp_path(path: &Path) -> Result<PathBuf, Error> {
     let mut r = [0u8; 8];
     getrandom::getrandom(&mut r).map_err(|_| Error::Rng)?;
@@ -712,6 +870,76 @@ fn write_new_file(path: &Path, data: &[u8]) -> Result<(), Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn display_safe_strips_deceptive_chars() {
+        assert_eq!(display_safe("Bank"), "Bank");
+        assert_eq!(display_safe("a\u{202e}b\u{200b}c\u{7}"), "abc");
+        assert_eq!(display_safe("x\ty"), "x y");
+    }
+
+    #[test]
+    fn duplicate_and_missing_uuids_are_replaced() {
+        let mut v = Vault::create(b"pw-for-test").unwrap();
+        let a = Record::new().unwrap();
+        let mut b = Record::new().unwrap();
+        b.set(rec::UUID, a.uuid().unwrap().to_vec());
+        let mut c = Record::new().unwrap();
+        c.remove(rec::UUID);
+        v.records = vec![a, b, c];
+        assert_eq!(v.normalize_uuids().unwrap(), 2);
+        let ids: std::collections::HashSet<_> = v
+            .records
+            .iter()
+            .map(|r| r.uuid().unwrap().to_vec())
+            .collect();
+        assert_eq!(ids.len(), 3);
+        assert!(ids.iter().all(|u| u.len() == 16));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlinked_vault_is_saved_into_its_target() {
+        let dir = std::env::temp_dir().join(format!("kw-link-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let real = dir.join("real.psafe3");
+        let link = dir.join("link.psafe3");
+        let mut v = Vault::create(b"pw-for-test").unwrap();
+        v.save(&real).unwrap();
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        let mut v = Vault::open(&link, b"pw-for-test").unwrap();
+        v.records.push(Record::new().unwrap());
+        v.save(&link).unwrap();
+        assert!(fs::symlink_metadata(&link)
+            .unwrap()
+            .file_type()
+            .is_symlink());
+        assert_eq!(Vault::open(&real, b"pw-for-test").unwrap().records.len(), 1);
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn exposure_check_respects_parent_dirs() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("kw-mode-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(dir.join("inner")).unwrap();
+        let f = dir.join("inner/v.psafe3");
+        fs::write(&f, b"x").unwrap();
+        fs::set_permissions(&f, fs::Permissions::from_mode(0o644)).unwrap();
+        fs::set_permissions(dir.join("inner"), fs::Permissions::from_mode(0o755)).unwrap();
+        let open_parents = readable_by_others(&f);
+        fs::set_permissions(dir.join("inner"), fs::Permissions::from_mode(0o700)).unwrap();
+        assert!(!readable_by_others(&f), "0700 parent hides the file");
+        restrict_permissions(&f).unwrap();
+        fs::set_permissions(dir.join("inner"), fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(!readable_by_others(&f), "0600 file");
+        // Only meaningful when the temp dir itself is reachable by others.
+        let _ = open_parents;
+        fs::remove_dir_all(&dir).unwrap();
+    }
 
     const FIXTURE: &[u8] = include_bytes!("../../../fixtures/original-empty.psafe3");
 

@@ -2909,6 +2909,7 @@ dependencies = [
  "libc",
  "raw-window-handle",
  "sha2 0.10.9",
+ "url",
  "wayland-backend",
  "wayland-client",
  "wayland-protocols 0.31.2",

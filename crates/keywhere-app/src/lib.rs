@@ -295,7 +295,9 @@ impl Shell {
                     path,
                     vault,
                     lock,
-                    since: Instant::now(),
+                    // Idle time already spent counts: hiding must not
+                    // grant a fresh unlocked period.
+                    since: self.last_input,
                 });
             }
         }
@@ -442,6 +444,15 @@ pub fn run(path: Option<PathBuf>) {
     // over to the running instance and exit.
     #[cfg(unix)]
     if sys::instance::forward_to_running(&sys::instance::show_command()) {
+        if let Some(p) = &path {
+            // The running instance keeps its own vault; never silently
+            // pretend the requested file was opened.
+            eprintln!(
+                "Keywhere is already running; showed it instead of opening {}. \
+                 Lock it and use \"Open another vault\" to switch.",
+                p.display()
+            );
+        }
         return;
     }
     run_inner(path, None, None)

@@ -1,10 +1,11 @@
 //! DEV: make a scratch demo vault exercise the health views.
-//! cargo run --example demo_health -- copy.psafe3 PASSWORD
+//! cargo run --example demo_health -- copy.psafe3   (password in $KEYWHERE_PASSWORD)
 use keywhere_core::{now_secs, Vault};
 fn main() {
-    let a: Vec<String> = std::env::args().collect();
-    let path = std::path::PathBuf::from(&a[1]);
-    let mut v = Vault::open(&path, a[2].as_bytes()).expect("open");
+    // Never on argv: visible in `ps` and shell history.
+    let pw = std::env::var("KEYWHERE_PASSWORD").expect("set KEYWHERE_PASSWORD");
+    let path = std::path::PathBuf::from(std::env::args().nth(1).expect("path"));
+    let mut v = Vault::open(&path, pw.as_bytes()).expect("open");
     let now = now_secs();
     for r in v.records.iter_mut() {
         match r.title() {

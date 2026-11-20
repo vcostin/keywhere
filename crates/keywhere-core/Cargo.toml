@@ -2,6 +2,7 @@
 name = "keywhere-core"
 description = "Password Safe v3 (.psafe3) vault engine for Keywhere"
 version.workspace = true
+publish = false
 edition.workspace = true
 license.workspace = true
 

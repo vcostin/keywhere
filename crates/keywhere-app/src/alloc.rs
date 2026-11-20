@@ -56,6 +56,12 @@ unsafe impl GlobalAlloc for ZeroizeOnFree {
 
 #[inline]
 unsafe fn wipe(ptr: *mut u8, len: usize) {
+    // glibc's explicit_bzero is a memset the compiler must not elide.
+    #[cfg(all(target_os = "linux", target_env = "gnu"))]
+    unsafe {
+        libc::explicit_bzero(ptr.cast(), len);
+    }
+    #[cfg(not(all(target_os = "linux", target_env = "gnu")))]
     unsafe {
         // `write_bytes` + a compiler fence: the zeroing is a visible side
         // effect that the optimizer must keep before the free.

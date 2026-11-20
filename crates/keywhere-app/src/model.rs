@@ -65,8 +65,11 @@ pub fn build(vault: &Vault) -> Vec<EntryVm> {
         .enumerate()
         .map(|(index, r)| {
             let group = r.group_path();
-            let title = r.title().to_string();
-            let username = r.text(rec::USERNAME).unwrap_or("").to_string();
+            // Display copies: no control/bidi/zero-width tricks (a shared
+            // vault's author could make one entry look like another).
+            let title = keywhere_core::display_safe(r.title()).into_owned();
+            let username =
+                keywhere_core::display_safe(r.text(rec::USERNAME).unwrap_or("")).into_owned();
             let haystack = [
                 title.as_str(),
                 username.as_str(),
@@ -78,7 +81,9 @@ pub fn build(vault: &Vault) -> Vec<EntryVm> {
             .to_lowercase();
             EntryVm {
                 index,
-                group_label: group.join(" / ").into(),
+                group_label: keywhere_core::display_safe(&group.join(" / "))
+                    .into_owned()
+                    .into(),
                 title: title.into(),
                 username: username.into(),
                 group,
@@ -253,6 +258,43 @@ pub fn weekday_mon0(y: i64, m: u32, d: u32) -> u32 {
     (days_from_civil(y, m, d) + 3).rem_euclid(7) as u32
 }
 
+/// A vault URL as the browser will really see it.
+pub struct WebLink {
+    /// What is handed to the OS opener (WHATWG-serialized).
+    pub normalized: String,
+    /// The host that will be contacted (punycode for international names).
+    pub host: String,
+    /// Internationalized host: may imitate another (Cyrillic "а" vs "a").
+    pub idn: bool,
+    /// The visible text would mislead: hidden/control characters, or
+    /// `user@host` userinfo (`https://bank.example@evil.example`).
+    pub suspicious: bool,
+}
+
+/// Parse an http(s) URL from the vault; `None` for anything else.
+pub fn web_link(raw: &str) -> Option<WebLink> {
+    let trimmed = raw.trim();
+    let lower = trimmed.to_ascii_lowercase();
+    if !(lower.starts_with("https://") || lower.starts_with("http://")) {
+        return None;
+    }
+    let url = url::Url::parse(trimmed).ok()?;
+    if !matches!(url.scheme(), "http" | "https") {
+        return None;
+    }
+    let host = url.host_str()?.to_string();
+    let hidden = trimmed
+        .chars()
+        .any(|c| keywhere_core::is_deceptive_char(c) || c.is_whitespace());
+    let userinfo = !url.username().is_empty() || url.password().is_some();
+    Some(WebLink {
+        normalized: url.to_string(),
+        idn: host.split('.').any(|l| l.starts_with("xn--")),
+        host,
+        suspicious: hidden || userinfo,
+    })
+}
+
 pub fn fmt_iso_date(secs: u64) -> String {
     let (y, m, d) = civil(secs);
     format!("{y:04}-{m:02}-{d:02}")
@@ -296,6 +338,24 @@ mod tests {
         assert_eq!(fmt_iso_date(1_795_132_800), "2026-11-20");
         assert_eq!(parse_iso_date("2026-02-31"), None);
         assert_eq!(parse_iso_date("nope"), None);
+    }
+
+    #[test]
+    fn web_links() {
+        let l = web_link("https://accounts.google.com.secure-login\t@evil.example").unwrap();
+        assert!(l.suspicious);
+        assert_eq!(l.host, "evil.example");
+        assert!(
+            web_link("https://good.example@evil.example")
+                .unwrap()
+                .suspicious
+        );
+        let l = web_link("https://\u{430}pple.com").unwrap();
+        assert!(l.idn && !l.suspicious && l.host.starts_with("xn--"));
+        let l = web_link("https://example.com/login").unwrap();
+        assert!(!l.idn && !l.suspicious);
+        assert!(web_link("javascript:alert(1)").is_none());
+        assert!(web_link("file:///etc/passwd").is_none());
     }
 
     #[test]

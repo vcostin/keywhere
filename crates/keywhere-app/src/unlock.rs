@@ -105,6 +105,7 @@ impl UnlockView {
                     Ok(v) => {
                         this.failures = 0;
                         this.result = Some(v);
+                        crate::browser::clear_rescue_note();
                         cx.emit(UnlockEvent::Unlocked);
                     }
                     Err(e) => {
@@ -257,6 +258,15 @@ impl Render for UnlockView {
                                             .child(crate::i18n::t("Caps Lock is on"))
                                     }),
                             )
+                            .when_some(crate::browser::rescue_note(), |d, note| {
+                                d.child(
+                                    div()
+                                        .mt_1()
+                                        .text_size(px(11.5))
+                                        .text_color(c(WARN))
+                                        .child(note),
+                                )
+                            })
                             .child(
                                 div()
                                     .id("unlock")

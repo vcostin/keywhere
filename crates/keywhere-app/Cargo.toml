@@ -2,6 +2,7 @@
 name = "keywhere"
 description = "Keywhere — a modern Password Safe (.psafe3) compatible password manager"
 version.workspace = true
+publish = false
 edition.workspace = true
 license.workspace = true
 
@@ -23,6 +24,7 @@ gpui = "=0.2.2"
 zeroize = "1"
 sha2 = "0.10"
 futures = "0.3"
+url = "2.5"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

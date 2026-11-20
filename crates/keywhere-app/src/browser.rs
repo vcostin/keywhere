@@ -70,6 +70,11 @@ pub struct Browser {
     /// The file changed on disk since we opened it; our edit is unsaved.
     conflict: bool,
     save_error: Option<SharedString>,
+    /// The file was Password Safe v3 last time and is v2 now (possibly an
+    /// old copy planted in the sync folder): read-only until confirmed.
+    downgraded: bool,
+    /// Other local users can read the vault file.
+    exposed: bool,
     /// Folded groups in the sidebar tree. Kept in memory only: group names
     /// are vault content and must not be written to a plain config file.
     collapsed: std::collections::HashSet<Vec<String>>,
@@ -87,6 +92,27 @@ pub struct Browser {
 }
 
 impl EventEmitter<BrowserEvent> for Browser {}
+
+/// Message for the unlock screen about rescued unsaved changes.
+static RESCUE_NOTE: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
+pub fn rescue_note() -> Option<String> {
+    RESCUE_NOTE
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone()
+}
+
+pub fn clear_rescue_note() {
+    RESCUE_NOTE.lock().unwrap_or_else(|e| e.into_inner()).take();
+}
+
+impl Drop for Browser {
+    fn drop(&mut self) {
+        // Lock, idle lock, sleep, quit: every way out of the unlocked view.
+        self.rescue_unsaved();
+    }
+}
 
 impl Focusable for Browser {
     fn focus_handle(&self, _: &App) -> FocusHandle {
@@ -148,7 +174,7 @@ impl Browser {
             // A lock left by a crashed/killed process on this machine is
             // safe to reclaim; anything else is the user's call.
             Ok((_, LockState::HeldBy(h))) if VaultLock::is_stale(&h) => {
-                match VaultLock::take_over(&path) {
+                match VaultLock::take_over(&path, &h) {
                     Ok(l) => (Some(l), None),
                     Err(_) => (None, Some(h)),
                 }
@@ -180,6 +206,8 @@ impl Browser {
             locked_by,
             conflict: false,
             save_error: None,
+            downgraded: false,
+            exposed: false,
             confirm_delete: None,
             collapsed: Default::default(),
             group_menu: None,
@@ -189,6 +217,11 @@ impl Browser {
             _ticker: ticker,
             _on_quit: on_quit,
         };
+        this.downgraded = this.vault().format() == Format::V2 && config::last_seen_v3(&this.path);
+        if this.vault().format() == Format::V3 {
+            config::remember_format(&this.path, true);
+        }
+        this.exposed = keywhere_core::readable_by_others(&this.path);
         this.refilter(cx);
         this
     }
@@ -213,6 +246,7 @@ impl Browser {
     /// view's 30 s timer goes away with it).
     pub fn take_session(&mut self, cx: &mut Context<Self>) -> Option<(Vault, Option<VaultLock>)> {
         self.clear_clipboard_if_ours(cx);
+        self.rescue_unsaved();
         self.editor = None;
         self.confirm_delete = None;
         let v = self.vault.take()?;
@@ -220,7 +254,43 @@ impl Browser {
     }
 
     pub fn read_only(&self) -> bool {
-        self.vault_lock.is_none()
+        self.vault_lock.is_none() || self.downgraded
+    }
+
+    /// Edits that could not be saved (conflict / I/O error) must not vanish
+    /// when the vault locks: write them, encrypted with the same key, to
+    /// `<name>.unsaved-<time>.<ext>` next to the vault and tell the user on
+    /// the unlock screen.
+    fn rescue_unsaved(&mut self) {
+        if !(self.conflict || self.save_error.is_some()) || self.vault_lock.is_none() {
+            return;
+        }
+        let Some(vault) = self.vault.as_mut() else {
+            return;
+        };
+        let stem = self
+            .path
+            .file_stem()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let ext = self
+            .path
+            .extension()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "psafe3".into());
+        let rescue = self
+            .path
+            .with_file_name(format!("{stem}.unsaved-{}.{ext}", now_secs()));
+        let msg = match vault.save_overwrite(&rescue) {
+            Ok(()) => tf(
+                "Changes that could not be saved were kept in {name} (same master password).",
+                &[("name", &config::display_path(&rescue))],
+            ),
+            Err(e) => tf("Unsaved changes were lost: {e}", &[("e", &e.to_string())]),
+        };
+        *RESCUE_NOTE.lock().unwrap_or_else(|e| e.into_inner()) = Some(msg);
+        self.conflict = false;
+        self.save_error = None;
     }
 
     fn selected_record(&self) -> Option<&Record> {
@@ -270,6 +340,10 @@ impl Browser {
             Ok(()) => {
                 self.conflict = false;
                 self.save_error = None;
+                self.exposed = keywhere_core::readable_by_others(&self.path);
+                if self.vault().format() == Format::V3 {
+                    config::remember_format(&self.path, true);
+                }
                 self.toast(crate::i18n::t("Saved"));
                 true
             }
@@ -477,7 +551,10 @@ impl Browser {
         let Some(uuid) = r.uuid().map(<[u8]>::to_vec) else {
             return;
         };
-        self.confirm_delete = Some((uuid, r.title().to_string().into()));
+        self.confirm_delete = Some((
+            uuid,
+            keywhere_core::display_safe(r.title()).into_owned().into(),
+        ));
         window.focus(&self.dialog_focus);
         cx.notify();
     }
@@ -1101,7 +1178,10 @@ impl Browser {
     }
 
     fn take_over_lock(&mut self, cx: &mut Context<Self>) {
-        match VaultLock::take_over(&self.path) {
+        let Some(holder) = self.locked_by.clone() else {
+            return;
+        };
+        match VaultLock::take_over(&self.path, &holder) {
             Ok(l) => {
                 self.vault_lock = Some(l);
                 self.locked_by = None;
@@ -1140,7 +1220,8 @@ impl Browser {
                     .and_then(|c| c.text())
                     .map(zeroize::Zeroizing::new)
             });
-            if current.as_deref().map(|s| hash(s)) == Some(h) {
+            // Unreadable clipboard: assume the secret may still be there.
+            if current.is_none() || current.as_deref().map(|s| hash(s)) == Some(h) {
                 crate::sys::clipboard::clear();
                 cx.write_to_clipboard(ClipboardItem::new_string(String::new()));
             }
@@ -1214,9 +1295,16 @@ impl Browser {
     fn copy_text(&mut self, text: &str, label: &'static str, cx: &mut Context<Self>) {
         self.clip_hash = Some(hash(text));
         self.clip_until = Some(Instant::now() + crate::settings::get().clipboard_clear());
-        // Secure path first (clipboard-history exclusion); GPUI as fallback.
+        // Only through the secure path (clipboard-history exclusion hints).
+        // A plain fallback would let clipboard managers keep the secret.
         if !crate::sys::clipboard::set_secret(text) {
-            cx.write_to_clipboard(ClipboardItem::new_string(text.to_string()));
+            self.clip_hash = None;
+            self.clip_until = None;
+            self.toast(crate::i18n::t(
+                "Copy failed: the clipboard is not available",
+            ));
+            cx.notify();
+            return;
         }
         self.toast(tf("{label} copied", &[("label", crate::i18n::t(label))]));
         cx.notify();
@@ -1241,9 +1329,10 @@ impl Browser {
     fn open_url(&mut self, cx: &mut Context<Self>) {
         let Some(sel) = self.selected else { return };
         if let Some(url) = self.vault().records[self.entries[sel].index].text(rec::URL) {
-            // Only hand web URLs to the OS opener.
-            if url.starts_with("https://") || url.starts_with("http://") {
-                cx.open_url(url);
+            if let Some(link) = model::web_link(url) {
+                if !link.suspicious {
+                    cx.open_url(&link.normalized);
+                }
             }
         }
     }
@@ -1631,10 +1720,12 @@ impl Browser {
                 d.bg(c(SELECTION)).border_l_2().border_color(c(ACCENT))
             })
             .when(!on, |d| d.hover(|d| d.bg(c(HOVER))))
-            .on_click(cx.listener(move |this, ev: &gpui::ClickEvent, _, cx| {
+            .on_click(cx.listener(move |this, ev: &gpui::ClickEvent, window, cx| {
                 this.select_visible(pos, cx);
-                if ev.click_count() >= 2 {
-                    this.copy(rec::PASSWORD, crate::i18n::t("Password"), cx);
+                // Double-click opens the entry; copying a secret stays an
+                // explicit action (button, Enter, Ctrl+C).
+                if ev.click_count() >= 2 && !this.read_only() {
+                    this.start_edit(false, window, cx);
                 }
             }))
             .child(
@@ -1896,25 +1987,46 @@ impl Browser {
                 }),
             );
         if let Some(u) = r.text(rec::URL).filter(|s| !s.is_empty()) {
-            let web = u.starts_with("http://") || u.starts_with("https://");
-            fields = fields.child(
-                Self::field_row(
-                    crate::i18n::t("Website"),
-                    div()
-                        .text_color(c(if web { LINK } else { TEXT }))
-                        .child(crate::secret_text::display(u)),
-                )
-                .child(
-                    Self::icon_btn("cl", "icons/copy.svg")
-                        .on_click(cx.listener(|t, _, _, cx| t.copy(rec::URL, "URL", cx))),
-                )
-                .when(web, |d| {
-                    d.child(
-                        Self::icon_btn("ou", "icons/external.svg")
-                            .on_click(cx.listener(|t, _, _, cx| t.open_url(cx))),
+            let link = model::web_link(u);
+            let web = link.as_ref().is_some_and(|l| !l.suspicious);
+            let host_note = link.as_ref().and_then(|l| {
+                (l.suspicious || l.idn).then(|| {
+                    if l.suspicious {
+                        tf(
+                            "Not opened: misleading address (real host {host})",
+                            &[("host", &l.host)],
+                        )
+                    } else {
+                        tf("Opens {host}", &[("host", &l.host)])
+                    }
+                })
+            });
+            fields =
+                fields.child(
+                    Self::field_row(
+                        crate::i18n::t("Website"),
+                        div()
+                            .flex()
+                            .flex_col()
+                            .min_w_0()
+                            .child(div().text_color(c(if web { LINK } else { TEXT })).child(
+                                crate::secret_text::display(&keywhere_core::display_safe(u)),
+                            ))
+                            .when_some(host_note, |d, note| {
+                                d.child(div().text_size(px(11.)).text_color(c(WARN)).child(note))
+                            }),
                     )
-                }),
-            );
+                    .child(
+                        Self::icon_btn("cl", "icons/copy.svg")
+                            .on_click(cx.listener(|t, _, _, cx| t.copy(rec::URL, "URL", cx))),
+                    )
+                    .when(web, |d| {
+                        d.child(
+                            Self::icon_btn("ou", "icons/external.svg")
+                                .on_click(cx.listener(|t, _, _, cx| t.open_url(cx))),
+                        )
+                    }),
+                );
         }
         if let Some(m) = r.text(rec::EMAIL).filter(|s| !s.is_empty()) {
             fields = fields.child(
@@ -2382,8 +2494,40 @@ impl Render for Browser {
                     )
                     .child(chrome::window_controls(window)),
             )
+            .when(self.downgraded, |d| {
+                d.child(
+                    Self::banner(
+                        "downgrade",
+                        DANGER,
+                        crate::i18n::t("This file was a Password Safe v3 vault and is now an old v2 file. It may have been replaced with an outdated copy (check the .ibak backup or your sync history). Editing is off.").into(),
+                    )
+                    .child(Self::text_btn("keepv2", crate::i18n::t("Edit as v2 anyway")).on_click(cx.listener(|t, _, _, cx| {
+                        t.downgraded = false;
+                        config::remember_format(&t.path, false);
+                        cx.notify();
+                    }))),
+                )
+            })
+            .when(self.exposed, |d| {
+                d.child(
+                    Self::banner(
+                        "exposed",
+                        WARN,
+                        crate::i18n::t("Other users on this computer can read the vault file.").into(),
+                    )
+                    .child(Self::text_btn("chmod", crate::i18n::t("Make private")).on_click(cx.listener(|t, _, _, cx| {
+                        let target = std::fs::canonicalize(&t.path).unwrap_or_else(|_| t.path.clone());
+                        if let Err(e) = keywhere_core::restrict_permissions(&target) {
+                            t.save_error = Some(tf("Could not change permissions: {e}", &[("e", &e.to_string())]).into());
+                        }
+                        t.exposed = keywhere_core::readable_by_others(&t.path);
+                        cx.notify();
+                    }))),
+                )
+            })
             .when_some(self.locked_by.clone(), |d, who| {
                 let stale = VaultLock::is_stale(&who);
+                let who = keywhere_core::lock::sanitize_holder(&who);
                 d.child(
                     Self::banner(
                         "ro",
