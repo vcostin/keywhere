@@ -1656,7 +1656,17 @@ impl Render for Browser {
                         "⌘N new · ⌘E edit · ⌘C password · ⌘B user · ⌘L lock"
                     } else {
                         "Ctrl+N new · Ctrl+E edit · Ctrl+C password · Ctrl+B user · Ctrl+L lock"
-                    }),
+                    })
+                    // Build watermark: which commit this binary is.
+                    .child(
+                        div()
+                            .pl_3()
+                            .border_l_1()
+                            .border_color(c(LINE))
+                            .font_family("monospace")
+                            .text_color(c(if crate::COMMIT.ends_with("-dirty") { WARN } else { DIM }))
+                            .child(crate::COMMIT),
+                    ),
             )
             .children(self.render_confirm_delete(cx))
             .into_any_element()

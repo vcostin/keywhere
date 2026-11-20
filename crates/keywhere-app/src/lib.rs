@@ -24,6 +24,17 @@ use keywhere_core::lock::VaultLock;
 use keywhere_core::Vault;
 
 use browser::{Browser, BrowserEvent};
+
+/// e.g. "0.1.0 · a4cd086 · 2026-11-20 18:09 UTC" ("-dirty" if built with
+/// uncommitted changes).
+pub const VERSION_LABEL: &str = concat!(
+    env!("CARGO_PKG_VERSION"),
+    " · ",
+    env!("KEYWHERE_COMMIT"),
+    " · ",
+    env!("KEYWHERE_BUILD_DATE")
+);
+pub const COMMIT: &str = env!("KEYWHERE_COMMIT");
 use unlock::{UnlockEvent, UnlockView};
 
 /// Lock after this much time without keyboard or mouse input.

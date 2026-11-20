@@ -279,5 +279,23 @@ impl Render for UnlockView {
                             )),
                     ),
             )
+            // Build watermark.
+            .child(
+                div()
+                    .flex_none()
+                    .pb_3()
+                    .flex()
+                    .justify_center()
+                    .text_size(px(10.5))
+                    .text_color(c(DIM))
+                    .child(concat!(
+                        "Keywhere ",
+                        env!("CARGO_PKG_VERSION"),
+                        " · ",
+                        env!("KEYWHERE_COMMIT"),
+                        " · built ",
+                        env!("KEYWHERE_BUILD_DATE")
+                    )),
+            )
     }
 }
