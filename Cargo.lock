@@ -2847,6 +2847,8 @@ version = "0.1.0"
 dependencies = [
  "gpui",
  "keywhere-core",
+ "libc",
+ "sha2 0.10.9",
  "zeroize",
 ]
 

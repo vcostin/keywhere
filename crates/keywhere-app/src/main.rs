@@ -1,12 +1,9 @@
-use gpui::*;
-struct Hello;
-impl Render for Hello {
-    fn render(&mut self, _w: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
-        div().size_full().bg(rgb(0x0A1631)).text_color(rgb(0xE7EDF9)).child("Keywhere")
-    }
-}
+//! Keywhere desktop app entry point.
+
 fn main() {
-    Application::new().run(|cx: &mut App| {
-        cx.open_window(WindowOptions::default(), |_, cx| cx.new(|_| Hello)).unwrap();
-    });
+    let path = std::env::args_os()
+        .nth(1)
+        .map(std::path::PathBuf::from)
+        .or_else(keywhere::config::last_vault);
+    keywhere::run(path, None, None);
 }

@@ -9,3 +9,7 @@ license.workspace = true
 keywhere-core = { path = "../keywhere-core" }
 gpui = "=0.2.2"
 zeroize = "1"
+sha2 = "0.10"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
