@@ -65,7 +65,7 @@ Keywhere keeps the format you already have and adds a calm, keyboard‑first UI 
 - Three‑pane browser: smart views, group tree, instant search, detail card
 - One‑click copy with clipboard auto‑clear and clipboard‑history exclusion
 - Auto‑lock on idle, sleep and screen lock
-- Tray icon with quick search, password generator, expiry and weak‑password views
+- Tray icon (Open / Lock / Quit), `keywhere --show` for a global shortcut, password generator, expiry view
 - Linux, macOS, Windows
 
 Mockups: [docs/mockups/keywhere-mockups.html](docs/mockups/keywhere-mockups.html)

@@ -123,6 +123,9 @@ impl Shell {
                 let (vault, path) = view.update(cx, |v, _| (v.result.take(), v.path.clone()));
                 if let (Some(vault), Some(path)) = (vault, path) {
                     config::remember_vault(&path);
+                    if cx.has_global::<AppState>() {
+                        cx.global_mut::<AppState>().path = Some(path.clone());
+                    }
                     this.show_vault(path, vault, window, cx);
                 }
             }
