@@ -19,6 +19,18 @@ gpui::actions!(keywhere_chrome, [CloseWindow]);
 pub const RESIZE_INSET: Pixels = px(10.);
 const RADIUS: Pixels = px(10.);
 
+/// Corner radius content touching the window corners must use, so nothing
+/// pokes out of the rounded frame (GPUI clips children to rectangles, not
+/// rounded corners). 0 when maximised/tiled or server-decorated.
+pub fn corner_radius(window: &Window) -> Pixels {
+    match window.window_decorations() {
+        Decorations::Client { tiling } if !tiling.is_tiled() && !window.is_maximized() => {
+            RADIUS - px(1.)
+        }
+        _ => px(0.),
+    }
+}
+
 /// Space the native traffic lights need on macOS.
 pub fn leading_inset() -> Pixels {
     if cfg!(target_os = "macos") {

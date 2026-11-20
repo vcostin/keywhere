@@ -168,6 +168,7 @@ impl Render for UnlockView {
             .size_full()
             .flex()
             .flex_col()
+            .rounded(chrome::corner_radius(window))
             .bg(c(BG))
             .child(
                 div()

@@ -504,7 +504,11 @@ impl Browser {
         cx.notify();
     }
 
-    fn render_upgrade(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
+    fn render_upgrade(
+        &self,
+        corner: gpui::Pixels,
+        cx: &mut Context<Self>,
+    ) -> Option<impl IntoElement> {
         let (field, err) = self.upgrade.as_ref()?;
         let btn = |id: &'static str, label: &'static str, primary: bool| {
             div()
@@ -539,6 +543,7 @@ impl Browser {
                 .id("upgrade-backdrop")
                 .absolute()
                 .inset_0()
+                .rounded(corner)
                 .flex()
                 .items_center()
                 .justify_center()
@@ -581,7 +586,11 @@ impl Browser {
         )
     }
 
-    fn render_confirm_delete(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
+    fn render_confirm_delete(
+        &self,
+        corner: gpui::Pixels,
+        cx: &mut Context<Self>,
+    ) -> Option<impl IntoElement> {
         let (_, title) = self.confirm_delete.as_ref()?;
         let btn = |id: &'static str, label: &'static str, danger: bool| {
             div()
@@ -614,6 +623,7 @@ impl Browser {
                 .id("confirm-backdrop")
                 .absolute()
                 .inset_0()
+                .rounded(corner)
                 .flex()
                 .items_center()
                 .justify_center()
@@ -1572,6 +1582,7 @@ impl Render for Browser {
             // Session handed off (window closing): draw nothing.
             return div().size_full().bg(c(BG)).into_any_element();
         }
+        let corner = chrome::corner_radius(window);
         let clip_left = self
             .clip_until
             .map(|t| t.saturating_duration_since(Instant::now()).as_secs());
@@ -1588,6 +1599,7 @@ impl Render for Browser {
             .track_focus(&self.focus)
             .size_full()
             .relative()
+            .rounded(corner)
             .flex()
             .flex_col()
             .bg(c(BG))
@@ -1639,6 +1651,7 @@ impl Render for Browser {
                     .flex()
                     .items_center()
                     .pr(px(6.))
+                    .rounded_t(corner)
                     .bg(c(SURFACE))
                     .border_b_1()
                     .border_color(c(LINE))
@@ -1777,6 +1790,7 @@ impl Render for Browser {
                     .items_center()
                     .gap_4()
                     .px_3()
+                    .rounded_b(corner)
                     .bg(c(SURFACE))
                     .border_t_1()
                     .border_color(c(LINE))
@@ -1846,8 +1860,8 @@ impl Render for Browser {
                             .child(crate::COMMIT),
                     ),
             )
-            .children(self.render_confirm_delete(cx))
-            .children(self.render_upgrade(cx))
+            .children(self.render_confirm_delete(corner, cx))
+            .children(self.render_upgrade(corner, cx))
             .into_any_element()
     }
 }
