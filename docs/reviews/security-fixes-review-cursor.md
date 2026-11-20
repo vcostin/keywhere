@@ -147,3 +147,38 @@ VERDICT: CHANGES REQUESTED
 
 Required before approve:
 1. **N1** — Stop `rescue_unsaved` from updating the in-memory vault’s `disk_hash` (and ideally keep conflict/rescue UX visible if the session is only hidden, not locked).
+
+## Re-check after 9e79653
+
+Re-check of N1 only (plus a brief pass over `git diff 9718fc9..9e79653`). Commit: `9e79653` (*Rescue copy no longer rebinds conflict tracking*). **No source edits** in this pass.
+
+### N1 — Fixed
+
+- **`Vault::save_copy`** ([lib.rs](../../crates/keywhere-core/src/lib.rs)): snapshots `disk_hash`, calls `save_inner(path, false)`, restores the snapshot. Rescue ciphertext lands on disk; conflict tracking for the real vault path is unchanged.
+- **`rescue_unsaved`** ([browser.rs](../../crates/keywhere-app/src/browser.rs)): uses `save_copy` instead of `save_overwrite`.
+- **Tray reopen UX**: `Browser::new` sets `notice` from `rescue_note()`; Render shows a dismissible WARN banner (also clears `RESCUE_NOTE`). Unlock screen still shows the note when the vault was locked rather than only hidden.
+- **Test**: `save_copy_keeps_conflict_tracking` — after `save_copy`, `save` to the original path still succeeds (proves `disk_hash` was not rebound to the rescue file) and the rescue file opens with the unsaved record.
+
+### Conflict-flag / `disk_hash` reasoning (confirmed)
+
+After hide, `rescue_unsaved` still clears the UI `conflict` / `save_error` flags (so the conflict banner does not reappear on tray → Open). That is intentional and no longer harmful:
+
+1. Spurious Conflict (old bug): rescue no longer rebinds `disk_hash` → next save to an *unchanged* vault succeeds and can flush the rescued edits.
+2. Genuine on-disk change: `disk_hash` still hashes the originally opened (or last successfully saved) vault file → `Vault::save` still returns `Error::Conflict` on the next save. The user must confirm overwrite; the rescue file remains as backup. Clearing the banner does not weaken detection.
+
+### Rest of `9718fc9..9e79653`
+
+No additional blockers for this re-check. Prior residuals stand as documented (N2 Low `mlock` silence, N3 Info never-saved dirty drop, KW-H1/F2 default hide out of scope, KW-M5/F10 duplicate `sha2` allow, platform sleep hooks documented). Nothing new in the range that would reverse those calls.
+
+### Checks
+
+| Check | Result |
+| --- | --- |
+| `cargo test --workspace --release` | 52 passed (16 app + 36 core) |
+| `cargo clippy --workspace --all-targets --features keywhere/devtools --release -- -D warnings` | clean |
+
+---
+
+VERDICT: APPROVE
+
+N1 required change is in place; no further required changes from this re-check.
