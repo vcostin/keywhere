@@ -47,6 +47,14 @@ cargo run --release -p keywhere -- path/to/vault.psafe3
 
 macOS/Windows: clipboard protection works; tray and lock‑on‑sleep hooks are not implemented yet.
 
+### Settings and language
+
+The gear button (or `Ctrl+,` / `⌘,`) opens **Settings**: auto‑lock time (1–60 min or never),
+clipboard clear time (5–120 s), what closing the window does (hide and keep unlocked, or lock and
+hide), and the **language** (System, English, Română). Settings apply immediately and are stored in
+`~/.config/keywhere/settings` (never secrets). Translations live in
+`crates/keywhere-app/src/i18n.rs`; adding a language is one column there.
+
 ### Password Gorilla / Password Safe v2 files
 
 Keywhere opens legacy **v2** files (Password Gorilla's `.dat`) and **saves them back as v2**, so

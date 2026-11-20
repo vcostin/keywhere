@@ -23,6 +23,7 @@ static TABLE: &[(&str, &[u8])] = asset_table![
     "icons/file.svg",
     "icons/flag.svg",
     "icons/folder.svg",
+    "icons/gear.svg",
     "icons/list.svg",
     "icons/lock.svg",
     "icons/search.svg",

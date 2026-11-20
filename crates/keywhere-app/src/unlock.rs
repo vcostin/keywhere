@@ -107,7 +107,9 @@ impl UnlockView {
                         }
                         this.error = Some(
                             match e {
-                                Error::WrongPassword => "Wrong master password.".to_string(),
+                                Error::WrongPassword => {
+                                    crate::i18n::t("Wrong master password.").to_string()
+                                }
                                 other => other.to_string(),
                             }
                             .into(),
@@ -127,7 +129,7 @@ impl UnlockView {
             files: true,
             directories: false,
             multiple: false,
-            prompt: Some("Open vault".into()),
+            prompt: Some(crate::i18n::t("Open vault").into()),
         });
         cx.spawn_in(window, async move |this, cx| {
             if let Ok(Ok(Some(mut paths))) = rx.await {
@@ -160,7 +162,7 @@ impl Render for UnlockView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let path_label: SharedString = match &self.path {
             Some(p) => config::display_path(p).into(),
-            None => "No vault selected".into(),
+            None => crate::i18n::t("No vault selected").into(),
         };
         let caps = window.capslock().on;
 
@@ -178,6 +180,7 @@ impl Render for UnlockView {
                     .items_center()
                     .pr(px(6.))
                     .child(chrome::drag_area("unlock-drag").h_full().flex_1())
+                    .child(chrome::settings_button("unlock-settings").mr_1())
                     .child(chrome::window_controls(window)),
             )
             .child(
@@ -200,7 +203,7 @@ impl Render for UnlockView {
                                     .text_size(px(20.))
                                     .font_weight(gpui::FontWeight::BOLD)
                                     .text_color(c(TEXT))
-                                    .child("Unlock vault"),
+                                    .child(crate::i18n::t("Unlock vault")),
                             )
                             .child(
                                 div()
@@ -245,7 +248,7 @@ impl Render for UnlockView {
                                                     .size(px(12.))
                                                     .text_color(c(WARN)),
                                             )
-                                            .child("Caps Lock is on")
+                                            .child(crate::i18n::t("Caps Lock is on"))
                                     }),
                             )
                             .child(
@@ -266,15 +269,15 @@ impl Render for UnlockView {
                                         cx.listener(|this, _, window, cx| this.unlock(window, cx)),
                                     )
                                     .child(if self.busy {
-                                        "Unlocking…"
+                                        crate::i18n::t("Unlocking…")
                                     } else if self.path.is_none() {
-                                        "Choose vault…"
+                                        crate::i18n::t("Choose vault…")
                                     } else {
-                                        "Unlock"
+                                        crate::i18n::t("Unlock")
                                     }),
                             )
                             .child(div().mt_4().flex().gap_4().text_size(px(11.5)).child(
-                                link("choose", "Open another vault…").on_click(
+                                link("choose", crate::i18n::t("Open another vault…")).on_click(
                                     cx.listener(|this, _, window, cx| this.choose(window, cx)),
                                 ),
                             )),

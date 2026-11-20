@@ -1,4 +1,4 @@
-//! Tiny per-user settings: only the last vault path. Never secrets.
+//! Per-user config files (last vault path, settings). Never secrets.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -26,6 +26,19 @@ pub fn remember_vault(path: &Path) {
     if let Some(dir) = config_dir() {
         let _ = fs::create_dir_all(&dir);
         let _ = fs::write(dir.join("last-vault"), path.to_string_lossy().as_bytes());
+    }
+}
+
+/// Read a small text file from the config dir.
+pub fn read_file(name: &str) -> Option<String> {
+    fs::read_to_string(config_dir()?.join(name)).ok()
+}
+
+/// Write a small text file to the config dir (best effort).
+pub fn write_file(name: &str, text: &str) {
+    if let Some(dir) = config_dir() {
+        let _ = fs::create_dir_all(&dir);
+        let _ = fs::write(dir.join(name), text.as_bytes());
     }
 }
 

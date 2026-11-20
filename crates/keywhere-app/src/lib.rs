@@ -6,8 +6,11 @@ pub mod chrome;
 pub mod config;
 pub mod editor;
 pub mod field;
+pub mod i18n;
 pub mod model;
 pub mod secret_text;
+pub mod settings;
+pub mod settings_view;
 pub mod sys;
 pub mod theme;
 pub mod unlock;
@@ -37,8 +40,10 @@ pub const VERSION_LABEL: &str = concat!(
 pub const COMMIT: &str = env!("KEYWHERE_COMMIT");
 use unlock::{UnlockEvent, UnlockView};
 
-/// Lock after this much time without keyboard or mouse input.
-const IDLE_LOCK: Duration = Duration::from_secs(5 * 60);
+/// Idle time before locking (from settings; `None` = never).
+fn idle_lock() -> Option<Duration> {
+    settings::get().idle_lock()
+}
 
 /// App-wide state that outlives any one window (the tray keeps the app
 /// running after the window is closed).
@@ -47,7 +52,7 @@ struct AppState {
     tray: sys::Tray,
     window: Option<WindowHandle<Shell>>,
     /// Unlocked vault kept while the window is hidden to the tray. Dropped
-    /// (zeroized) on lock, after `IDLE_LOCK`, on screen lock / sleep, on quit.
+    /// (zeroized) on lock, after the auto-lock time, on screen lock / sleep, on quit.
     hidden: Option<HiddenSession>,
 }
 
@@ -83,6 +88,7 @@ enum Screen {
 
 struct Shell {
     screen: Screen,
+    settings: Option<Entity<settings_view::SettingsView>>,
     last_input: Instant,
     _idle: gpui::Task<()>,
     _on_quit: gpui::Subscription,
@@ -100,7 +106,8 @@ impl Shell {
             cx.background_executor().timer(Duration::from_secs(1)).await;
             secret_text::sweep();
             let r = this.update_in(cx, |this, window, cx| {
-                if matches!(this.screen, Screen::Vault(_)) && this.last_input.elapsed() >= IDLE_LOCK
+                if matches!(this.screen, Screen::Vault(_))
+                    && idle_lock().is_some_and(|d| this.last_input.elapsed() >= d)
                 {
                     this.lock(window, cx);
                 }
@@ -117,6 +124,7 @@ impl Shell {
         });
         let mut this = Self {
             screen: Screen::Unlock(Self::unlock_view(path.clone(), window, cx)),
+            settings: None,
             last_input: Instant::now(),
             _idle: idle,
             // Best-effort final wipe of secret display strings on exit.
@@ -127,7 +135,10 @@ impl Shell {
         };
         if let (Some((v, lock)), Some(p)) = (preunlocked, path) {
             this.show_vault(p, v, lock, window, cx);
-            // Dev screenshots: "Title", "edit:Title", "delete:Title", "copy:Title" or "new".
+            if select.as_deref() == Some("settings") {
+                this.open_settings(window, cx);
+            }
+            // Dev screenshots: "Title", "edit:Title", "delete:Title", "copy:Title", "settings" or "new".
             if let (Some(t), Screen::Vault(b)) = (select, &this.screen) {
                 b.update(cx, |b, cx| match t.split_once(':') {
                     Some(("delete", title)) => {
@@ -144,6 +155,7 @@ impl Shell {
                     }
                     _ if t == "new" => b.start_edit(true, window, cx),
                     _ if t == "upgrade" => b.open_upgrade(window, cx),
+                    _ if t == "settings" => {}
                     #[cfg(feature = "devtools")]
                     _ if t == "newpass" => {
                         b.start_edit(true, window, cx);
@@ -213,7 +225,7 @@ impl Shell {
 
     /// Window close button / Alt+F4. With a tray: the window is removed
     /// entirely (no taskbar entry) and an unlocked session is kept in the
-    /// background (auto-locks after `IDLE_LOCK`, on screen lock / sleep, tray
+    /// background (auto-locks after the auto-lock time, on screen lock / sleep, tray
     /// → Lock, quit); tray → Open brings it back unlocked. Without a tray:
     /// quit. (Relies on the vendored gpui keep-alive patch.)
     pub(crate) fn close_window(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -222,6 +234,9 @@ impl Shell {
             self.lock(window, cx);
             cx.quit();
             return;
+        }
+        if settings::get().close_action == settings::CloseAction::Lock {
+            self.lock(window, cx);
         }
         if let Screen::Vault(b) = &self.screen {
             let path = b.read(cx).path.clone();
@@ -236,6 +251,25 @@ impl Shell {
         }
         cx.global_mut::<AppState>().window = None;
         window.remove_window();
+    }
+
+    fn open_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.settings.is_some() {
+            return;
+        }
+        let v = cx.new(|cx| settings_view::SettingsView::new(window, cx));
+        cx.subscribe_in(&v, window, |this, _, ev, window, cx| match ev {
+            settings_view::SettingsEvent::Close => this.close_settings(window, cx),
+        })
+        .detach();
+        self.settings = Some(v);
+        cx.notify();
+    }
+
+    fn close_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.settings = None;
+        self.focus_primary(window, cx);
+        cx.notify();
     }
 
     /// Drop the vault (zeroizing all decrypted fields) and return to unlock.
@@ -267,9 +301,32 @@ impl Render for Shell {
             .capture_any_mouse_down(cx.listener(|this, _, _, _| this.last_input = Instant::now()))
             .on_mouse_move(cx.listener(|this, _, _, _| this.last_input = Instant::now()))
             .capture_key_down(cx.listener(|this, _, _, _| this.last_input = Instant::now()))
+            .on_action(
+                cx.listener(|this, _: &OpenSettings, window, cx| this.open_settings(window, cx)),
+            )
+            .relative()
             .child(match &self.screen {
                 Screen::Unlock(v) => v.clone().into_any_element(),
                 Screen::Vault(b) => b.clone().into_any_element(),
+            })
+            .when_some(self.settings.clone(), |d, v| {
+                d.child(
+                    div()
+                        .id("settings-backdrop")
+                        .absolute()
+                        .inset_0()
+                        .rounded(chrome::corner_radius(window))
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .p_4()
+                        .bg(theme::ca(0x050B1A, 0xB0))
+                        .occlude()
+                        .on_click(
+                            cx.listener(|this, _, window, cx| this.close_settings(window, cx)),
+                        )
+                        .child(v),
+                )
             });
         chrome::frame(window, content)
     }
@@ -315,6 +372,7 @@ fn run_inner(path: Option<PathBuf>, preunlocked: Preunlocked, select: Option<Str
         .with_assets(assets::Assets)
         .run(move |cx: &mut App| {
             assets::load_fonts(cx);
+            i18n::apply_setting(settings::get().language);
             use browser::*;
             cx.bind_keys([
                 KeyBinding::new("secondary-l", Lock, None),
@@ -335,6 +393,7 @@ fn run_inner(path: Option<PathBuf>, preunlocked: Preunlocked, select: Option<Str
                     Some("Browser && !TextField && !Editor"),
                 ),
                 KeyBinding::new("secondary-q", Quit, None),
+                KeyBinding::new("secondary-,", OpenSettings, None),
             ]);
             cx.on_action(|_: &Quit, cx| cx.quit());
 
@@ -370,7 +429,7 @@ fn run_inner(path: Option<PathBuf>, preunlocked: Preunlocked, select: Option<Str
                         .global::<AppState>()
                         .hidden
                         .as_ref()
-                        .is_some_and(|h| h.since.elapsed() >= IDLE_LOCK);
+                        .is_some_and(|h| idle_lock().is_some_and(|d| h.since.elapsed() >= d));
                     if expired {
                         drop_hidden_session(cx);
                     }
@@ -495,4 +554,4 @@ fn handle_sys_event(ev: sys::SysEvent, cx: &mut App) {
     }
 }
 
-gpui::actions!(keywhere, [Quit]);
+gpui::actions!(keywhere, [Quit, OpenSettings]);

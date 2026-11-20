@@ -31,6 +31,28 @@ pub fn corner_radius(window: &Window) -> Pixels {
     }
 }
 
+/// Gear button that opens the settings overlay.
+pub fn settings_button(id: &'static str) -> Stateful<Div> {
+    div()
+        .id(id)
+        .size(px(30.))
+        .flex_none()
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded(px(7.))
+        .cursor_pointer()
+        .hover(|d| d.bg(c(RAISED)))
+        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+        .on_click(|_, window, cx| window.dispatch_action(Box::new(crate::OpenSettings), cx))
+        .child(
+            svg()
+                .path("icons/gear.svg")
+                .size(px(15.))
+                .text_color(c(MUTED)),
+        )
+}
+
 /// Space the native traffic lights need on macOS.
 pub fn leading_inset() -> Pixels {
     if cfg!(target_os = "macos") {

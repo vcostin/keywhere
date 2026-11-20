@@ -26,7 +26,8 @@ pub struct TextField {
     buf: Zeroizing<String>,
     /// Byte offset of the caret; always on a char boundary.
     cursor: usize,
-    placeholder: SharedString,
+    /// English text; translated at render so a language switch applies live.
+    placeholder: &'static str,
     secret: bool,
     revealed: bool,
     multiline: bool,
@@ -47,12 +48,12 @@ impl Focusable for TextField {
 }
 
 impl TextField {
-    pub fn new(cx: &mut Context<Self>, placeholder: &str, secret: bool) -> Self {
+    pub fn new(cx: &mut Context<Self>, placeholder: &'static str, secret: bool) -> Self {
         Self {
             focus: cx.focus_handle(),
             buf: Zeroizing::new(String::new()),
             cursor: 0,
-            placeholder: SharedString::from(placeholder.to_string()),
+            placeholder,
             secret,
             revealed: false,
             multiline: false,
@@ -296,7 +297,7 @@ impl Render for TextField {
                 .items_center()
                 .text_color(c(DIM))
                 .when(focused, |d| d.child(Self::caret().mr(px(2.))))
-                .child(self.placeholder.clone())
+                .child(crate::i18n::t(self.placeholder))
         } else {
             let mut col = div().flex().flex_col().text_color(c(TEXT));
             let mut offset = 0;

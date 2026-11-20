@@ -14,6 +14,7 @@ use sha2::{Digest, Sha256};
 
 use crate::editor::{EditorEvent, EntryEditor};
 use crate::field::{FieldEvent, TextField};
+use crate::i18n::tf;
 use crate::model::{self, EntryVm, Filter, GroupNode};
 use crate::{chrome, config, theme::*};
 
@@ -35,7 +36,6 @@ actions!(
     ]
 );
 
-pub const CLIPBOARD_CLEAR: Duration = Duration::from_secs(30);
 pub const REVEAL_FOR: Duration = Duration::from_secs(15);
 
 pub enum BrowserEvent {
@@ -106,7 +106,7 @@ impl Browser {
             FieldEvent::Changed => this.refilter(cx),
             FieldEvent::Submit => {
                 if this.selected.is_some() {
-                    this.copy(rec::PASSWORD, "Password", cx);
+                    this.copy(rec::PASSWORD, crate::i18n::t("Password"), cx);
                 }
             }
             FieldEvent::Escape => {
@@ -147,10 +147,7 @@ impl Browser {
                 }
             }
             Ok((_, LockState::HeldBy(h))) => (None, Some(h)),
-            Err(e) => (
-                None,
-                Some(format!("unknown (could not create lock file: {e})")),
-            ),
+            Err(e) => (None, Some(format!("? ({e})"))),
         };
 
         let focus = cx.focus_handle();
@@ -271,7 +268,7 @@ impl Browser {
                 false
             }
             Err(e) => {
-                self.save_error = Some(format!("Save failed: {e}").into());
+                self.save_error = Some(tf("Save failed: {e}", &[("e", &e.to_string())]).into());
                 false
             }
         }
@@ -470,15 +467,26 @@ impl Browser {
                 .unwrap_or_default();
             return fail(
                 self,
-                format!("{name} already exists; move it away first."),
+                tf(
+                    "{name} already exists; move it away first.",
+                    &[("name", &name)],
+                ),
                 cx,
             );
         }
         // All-or-nothing in the core: on failure the vault stays v2.
         match self.vault_mut().upgrade_to_v3_at(&pw, &new_path) {
             Ok(()) => {}
-            Err(Error::WrongPassword) => return fail(self, "Wrong master password.".into(), cx),
-            Err(e) => return fail(self, format!("Could not write the v3 file: {e}"), cx),
+            Err(Error::WrongPassword) => {
+                return fail(self, crate::i18n::t("Wrong master password.").into(), cx)
+            }
+            Err(e) => {
+                return fail(
+                    self,
+                    tf("Could not write the v3 file: {e}", &[("e", &e.to_string())]),
+                    cx,
+                )
+            }
         }
         // Switch to the new file: release the v2 lock, take the v3 one.
         self.vault_lock = None;
@@ -487,18 +495,21 @@ impl Browser {
             Ok((Some(l), _)) => self.vault_lock = Some(l),
             _ => {
                 self.save_error =
-                    Some("Upgraded, but the new file's lock could not be taken; read-only until you reopen it.".into())
+                    Some(crate::i18n::t("Upgraded, but the new file's lock could not be taken; read-only until you reopen it.").into())
             }
         }
         config::remember_vault(&new_path);
         cx.emit(BrowserEvent::PathChanged(new_path.clone()));
         self.upgrade = None;
-        self.toast(format!(
-            "Upgraded — now using {} (the v2 file is unchanged)",
-            new_path
-                .file_name()
-                .map(|n| n.to_string_lossy().into_owned())
-                .unwrap_or_default()
+        self.toast(tf(
+            "Upgraded — now using {name} (the v2 file is unchanged)",
+            &[(
+                "name",
+                &new_path
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_default(),
+            )],
         ));
         window.focus(&self.focus);
         cx.notify();
@@ -562,10 +573,11 @@ impl Browser {
                         .flex()
                         .flex_col()
                         .gap_3()
-                        .child(div().text_size(px(15.)).font_weight(FontWeight::BOLD).text_color(c(TEXT)).child("Upgrade to Password Safe v3"))
+                        .child(div().text_size(px(15.)).font_weight(FontWeight::BOLD).text_color(c(TEXT)).child(crate::i18n::t("Upgrade to Password Safe v3")))
                         .child(
-                            div().text_size(px(12.5)).text_color(c(TEXT_SOFT)).line_height(px(19.)).child(SharedString::from(format!(
-                                "Keywhere writes a new file, {target}, with modern encryption (262,144 key‑stretching rounds and tamper detection) and continues with it. The v2 file stays exactly as it is. Password Gorilla 1.5+ and Password Safe 3 open v3."
+                            div().text_size(px(12.5)).text_color(c(TEXT_SOFT)).line_height(px(19.)).child(SharedString::from(tf(
+                                "Keywhere writes a new file, {target}, with modern encryption (262,144 key‑stretching rounds and tamper detection) and continues with it. The v2 file stays exactly as it is. Password Gorilla 1.5+ and Password Safe 3 open v3.",
+                                &[("target", &target)],
                             ))),
                         )
                         .child(field.clone())
@@ -575,12 +587,12 @@ impl Browser {
                                 .flex()
                                 .justify_end()
                                 .gap_2()
-                                .child(btn("up-cancel", "Cancel", false).on_click(cx.listener(|t, _, w, cx| {
+                                .child(btn("up-cancel", crate::i18n::t("Cancel"), false).on_click(cx.listener(|t, _, w, cx| {
                                     t.upgrade = None;
                                     w.focus(&t.focus);
                                     cx.notify();
                                 })))
-                                .child(btn("up-go", "Upgrade", true).on_click(cx.listener(|t, _, w, cx| t.do_upgrade(w, cx)))),
+                                .child(btn("up-go", crate::i18n::t("Upgrade"), true).on_click(cx.listener(|t, _, w, cx| t.do_upgrade(w, cx)))),
                         ),
                 ),
         )
@@ -678,12 +690,12 @@ impl Browser {
                                         .text_size(px(15.))
                                         .font_weight(FontWeight::BOLD)
                                         .text_color(c(TEXT))
-                                        .child(SharedString::from(format!("Delete “{title}”?"))),
+                                        .child(SharedString::from(tf("Delete “{title}”?", &[("title", title)]))),
                                 ),
                         )
                         .child(
                             div().text_size(px(12.5)).text_color(c(TEXT_SOFT)).line_height(px(19.)).child(
-                                "The entry is removed from the vault file. The previous version of the file is kept next to it as a .ibak backup.",
+                                crate::i18n::t("The entry is removed from the vault file. The previous version of the file is kept next to it as a .ibak backup."),
                             ),
                         )
                         .child(
@@ -692,10 +704,10 @@ impl Browser {
                                 .flex()
                                 .justify_end()
                                 .gap_2()
-                                .child(btn("confirm-cancel", "Cancel", false).on_click(cx.listener(|t, _, w, cx| t.cancel_delete(w, cx))))
-                                .child(btn("confirm-delete", "Delete", true).on_click(cx.listener(|t, _, w, cx| t.confirm_delete(w, cx)))),
+                                .child(btn("confirm-cancel", crate::i18n::t("Cancel"), false).on_click(cx.listener(|t, _, w, cx| t.cancel_delete(w, cx))))
+                                .child(btn("confirm-delete", crate::i18n::t("Delete"), true).on_click(cx.listener(|t, _, w, cx| t.confirm_delete(w, cx)))),
                         )
-                        .child(div().text_size(px(10.5)).text_color(c(DIM)).flex().justify_end().child("Enter delete · Esc cancel")),
+                        .child(div().text_size(px(10.5)).text_color(c(DIM)).flex().justify_end().child(crate::i18n::t("Enter delete · Esc cancel"))),
                 ),
         )
     }
@@ -707,7 +719,10 @@ impl Browser {
                 self.locked_by = None;
                 self.toast("Lock taken over — editing enabled");
             }
-            Err(e) => self.save_error = Some(format!("Could not take lock: {e}").into()),
+            Err(e) => {
+                self.save_error =
+                    Some(tf("Could not take lock: {e}", &[("e", &e.to_string())]).into())
+            }
         }
         cx.notify();
     }
@@ -794,7 +809,7 @@ impl Browser {
         self.visible.iter().position(|&i| i == s)
     }
 
-    fn copy(&mut self, kind: u8, label: &str, cx: &mut Context<Self>) {
+    fn copy(&mut self, kind: u8, label: &'static str, cx: &mut Context<Self>) {
         let Some(sel) = self.selected else { return };
         let r = &self.vault().records[self.entries[sel].index];
         let Some(text) = r.text(kind).filter(|t| !t.is_empty()) else {
@@ -805,17 +820,17 @@ impl Browser {
     }
 
     pub fn copy_password(&mut self, cx: &mut Context<Self>) {
-        self.copy(rec::PASSWORD, "Password", cx);
+        self.copy(rec::PASSWORD, crate::i18n::t("Password"), cx);
     }
 
-    fn copy_text(&mut self, text: &str, label: &str, cx: &mut Context<Self>) {
+    fn copy_text(&mut self, text: &str, label: &'static str, cx: &mut Context<Self>) {
         self.clip_hash = Some(hash(text));
-        self.clip_until = Some(Instant::now() + CLIPBOARD_CLEAR);
+        self.clip_until = Some(Instant::now() + crate::settings::get().clipboard_clear());
         // Secure path first (clipboard-history exclusion); GPUI as fallback.
         if !crate::sys::clipboard::set_secret(text) {
             cx.write_to_clipboard(ClipboardItem::new_string(text.to_string()));
         }
-        self.toast(format!("{label} copied"));
+        self.toast(tf("{label} copied", &[("label", crate::i18n::t(label))]));
         cx.notify();
     }
 
@@ -826,7 +841,7 @@ impl Browser {
         let Some(e) = r.history().into_iter().rev().nth(i) else {
             return;
         };
-        self.copy_text(&e.password, "Old password", cx);
+        self.copy_text(&e.password, crate::i18n::t("Old password"), cx);
     }
 
     fn toggle_reveal(&mut self, cx: &mut Context<Self>) {
@@ -928,7 +943,7 @@ impl Browser {
             .child(self.nav_item(
                 "all".into(),
                 Some("icons/list.svg"),
-                "All entries".into(),
+                crate::i18n::t("All entries").into(),
                 self.entries.len(),
                 0,
                 Filter::All,
@@ -938,7 +953,7 @@ impl Browser {
             .child(self.nav_item(
                 "exp".into(),
                 Some("icons/clock.svg"),
-                "Expiring".into(),
+                crate::i18n::t("Expiring").into(),
                 expiring,
                 0,
                 Filter::Expiring,
@@ -953,7 +968,7 @@ impl Browser {
                     .text_size(px(10.))
                     .font_weight(FontWeight::SEMIBOLD)
                     .text_color(c(DIM))
-                    .child("GROUPS"),
+                    .child(crate::i18n::t("GROUPS")),
             );
         for (i, g) in self.groups.iter().enumerate() {
             let label: SharedString = g.path.last().cloned().unwrap_or_default().into();
@@ -973,8 +988,8 @@ impl Browser {
 
     fn render_list(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let title: SharedString = match &self.filter {
-            Filter::All => "All entries".into(),
-            Filter::Expiring => "Expiring".into(),
+            Filter::All => crate::i18n::t("All entries").into(),
+            Filter::Expiring => crate::i18n::t("Expiring").into(),
             Filter::Group(p) => p.join(" / ").into(),
         };
         let n = self.visible.len();
@@ -1017,7 +1032,7 @@ impl Browser {
                     .items_center()
                     .justify_center()
                     .text_color(c(DIM))
-                    .child("No matching entries")
+                    .child(crate::i18n::t("No matching entries"))
                     .into_any_element()
             } else {
                 uniform_list(
@@ -1059,7 +1074,7 @@ impl Browser {
         };
         let exp_badge = e.expiry.filter(|_| model::is_expiring(e, now)).map(|t| {
             if t <= now {
-                ("expired".to_string(), DANGER)
+                (crate::i18n::t("expired").to_string(), DANGER)
             } else {
                 (format!("{}d", (t - now).div_ceil(86_400)), WARN)
             }
@@ -1082,7 +1097,7 @@ impl Browser {
             .on_click(cx.listener(move |this, ev: &gpui::ClickEvent, _, cx| {
                 this.select_visible(pos, cx);
                 if ev.click_count() >= 2 {
-                    this.copy(rec::PASSWORD, "Password", cx);
+                    this.copy(rec::PASSWORD, crate::i18n::t("Password"), cx);
                 }
             }))
             .child(
@@ -1164,7 +1179,7 @@ impl Browser {
             .text_color(c(TEXT_SOFT))
             .cursor_pointer()
             .hover(|d| d.bg(c(HOVER)))
-            .child(label)
+            .child(crate::i18n::t(label))
     }
 
     fn banner(id: &'static str, col: u32, msg: SharedString) -> gpui::Stateful<gpui::Div> {
@@ -1231,7 +1246,7 @@ impl Browser {
                 .items_center()
                 .justify_center()
                 .text_color(c(DIM))
-                .child("Select an entry")
+                .child(crate::i18n::t("Select an entry"))
                 .into_any_element();
         };
         let e = &self.entries[sel];
@@ -1275,63 +1290,64 @@ impl Browser {
         if let Some(u) = r.text(rec::USERNAME).filter(|s| !s.is_empty()) {
             fields = fields.child(
                 Self::field_row(
-                    "Username",
+                    crate::i18n::t("Username"),
                     div()
                         .text_color(c(TEXT))
                         .child(SharedString::from(u.to_string())),
                 )
-                .child(
-                    Self::icon_btn("cu", "icons/copy.svg")
-                        .on_click(cx.listener(|t, _, _, cx| t.copy(rec::USERNAME, "Username", cx))),
-                ),
+                .child(Self::icon_btn("cu", "icons/copy.svg").on_click(
+                    cx.listener(|t, _, _, cx| {
+                        t.copy(rec::USERNAME, crate::i18n::t("Username"), cx)
+                    }),
+                )),
             );
         }
-        fields = fields.child(
-            Self::field_row(
-                "Password",
-                div()
-                    .flex()
-                    .items_center()
-                    .gap_2()
-                    .child(
-                        div()
-                            .text_color(c(TEXT))
-                            .font_family("monospace")
-                            .child(pw_shown),
-                    )
-                    .when(bars > 0, |d| {
-                        d.child(div().flex().gap(px(3.)).children((0..4).map(move |i| {
+        fields =
+            fields.child(
+                Self::field_row(
+                    crate::i18n::t("Password"),
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap_2()
+                        .child(
                             div()
-                                .w(px(14.))
-                                .h(px(4.))
-                                .rounded(px(2.))
-                                .bg(c(if i < bars { bar_col } else { RAISED }))
-                        })))
-                    }),
-            )
-            .when(!pw.is_empty(), |d| {
-                d.child(
-                    Self::icon_btn(
-                        "rv",
-                        if self.revealed {
-                            "icons/eye-off.svg"
-                        } else {
-                            "icons/eye.svg"
-                        },
+                                .text_color(c(TEXT))
+                                .font_family("monospace")
+                                .child(pw_shown),
+                        )
+                        .when(bars > 0, |d| {
+                            d.child(div().flex().gap(px(3.)).children((0..4).map(move |i| {
+                                div()
+                                    .w(px(14.))
+                                    .h(px(4.))
+                                    .rounded(px(2.))
+                                    .bg(c(if i < bars { bar_col } else { RAISED }))
+                            })))
+                        }),
+                )
+                .when(!pw.is_empty(), |d| {
+                    d.child(
+                        Self::icon_btn(
+                            "rv",
+                            if self.revealed {
+                                "icons/eye-off.svg"
+                            } else {
+                                "icons/eye.svg"
+                            },
+                        )
+                        .on_click(cx.listener(|t, _, _, cx| t.toggle_reveal(cx))),
                     )
-                    .on_click(cx.listener(|t, _, _, cx| t.toggle_reveal(cx))),
-                )
-                .child(
-                    Self::icon_btn("cp", "icons/copy.svg")
-                        .on_click(cx.listener(|t, _, _, cx| t.copy(rec::PASSWORD, "Password", cx))),
-                )
-            }),
-        );
+                    .child(Self::icon_btn("cp", "icons/copy.svg").on_click(cx.listener(
+                        |t, _, _, cx| t.copy(rec::PASSWORD, crate::i18n::t("Password"), cx),
+                    )))
+                }),
+            );
         if let Some(u) = r.text(rec::URL).filter(|s| !s.is_empty()) {
             let web = u.starts_with("http://") || u.starts_with("https://");
             fields = fields.child(
                 Self::field_row(
-                    "Website",
+                    crate::i18n::t("Website"),
                     div()
                         .text_color(c(if web { LINK } else { TEXT }))
                         .child(SharedString::from(u.to_string())),
@@ -1351,15 +1367,14 @@ impl Browser {
         if let Some(m) = r.text(rec::EMAIL).filter(|s| !s.is_empty()) {
             fields = fields.child(
                 Self::field_row(
-                    "Email",
+                    crate::i18n::t("Email"),
                     div()
                         .text_color(c(TEXT))
                         .child(SharedString::from(m.to_string())),
                 )
-                .child(
-                    Self::icon_btn("ce", "icons/copy.svg")
-                        .on_click(cx.listener(|t, _, _, cx| t.copy(rec::EMAIL, "Email", cx))),
-                ),
+                .child(Self::icon_btn("ce", "icons/copy.svg").on_click(
+                    cx.listener(|t, _, _, cx| t.copy(rec::EMAIL, crate::i18n::t("Email"), cx)),
+                )),
             );
         }
 
@@ -1368,13 +1383,16 @@ impl Browser {
         });
         let mut meta: Vec<String> = vec![];
         if let Some(t) = r.time(rec::CTIME) {
-            meta.push(format!("Created {}", model::fmt_date(t)));
+            meta.push(tf("Created {date}", &[("date", &model::fmt_date(t))]));
         }
         if let Some(t) = r.time(rec::MTIME) {
-            meta.push(format!("Modified {}", model::fmt_date(t)));
+            meta.push(tf("Modified {date}", &[("date", &model::fmt_date(t))]));
         }
         if let Some(t) = r.time(rec::PTIME) {
-            meta.push(format!("Password changed {}", model::fmt_date(t)));
+            meta.push(tf(
+                "Password changed {date}",
+                &[("date", &model::fmt_date(t))],
+            ));
         }
         // Newest first; passwords stay masked, copy-only.
         let history: Vec<String> = r
@@ -1429,7 +1447,7 @@ impl Browser {
                             )
                             .child(div().text_size(px(11.5)).text_color(c(MUTED)).child(
                                 if e.group_label.is_empty() {
-                                    SharedString::from("No group")
+                                    SharedString::from(crate::i18n::t("No group"))
                                 } else {
                                     e.group_label.clone()
                                 },
@@ -1440,15 +1458,15 @@ impl Browser {
                             div()
                                 .flex()
                                 .gap_1()
-                                .child(Self::text_btn("ed", "Edit").on_click(
+                                .child(Self::text_btn("ed", crate::i18n::t("Edit")).on_click(
                                     cx.listener(|t, _, w, cx| t.start_edit(false, w, cx)),
                                 ))
                                 .child(
-                                    Self::text_btn("dup", "Duplicate")
+                                    Self::text_btn("dup", crate::i18n::t("Duplicate"))
                                         .on_click(cx.listener(|t, _, _, cx| t.duplicate(cx))),
                                 )
                                 .child(
-                                    Self::text_btn("del", "Delete")
+                                    Self::text_btn("del", crate::i18n::t("Delete"))
                                         .on_click(cx.listener(|t, _, w, cx| t.delete(w, cx))),
                                 ),
                         )
@@ -1499,7 +1517,10 @@ impl Browser {
                                 .pb_1()
                                 .text_size(px(10.5))
                                 .text_color(c(DIM))
-                                .child(format!("PASSWORD HISTORY · {}", history.len())),
+                                .child(tf(
+                                    "PASSWORD HISTORY · {n}",
+                                    &[("n", &history.len().to_string())],
+                                )),
                         )
                         .children(history.into_iter().enumerate().map(|(i, date)| {
                             div()
@@ -1515,7 +1536,7 @@ impl Browser {
                                         .w(px(110.))
                                         .text_size(px(11.))
                                         .text_color(c(MUTED))
-                                        .child(format!("set {date}")),
+                                        .child(tf("set {date}", &[("date", &date)])),
                                 )
                                 .child(div().flex_1().text_color(c(DIM)).child("••••••••••••"))
                                 .child(
@@ -1556,7 +1577,7 @@ impl Browser {
                                 .text_size(px(10.5))
                                 .text_color(c(DIM))
                                 .mb_1()
-                                .child("NOTES"),
+                                .child(crate::i18n::t("NOTES")),
                         )
                         .child(n),
                 )
@@ -1621,12 +1642,12 @@ impl Render for Browser {
             }))
             .on_action(
                 cx.listener(|this, _: &CopyPassword, _, cx| {
-                    this.copy(rec::PASSWORD, "Password", cx)
+                    this.copy(rec::PASSWORD, crate::i18n::t("Password"), cx)
                 }),
             )
             .on_action(
                 cx.listener(|this, _: &CopyUsername, _, cx| {
-                    this.copy(rec::USERNAME, "Username", cx)
+                    this.copy(rec::USERNAME, crate::i18n::t("Username"), cx)
                 }),
             )
             .on_action(cx.listener(|this, _: &OpenUrl, _, cx| this.open_url(cx)))
@@ -1677,6 +1698,7 @@ impl Render for Browser {
                     .child(chrome::drag_area("tb-mid-l").h_full().flex_1())
                     .child(div().w(px(340.)).flex_none().child(self.search.clone()))
                     .child(chrome::drag_area("tb-mid-r").h_full().flex_1())
+                    .child(chrome::settings_button("tb-settings").mr_1())
                     .when(!self.read_only(), |d| {
                         d.child(
                             div()
@@ -1696,7 +1718,7 @@ impl Render for Browser {
                                 .hover(|d| d.opacity(0.9))
                                 .on_click(cx.listener(|t, _, w, cx| t.start_edit(true, w, cx)))
                                 .child(div().text_size(px(15.)).child("+"))
-                                .child(div().text_size(px(11.5)).child("New")),
+                                .child(div().text_size(px(11.5)).child(crate::i18n::t("New"))),
                         )
                     })
                     .child(
@@ -1724,7 +1746,7 @@ impl Render for Browser {
                                     .size(px(13.))
                                     .text_color(c(TEXT_SOFT)),
                             )
-                            .child(div().text_size(px(11.5)).child("Lock")),
+                            .child(div().text_size(px(11.5)).child(crate::i18n::t("Lock"))),
                     )
                     .child(chrome::window_controls(window)),
             )
@@ -1734,13 +1756,14 @@ impl Render for Browser {
                     Self::banner(
                         "ro",
                         WARN,
-                        format!(
-                            "Read-only: the vault is open in another app ({who}){}.",
-                            if stale { " — that process is no longer running" } else { "" }
-                        )
+                        if stale {
+                            tf("Read-only: the vault is open in another app ({who}) — that process is no longer running.", &[("who", &who)])
+                        } else {
+                            tf("Read-only: the vault is open in another app ({who}).", &[("who", &who)])
+                        }
                         .into(),
                     )
-                    .child(Self::text_btn("takeover", "Take over lock").on_click(cx.listener(|t, _, _, cx| t.take_over_lock(cx)))),
+                    .child(Self::text_btn("takeover", crate::i18n::t("Take over lock")).on_click(cx.listener(|t, _, _, cx| t.take_over_lock(cx)))),
                 )
             })
             .when(self.conflict, |d| {
@@ -1748,13 +1771,13 @@ impl Render for Browser {
                     Self::banner(
                         "conflict",
                         DANGER,
-                        "The vault file changed on disk (another device or app). Your last change is NOT saved yet.".into(),
+                        crate::i18n::t("The vault file changed on disk (another device or app). Your last change is NOT saved yet.").into(),
                     )
-                    .child(Self::text_btn("overwrite", "Overwrite file").on_click(cx.listener(|t, _, _, cx| {
+                    .child(Self::text_btn("overwrite", crate::i18n::t("Overwrite file")).on_click(cx.listener(|t, _, _, cx| {
                         t.persist(true, cx);
                         cx.notify();
                     })))
-                    .child(Self::text_btn("reload", "Discard & lock").on_click(cx.listener(|_, _, _, cx| {
+                    .child(Self::text_btn("reload", crate::i18n::t("Discard & lock")).on_click(cx.listener(|_, _, _, cx| {
                         cx.emit(BrowserEvent::LockRequested)
                     }))),
                 )
@@ -1764,10 +1787,10 @@ impl Render for Browser {
                     Self::banner(
                         "v2",
                         WARN,
-                        "Legacy Password Safe v2 file (Password Gorilla). Kept in v2 so older apps can still open it, but v2 has weak key derivation and no tamper detection.".into(),
+                        crate::i18n::t("Legacy Password Safe v2 file (Password Gorilla). Kept in v2 so older apps can still open it, but v2 has weak key derivation and no tamper detection.").into(),
                     )
                     .when(!self.read_only(), |b| {
-                        b.child(Self::text_btn("upgrade", "Upgrade to v3…").on_click(cx.listener(|t, _, w, cx| t.open_upgrade(w, cx))))
+                        b.child(Self::text_btn("upgrade", crate::i18n::t("Upgrade to v3…")).on_click(cx.listener(|t, _, w, cx| t.open_upgrade(w, cx))))
                     }),
                 )
             })
@@ -1811,19 +1834,19 @@ impl Render for Browser {
                             .child(format!(
                                 "{} · {}",
                                 if self.conflict {
-                                    "Unsaved change"
+                                    crate::i18n::t("Unsaved change")
                                 } else if self.read_only() {
-                                    "Read‑only"
+                                    crate::i18n::t("Read‑only")
                                 } else {
-                                    "Saved"
+                                    crate::i18n::t("Saved")
                                 },
                                 match self.vault().format() {
                                     Format::V3 => "psafe3",
-                                    Format::V2 => "Password Safe v2 (legacy)",
+                                    Format::V2 => crate::i18n::t("Password Safe v2 (legacy)"),
                                 }
                             )),
                     )
-                    .child(format!("{} entries", self.entries.len()))
+                    .child(tf("{n} entries", &[("n", &self.entries.len().to_string())]))
                     .child(div().flex_1())
                     .when_some(self.toast.as_ref().map(|t| t.0.clone()), |d, t| {
                         d.child(
@@ -1842,12 +1865,12 @@ impl Render for Browser {
                         )
                     })
                     .when_some(clip_left, |d, s| {
-                        d.child(format!("Clipboard clears in {s}s"))
+                        d.child(tf("Clipboard clears in {s}s", &[("s", &s.to_string())]))
                     })
                     .child(if cfg!(target_os = "macos") {
-                        "⌘N new · ⌘E edit · ⌘C password · ⌘B user · ⌘L lock"
+                        crate::i18n::t("⌘N new · ⌘E edit · ⌘C password · ⌘B user · ⌘L lock")
                     } else {
-                        "Ctrl+N new · Ctrl+E edit · Ctrl+C password · Ctrl+B user · Ctrl+L lock"
+                        crate::i18n::t("Ctrl+N new · Ctrl+E edit · Ctrl+C password · Ctrl+B user · Ctrl+L lock")
                     })
                     // Build watermark: which commit this binary is.
                     .child(

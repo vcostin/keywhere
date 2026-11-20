@@ -9,6 +9,7 @@ use keywhere_core::{rec, Record};
 use zeroize::Zeroizing;
 
 use crate::field::{FieldEvent, TextField};
+use crate::i18n::tf;
 use crate::model;
 use crate::theme::*;
 
@@ -100,13 +101,13 @@ impl EntryEditor {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        let field = |cx: &mut Context<Self>, ph: &str, secret: bool| {
+        let field = |cx: &mut Context<Self>, ph: &'static str, secret: bool| {
             cx.new(|cx| TextField::new(cx, ph, secret))
         };
         let title = field(cx, "Title (required)", false);
         let group = field(
             cx,
-            "Group — levels separated by “ / ”, e.g. Work / Dev",
+            crate::i18n::t("Group — levels separated by “ / ”, e.g. Work / Dev"),
             false,
         );
         let username = field(cx, "Username", false);
@@ -216,7 +217,7 @@ impl EntryEditor {
         let t = |e: &Entity<TextField>| e.read(cx).text().trim().to_string();
         let title = t(&self.title);
         if title.is_empty() {
-            return Err("Title is required.".into());
+            return Err(crate::i18n::t("Title is required.").into());
         }
         let group_txt = self.group.read(cx).text();
         let group = if group_txt == group_display(&self.original_group) {
@@ -228,7 +229,10 @@ impl EntryEditor {
         let expiry = if exp_txt.is_empty() {
             None
         } else {
-            Some(model::parse_iso_date(&exp_txt).ok_or("Expiry must be a date like 2027-03-31.")?)
+            Some(
+                model::parse_iso_date(&exp_txt)
+                    .ok_or(crate::i18n::t("Expiry must be a date like 2027-03-31."))?,
+            )
         };
         Ok(Form {
             title,
@@ -311,10 +315,10 @@ impl EntryEditor {
         let o = &self.gen_opts;
         let bits = o.entropy_bits();
         let label = match bits as u32 {
-            0..=49 => "Weak",
-            50..=79 => "Fair",
-            80..=109 => "Strong",
-            _ => "Excellent",
+            0..=49 => crate::i18n::t("Weak"),
+            50..=79 => crate::i18n::t("Fair"),
+            80..=109 => crate::i18n::t("Strong"),
+            _ => crate::i18n::t("Excellent"),
         };
         let seg = |id: &'static str, text: &'static str, mode: Mode, cx: &mut Context<Self>| {
             let on = self.gen_opts.mode == mode;
@@ -356,9 +360,9 @@ impl EntryEditor {
             }))
         };
         let unit = if o.mode == Mode::Passphrase {
-            "words"
+            crate::i18n::t("words")
         } else {
-            "characters"
+            crate::i18n::t("characters")
         };
 
         div()
@@ -408,7 +412,10 @@ impl EntryEditor {
                     .justify_between()
                     .text_size(px(11.))
                     .text_color(c(MUTED))
-                    .child(format!("{label} · {} bits", bits.round()))
+                    .child(tf(
+                        "{label} · {n} bits",
+                        &[("label", label), ("n", &bits.round().to_string())],
+                    ))
                     .child(
                         div()
                             .id("regen")
@@ -418,7 +425,7 @@ impl EntryEditor {
                                 this.regenerate();
                                 cx.notify();
                             }))
-                            .child("Regenerate"),
+                            .child(crate::i18n::t("Regenerate")),
                     ),
             )
             .child(
@@ -429,9 +436,14 @@ impl EntryEditor {
                     .bg(c(BG))
                     .border_1()
                     .border_color(c(LINE))
-                    .child(seg("m-rand", "Random", Mode::Random, cx))
-                    .child(seg("m-pass", "Passphrase", Mode::Passphrase, cx))
-                    .child(seg("m-pin", "PIN", Mode::Pin, cx)),
+                    .child(seg("m-rand", crate::i18n::t("Random"), Mode::Random, cx))
+                    .child(seg(
+                        "m-pass",
+                        crate::i18n::t("Passphrase"),
+                        Mode::Passphrase,
+                        cx,
+                    ))
+                    .child(seg("m-pin", crate::i18n::t("PIN"), Mode::Pin, cx)),
             )
             .child(
                 div()
@@ -440,7 +452,7 @@ impl EntryEditor {
                     .gap_2()
                     .text_size(px(11.5))
                     .text_color(c(MUTED))
-                    .child("Length")
+                    .child(crate::i18n::t("Length"))
                     .child(Self::small_btn("len-", "−", false).on_click(cx.listener(
                         |this, _, _, cx| {
                             this.gen_opts.length = this
@@ -494,7 +506,7 @@ impl EntryEditor {
                         ))
                         .child(toggle(
                             "c-la",
-                            "No look‑alikes",
+                            crate::i18n::t("No look‑alikes"),
                             o.no_lookalikes,
                             |o| o.no_lookalikes = !o.no_lookalikes,
                             cx,
@@ -502,7 +514,7 @@ impl EntryEditor {
                 )
             })
             .child(div().flex().justify_end().child(
-                Self::small_btn("use", "Use password", true).on_click(cx.listener(
+                Self::small_btn("use", crate::i18n::t("Use password"), true).on_click(cx.listener(
                     |this, _, _, cx| {
                         let p = this.gen_preview.clone();
                         this.password.update(cx, |f, cx| f.set_text(&p, cx));
@@ -575,20 +587,24 @@ impl Render for EntryEditor {
                             .text_size(px(17.))
                             .font_weight(FontWeight::BOLD)
                             .text_color(c(TEXT))
-                            .child(if new { "New entry" } else { "Edit entry" }),
+                            .child(if new {
+                                crate::i18n::t("New entry")
+                            } else {
+                                crate::i18n::t("Edit entry")
+                            }),
                     )
                     .child(
                         div()
                             .text_size(px(11.))
                             .text_color(c(DIM))
-                            .child("Ctrl+Enter save · Esc cancel"),
+                            .child(crate::i18n::t("Ctrl+Enter save · Esc cancel")),
                     ),
             )
-            .child(Self::row("Title", self.title.clone()))
-            .child(Self::row("Group", self.group.clone()))
-            .child(Self::row("Username", self.username.clone()))
+            .child(Self::row(crate::i18n::t("Title"), self.title.clone()))
+            .child(Self::row(crate::i18n::t("Group"), self.group.clone()))
+            .child(Self::row(crate::i18n::t("Username"), self.username.clone()))
             .child(Self::row(
-                "Password",
+                crate::i18n::t("Password"),
                 div()
                     .w_full()
                     .min_w_0()
@@ -601,15 +617,17 @@ impl Render for EntryEditor {
                             .flex()
                             .gap_2()
                             .child(div().flex_1().min_w_0().child(self.password.clone()))
-                            .child(Self::small_btn("gen", "Generate", false).on_click(
-                                cx.listener(|this, _, _, cx| {
-                                    this.gen_open = !this.gen_open;
-                                    if this.gen_open {
-                                        this.regenerate();
-                                    }
-                                    cx.notify();
-                                }),
-                            )),
+                            .child(
+                                Self::small_btn("gen", crate::i18n::t("Generate"), false).on_click(
+                                    cx.listener(|this, _, _, cx| {
+                                        this.gen_open = !this.gen_open;
+                                        if this.gen_open {
+                                            this.regenerate();
+                                        }
+                                        cx.notify();
+                                    }),
+                                ),
+                            ),
                     )
                     .child(
                         div()
@@ -626,24 +644,28 @@ impl Render for EntryEditor {
                             }))
                             .child(div().ml_2().text_size(px(10.5)).text_color(c(DIM)).child(
                                 if pw_empty {
-                                    String::from("No password")
+                                    String::from(crate::i18n::t("No password"))
                                 } else {
-                                    format!("~{} bits", bits.round())
+                                    tf("~{n} bits", &[("n", &bits.round().to_string())])
                                 },
                             )),
                     )
                     .when(self.gen_open, |d| d.child(self.render_generator(cx))),
             ))
-            .child(Self::row("Website", self.url.clone()))
-            .child(Self::row("Email", self.email.clone()))
-            .child(Self::row("Expires", self.expiry.clone()))
-            .child(Self::row("Notes", self.notes.clone()))
+            .child(Self::row(crate::i18n::t("Website"), self.url.clone()))
+            .child(Self::row(crate::i18n::t("Email"), self.email.clone()))
+            .child(Self::row(crate::i18n::t("Expires"), self.expiry.clone()))
+            .child(Self::row(crate::i18n::t("Notes"), self.notes.clone()))
             // Quiet compatibility hint (no colour, no icon, never blocks).
             .when(beyond_bmp, |d| {
                 d.child(
-                    div().mt_1().text_size(px(11.)).text_color(c(DIM)).child(
-                        "Note: emoji and similar characters don't display in Password Gorilla.",
-                    ),
+                    div()
+                        .mt_1()
+                        .text_size(px(11.))
+                        .text_color(c(DIM))
+                        .child(crate::i18n::t(
+                            "Note: emoji and similar characters don't display in Password Gorilla.",
+                        )),
                 )
             })
             .child(
@@ -671,12 +693,20 @@ impl Render for EntryEditor {
                     })
                     .child(div().flex_1())
                     .child(
-                        Self::small_btn("cancel", "Cancel", false)
+                        Self::small_btn("cancel", crate::i18n::t("Cancel"), false)
                             .on_click(cx.listener(|_, _, _, cx| cx.emit(EditorEvent::Cancel))),
                     )
                     .child(
-                        Self::small_btn("save", if new { "Add entry" } else { "Save" }, true)
-                            .on_click(cx.listener(|_, _, _, cx| cx.emit(EditorEvent::Save))),
+                        Self::small_btn(
+                            "save",
+                            if new {
+                                crate::i18n::t("Add entry")
+                            } else {
+                                crate::i18n::t("Save")
+                            },
+                            true,
+                        )
+                        .on_click(cx.listener(|_, _, _, cx| cx.emit(EditorEvent::Save))),
                     ),
             )
     }

@@ -142,35 +142,41 @@ fn civil(secs: u64) -> (i64, u32, u32) {
 
 pub fn fmt_date(secs: u64) -> String {
     let (y, m, d) = civil(secs);
-    format!("{} {}, {}", MONTHS[(m - 1) as usize], d, y)
-}
-
-pub fn fmt_relative_expiry(exp: u64, now: u64) -> (String, bool) {
-    if exp <= now {
-        let days = (now - exp) / 86_400;
-        (
-            format!("Password expired {} ({}).", ago(days), fmt_date(exp)),
-            true,
-        )
-    } else {
-        let days = (exp - now).div_ceil(86_400);
-        let when = if days == 1 {
-            "tomorrow".to_string()
-        } else {
-            format!("in {days} days")
-        };
-        (
-            format!("Password expires {when} ({}).", fmt_date(exp)),
-            false,
-        )
+    let month = crate::i18n::t(MONTHS[(m - 1) as usize]);
+    match crate::i18n::current() {
+        // "20 nov. 2026"
+        crate::i18n::Lang::Ro => format!("{d} {month} {y}"),
+        // "Nov 20, 2026"
+        crate::i18n::Lang::En => format!("{month} {d}, {y}"),
     }
 }
 
-fn ago(days: u64) -> String {
-    match days {
-        0 => "today".into(),
-        1 => "yesterday".into(),
-        n => format!("{n} days ago"),
+/// Expiry banner text and whether it is already past.
+pub fn fmt_relative_expiry(exp: u64, now: u64) -> (String, bool) {
+    use crate::i18n::tf;
+    let date = fmt_date(exp);
+    if exp <= now {
+        let days = ((now - exp) / 86_400).to_string();
+        let msg = match (now - exp) / 86_400 {
+            0 => tf("Password expired today ({date}).", &[("date", &date)]),
+            1 => tf("Password expired yesterday ({date}).", &[("date", &date)]),
+            _ => tf(
+                "Password expired {n} days ago ({date}).",
+                &[("n", &days), ("date", &date)],
+            ),
+        };
+        (msg, true)
+    } else {
+        let n = (exp - now).div_ceil(86_400);
+        let msg = if n == 1 {
+            tf("Password expires tomorrow ({date}).", &[("date", &date)])
+        } else {
+            tf(
+                "Password expires in {n} days ({date}).",
+                &[("n", &n.to_string()), ("date", &date)],
+            )
+        };
+        (msg, false)
     }
 }
 
