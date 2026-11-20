@@ -193,9 +193,14 @@ impl EntryEditor {
         self.gen_opts.length = 12;
         self.gen_open = true;
         self.regenerate();
-        // Make it overlong on purpose so wrapping is exercised.
-        let mut long = self.gen_preview.to_string();
-        long.push_str("-cause-ranch-woven-humid-blimp-pest-yoga-icing");
+        // Exact preview from KEYWHERE_DEV_PREVIEW for layout sweeps, else an
+        // overlong one so wrapping is exercised.
+        let long = std::env::var("KEYWHERE_DEV_PREVIEW").unwrap_or_else(|_| {
+            format!(
+                "{}-cause-ranch-woven-humid-blimp-pest-yoga-icing",
+                &*self.gen_preview
+            )
+        });
         self.gen_preview = Zeroizing::new(long);
         cx.notify();
     }
@@ -251,7 +256,10 @@ impl EntryEditor {
                     .text_color(c(DIM))
                     .child(label),
             )
-            .child(div().flex_1().min_w_0().child(field))
+            // overflow_hidden + min_w_0: long content (e.g. a passphrase) must
+            // never set this column's minimum width (GPUI measures text's
+            // min-content as the whole unwrapped line).
+            .child(div().flex_1().min_w_0().overflow_hidden().child(field))
     }
 
     fn chip(id: &'static str, label: &'static str, on: bool) -> gpui::Stateful<gpui::Div> {
@@ -311,6 +319,9 @@ impl EntryEditor {
         let seg = |id: &'static str, text: &'static str, mode: Mode, cx: &mut Context<Self>| {
             let on = self.gen_opts.mode == mode;
             div()
+                .w_full()
+                .min_w_0()
+                .overflow_hidden()
                 .id(id)
                 .flex_1()
                 .py(px(4.))
@@ -566,13 +577,17 @@ impl Render for EntryEditor {
             .child(Self::row(
                 "Password",
                 div()
+                    .w_full()
+                    .min_w_0()
                     .flex()
                     .flex_col()
                     .child(
                         div()
+                            .w_full()
+                            .min_w_0()
                             .flex()
                             .gap_2()
-                            .child(div().flex_1().child(self.password.clone()))
+                            .child(div().flex_1().min_w_0().child(self.password.clone()))
                             .child(Self::small_btn("gen", "Generate", false).on_click(
                                 cx.listener(|this, _, _, cx| {
                                     this.gen_open = !this.gen_open;
