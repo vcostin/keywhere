@@ -67,6 +67,9 @@ pub struct Browser {
     /// The file changed on disk since we opened it; our edit is unsaved.
     conflict: bool,
     save_error: Option<SharedString>,
+    /// Pending delete confirmation: (uuid, title).
+    confirm_delete: Option<(Vec<u8>, SharedString)>,
+    dialog_focus: FocusHandle,
     _ticker: Task<()>,
     _on_quit: gpui::Subscription,
 }
@@ -159,6 +162,8 @@ impl Browser {
             locked_by,
             conflict: false,
             save_error: None,
+            confirm_delete: None,
+            dialog_focus: cx.focus_handle(),
             _ticker: ticker,
             _on_quit: on_quit,
         };
@@ -326,8 +331,9 @@ impl Browser {
         self.persist(false, cx);
     }
 
-    fn delete(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.read_only() {
+    /// Ask (in-app dialog) before deleting the selected entry.
+    pub fn delete(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.read_only() || self.editor.is_some() {
             return;
         }
         let Some(r) = self.selected_record() else {
@@ -336,36 +342,144 @@ impl Browser {
         let Some(uuid) = r.uuid().map(<[u8]>::to_vec) else {
             return;
         };
-        let msg = format!("Delete “{}”?", r.title());
-        let answer = window.prompt(
-            gpui::PromptLevel::Warning,
-            &msg,
-            Some("The entry is removed from the vault file. A copy of the previous file is kept as .ibak."),
-            &["Delete", "Cancel"],
-            cx,
-        );
-        cx.spawn_in(window, async move |this, cx| {
-            if answer.await.ok() != Some(0) {
-                return;
+        self.confirm_delete = Some((uuid, r.title().to_string().into()));
+        window.focus(&self.dialog_focus);
+        cx.notify();
+    }
+
+    fn cancel_delete(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.confirm_delete = None;
+        window.focus(&self.focus);
+        cx.notify();
+    }
+
+    fn confirm_delete(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some((uuid, _)) = self.confirm_delete.take() else {
+            return;
+        };
+        window.focus(&self.focus);
+        if self.read_only() {
+            return;
+        }
+        if let Some(i) = self.vault.find(&uuid) {
+            let pos = self.selected_pos().unwrap_or(0);
+            self.vault.records.remove(i); // fields zeroize on drop
+            self.rebuild(None, cx);
+            if !self.visible.is_empty() {
+                self.select_visible(pos.min(self.visible.len() - 1), cx);
             }
-            this.update(cx, |this, cx| {
-                if this.read_only() {
-                    return;
-                }
-                if let Some(i) = this.vault.find(&uuid) {
-                    let pos = this.selected_pos().unwrap_or(0);
-                    this.vault.records.remove(i); // fields zeroize on drop
-                    this.rebuild(None, cx);
-                    if !this.visible.is_empty() {
-                        this.select_visible(pos.min(this.visible.len() - 1), cx);
-                    }
-                    this.persist(false, cx);
-                    cx.notify();
-                }
-            })
-            .ok();
-        })
-        .detach();
+            self.persist(false, cx);
+        }
+        cx.notify();
+    }
+
+    fn render_confirm_delete(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
+        let (_, title) = self.confirm_delete.as_ref()?;
+        let btn = |id: &'static str, label: &'static str, danger: bool| {
+            div()
+                .id(id)
+                .h(px(32.))
+                .px_4()
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded(px(8.))
+                .cursor_pointer()
+                .text_size(px(12.5))
+                .when(danger, |d| {
+                    d.bg(c(0xD9534F))
+                        .text_color(c(0xFFFFFF))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .hover(|d| d.bg(c(0xE5605C)))
+                })
+                .when(!danger, |d| {
+                    d.bg(c(RAISED))
+                        .border_1()
+                        .border_color(c(BORDER))
+                        .text_color(c(TEXT))
+                        .hover(|d| d.bg(c(HOVER)))
+                })
+                .child(label)
+        };
+        Some(
+            div()
+                .id("confirm-backdrop")
+                .absolute()
+                .inset_0()
+                .flex()
+                .items_center()
+                .justify_center()
+                .bg(ca(0x050B1A, 0xB0))
+                .occlude()
+                .on_click(cx.listener(|t, _, w, cx| t.cancel_delete(w, cx)))
+                .child(
+                    div()
+                        .id("confirm-card")
+                        .key_context("ConfirmDialog")
+                        .track_focus(&self.dialog_focus)
+                        .on_key_down(cx.listener(|t, ev: &gpui::KeyDownEvent, w, cx| {
+                            match ev.keystroke.key.as_str() {
+                                "escape" => t.cancel_delete(w, cx),
+                                "enter" => t.confirm_delete(w, cx),
+                                _ => return,
+                            }
+                            cx.stop_propagation();
+                        }))
+                        // Clicks inside the card must not reach the backdrop.
+                        .on_click(|_, _, cx| cx.stop_propagation())
+                        .w(px(400.))
+                        .p_5()
+                        .rounded(px(12.))
+                        .bg(c(PANEL))
+                        .border_1()
+                        .border_color(c(0x2A4A85))
+                        .shadow_lg()
+                        .flex()
+                        .flex_col()
+                        .gap_3()
+                        .child(
+                            div()
+                                .flex()
+                                .items_center()
+                                .gap_3()
+                                .child(
+                                    div()
+                                        .size(px(36.))
+                                        .flex_none()
+                                        .rounded(px(9.))
+                                        .bg(ca(DANGER, 0x26))
+                                        .flex()
+                                        .items_center()
+                                        .justify_center()
+                                        .child(svg().path("icons/warning.svg").size(px(18.)).text_color(c(DANGER))),
+                                )
+                                .child(
+                                    div()
+                                        .flex_1()
+                                        .min_w_0()
+                                        .text_size(px(15.))
+                                        .font_weight(FontWeight::BOLD)
+                                        .text_color(c(TEXT))
+                                        .child(SharedString::from(format!("Delete “{title}”?"))),
+                                ),
+                        )
+                        .child(
+                            div().text_size(px(12.5)).text_color(c(TEXT_SOFT)).line_height(px(19.)).child(
+                                "The entry is removed from the vault file. The previous version of the file is kept next to it as a .ibak backup.",
+                            ),
+                        )
+                        .child(
+                            div()
+                                .mt_1()
+                                .flex()
+                                .justify_end()
+                                .gap_2()
+                                .child(btn("confirm-cancel", "Cancel", false).on_click(cx.listener(|t, _, w, cx| t.cancel_delete(w, cx))))
+                                .child(btn("confirm-delete", "Delete", true).on_click(cx.listener(|t, _, w, cx| t.confirm_delete(w, cx)))),
+                        )
+                        .child(div().text_size(px(10.5)).text_color(c(DIM)).flex().justify_end().child("Enter delete · Esc cancel")),
+                ),
+        )
     }
 
     fn take_over_lock(&mut self, cx: &mut Context<Self>) {
@@ -1251,6 +1365,7 @@ impl Render for Browser {
             .key_context("Browser")
             .track_focus(&self.focus)
             .size_full()
+            .relative()
             .flex()
             .flex_col()
             .bg(c(BG))
@@ -1480,5 +1595,6 @@ impl Render for Browser {
                         "Ctrl+N new · Ctrl+E edit · Ctrl+C password · Ctrl+B user · Ctrl+L lock"
                     }),
             )
+            .children(self.render_confirm_delete(cx))
     }
 }

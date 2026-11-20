@@ -71,9 +71,13 @@ impl Shell {
         };
         if let (Some(v), Some(p)) = (preunlocked, path) {
             this.show_vault(p, v, window, cx);
-            // Dev screenshots: "Title", "edit:Title" or "new".
+            // Dev screenshots: "Title", "edit:Title", "delete:Title" or "new".
             if let (Some(t), Screen::Vault(b)) = (select, &this.screen) {
                 b.update(cx, |b, cx| match t.split_once(':') {
+                    Some(("delete", title)) => {
+                        b.select_title(title, cx);
+                        b.delete(window, cx);
+                    }
                     Some(("edit", title)) => {
                         b.select_title(title, cx);
                         b.start_edit(false, window, cx);
