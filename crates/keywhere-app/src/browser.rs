@@ -199,7 +199,7 @@ impl Browser {
     }
 
     /// Write the vault to disk (safe save). On a conflict the change stays in
-    /// memory and a banner offers Overwrite / Lock & reload.
+    /// memory and a banner offers Overwrite / Discard & lock (re-unlock reloads the file).
     fn persist(&mut self, overwrite: bool, cx: &mut Context<Self>) -> bool {
         cx.notify();
         let res = if overwrite {
@@ -227,6 +227,11 @@ impl Browser {
 
     pub fn start_edit(&mut self, new: bool, window: &mut Window, cx: &mut Context<Self>) {
         if self.read_only() {
+            return;
+        }
+        // Never silently replace an open form; focus it instead.
+        if let Some((ed, _)) = &self.editor {
+            window.focus(&ed.focus_handle(cx));
             return;
         }
         let default_group = match &self.filter {
@@ -260,6 +265,9 @@ impl Browser {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.read_only() {
+            return;
+        }
         let (form, target) = {
             let e = ed.read(cx);
             (e.form(cx), e.target.clone())
@@ -296,7 +304,7 @@ impl Browser {
     }
 
     fn duplicate(&mut self, cx: &mut Context<Self>) {
-        if self.read_only() {
+        if self.read_only() || self.editor.is_some() {
             return;
         }
         let Some(src) = self.selected_record().cloned() else {
@@ -341,6 +349,9 @@ impl Browser {
                 return;
             }
             this.update(cx, |this, cx| {
+                if this.read_only() {
+                    return;
+                }
                 if let Some(i) = this.vault.find(&uuid) {
                     let pos = this.selected_pos().unwrap_or(0);
                     this.vault.records.remove(i); // fields zeroize on drop
@@ -1393,7 +1404,7 @@ impl Render for Browser {
                         t.persist(true, cx);
                         cx.notify();
                     })))
-                    .child(Self::text_btn("reload", "Discard & reload").on_click(cx.listener(|_, _, _, cx| {
+                    .child(Self::text_btn("reload", "Discard & lock").on_click(cx.listener(|_, _, _, cx| {
                         cx.emit(BrowserEvent::LockRequested)
                     }))),
                 )

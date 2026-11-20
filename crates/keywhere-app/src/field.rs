@@ -103,6 +103,9 @@ impl TextField {
     /// Replace `range` of the buffer with `s`, via a fresh zeroizing buffer
     /// so no stale copy is left in spare capacity.
     fn splice(&mut self, range: std::ops::Range<usize>, s: &str) {
+        debug_assert!(
+            self.buf.is_char_boundary(range.start) && self.buf.is_char_boundary(range.end)
+        );
         let mut next = Zeroizing::new(String::with_capacity(self.buf.len() + s.len() + 16));
         next.push_str(&self.buf[..range.start]);
         next.push_str(s);

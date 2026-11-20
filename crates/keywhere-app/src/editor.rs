@@ -20,6 +20,9 @@ pub enum EditorEvent {
 pub struct EntryEditor {
     /// UUID of the record being edited; `None` for a new entry.
     pub target: Option<Vec<u8>>,
+    /// The group as loaded, so an untouched group is written back verbatim
+    /// (segments may themselves contain '/', e.g. "CI/CD").
+    original_group: Vec<String>,
     title: Entity<TextField>,
     group: Entity<TextField>,
     username: Entity<TextField>,
@@ -77,6 +80,19 @@ impl Form {
     }
 }
 
+/// Levels are shown separated by " / " (slash with spaces), so a single
+/// group name may itself contain '/' (e.g. "CI/CD").
+pub fn group_display(path: &[String]) -> String {
+    path.join(" / ")
+}
+
+pub fn parse_group(text: &str) -> Vec<String> {
+    text.split(" / ")
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect()
+}
+
 impl EntryEditor {
     pub fn new(
         record: Option<&Record>,
@@ -88,7 +104,11 @@ impl EntryEditor {
             cx.new(|cx| TextField::new(cx, ph, secret))
         };
         let title = field(cx, "Title (required)", false);
-        let group = field(cx, "Group, e.g. Work / Dev", false);
+        let group = field(
+            cx,
+            "Group — levels separated by “ / ”, e.g. Work / Dev",
+            false,
+        );
         let username = field(cx, "Username", false);
         let password = field(cx, "Password", true);
         let url = field(cx, "https://…", false);
@@ -104,7 +124,7 @@ impl EntryEditor {
         let g = record
             .map(|r| r.group_path())
             .unwrap_or_else(|| default_group.to_vec());
-        set(&group, &g.join(" / "), cx);
+        set(&group, &group_display(&g), cx);
         set(&username, &get(rec::USERNAME), cx);
         {
             let pw = Zeroizing::new(get(rec::PASSWORD));
@@ -142,6 +162,7 @@ impl EntryEditor {
 
         let mut this = Self {
             target: record.and_then(|r| r.uuid()).map(<[u8]>::to_vec),
+            original_group: g,
             title,
             group,
             username,
@@ -178,14 +199,12 @@ impl EntryEditor {
         if title.is_empty() {
             return Err("Title is required.".into());
         }
-        let group: Vec<String> = self
-            .group
-            .read(cx)
-            .text()
-            .split('/')
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
-            .collect();
+        let group_txt = self.group.read(cx).text();
+        let group = if group_txt == group_display(&self.original_group) {
+            self.original_group.clone()
+        } else {
+            parse_group(group_txt)
+        };
         let exp_txt = t(&self.expiry);
         let expiry = if exp_txt.is_empty() {
             None
@@ -605,5 +624,18 @@ impl Render for EntryEditor {
                             .on_click(cx.listener(|_, _, _, cx| cx.emit(EditorEvent::Save))),
                     ),
             )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn group_roundtrip_keeps_slashes_inside_names() {
+        let g = vec!["Work".to_string(), "CI/CD".to_string()];
+        assert_eq!(parse_group(&group_display(&g)), g);
+        assert_eq!(parse_group("  Home  /  Wi-Fi "), vec!["Home", "Wi-Fi"]);
+        assert_eq!(parse_group(""), Vec::<String>::new());
     }
 }
