@@ -106,7 +106,9 @@ fn random<const N: usize>() -> Result<[u8; N], Error> {
 
 /// Reverse the bytes of every 32-bit word (Password Safe 1.x/2.x quirk).
 fn swap_words(b: &mut [u8]) {
-    for w in b.chunks_exact_mut(4) {
+    let (words, rest) = b.as_chunks_mut::<4>();
+    debug_assert!(rest.is_empty());
+    for w in words {
         w.reverse();
     }
 }
@@ -122,8 +124,10 @@ fn sha1_iv0(msg: &[u8]) -> [u8; 20] {
     padded.extend_from_slice(&bits.to_be_bytes());
     let mut state = [0u32; 5];
     let blocks: Vec<GenericArray<u8, _>> = padded
-        .chunks_exact(64)
-        .map(GenericArray::clone_from_slice)
+        .as_chunks::<64>()
+        .0
+        .iter()
+        .map(|c| GenericArray::clone_from_slice(c))
         .collect();
     sha1::compress(&mut state, &blocks);
     let mut out = [0u8; 20];
@@ -205,9 +209,9 @@ pub fn decode_with_key(bytes: &[u8], key: &V2Key) -> Result<RawDbV2, Error> {
     let mut plain = Zeroizing::new(bytes[HEADER_LEN..].to_vec());
     let mut prev = ip;
     swap_words(&mut prev);
-    for chunk in plain.chunks_exact_mut(BLOCK) {
+    for chunk in plain.as_chunks_mut::<BLOCK>().0 {
         swap_words(chunk);
-        let c: [u8; 8] = chunk.try_into().unwrap();
+        let c: [u8; 8] = *chunk;
         bf.decrypt_block(GenericArray::from_mut_slice(chunk));
         for (b, p) in chunk.iter_mut().zip(prev) {
             *b ^= p;
@@ -349,8 +353,8 @@ pub fn encode(db: &RawDbV2, key: &V2Key) -> Result<Vec<u8>, Error> {
     let bf = Blowfish::<byteorder::BE>::new_from_slice(&key.key[..]).expect("20-byte key");
     let mut prev = ip;
     swap_words(&mut prev);
-    for chunk in plain.chunks_exact(BLOCK) {
-        let mut b: [u8; 8] = chunk.try_into().unwrap();
+    for chunk in plain.as_chunks::<BLOCK>().0 {
+        let mut b: [u8; 8] = *chunk;
         swap_words(&mut b);
         for (x, p) in b.iter_mut().zip(prev) {
             *x ^= p;

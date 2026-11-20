@@ -198,7 +198,7 @@ impl EntryEditor {
         let long = std::env::var("KEYWHERE_DEV_PREVIEW").unwrap_or_else(|_| {
             format!(
                 "{}-cause-ranch-woven-humid-blimp-pest-yoga-icing",
-                &*self.gen_preview
+                self.gen_preview.as_str()
             )
         });
         self.gen_preview = Zeroizing::new(long);
