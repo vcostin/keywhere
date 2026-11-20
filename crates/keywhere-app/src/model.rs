@@ -65,8 +65,15 @@ pub fn build(vault: &Vault) -> Vec<EntryVm> {
 }
 
 /// All group paths (including intermediate ones) with recursive counts.
-pub fn groups(entries: &[EntryVm]) -> Vec<GroupNode> {
+/// `empty` = groups stored without entries (they and their parents appear
+/// with the counts of whatever they contain, possibly 0).
+pub fn groups(entries: &[EntryVm], empty: &[Vec<String>]) -> Vec<GroupNode> {
     let mut map: BTreeMap<Vec<String>, usize> = BTreeMap::new();
+    for g in empty {
+        for depth in 1..=g.len() {
+            map.entry(g[..depth].to_vec()).or_default();
+        }
+    }
     for e in entries {
         for depth in 1..=e.group.len() {
             *map.entry(e.group[..depth].to_vec()).or_default() += 1;

@@ -75,6 +75,8 @@ pub struct Browser {
     collapsed: std::collections::HashSet<Vec<String>>,
     /// Right-click menu on a group: (group path, has subgroups, position).
     group_menu: Option<(Vec<String>, bool, gpui::Point<gpui::Pixels>)>,
+    /// "New group" dialog: (parent path, name field, error).
+    new_group: Option<(Vec<String>, Entity<TextField>, Option<SharedString>)>,
     /// Pending delete confirmation: (uuid, title).
     confirm_delete: Option<(Vec<u8>, SharedString)>,
     /// "Upgrade to v3" dialog: master-password field + error.
@@ -105,7 +107,7 @@ impl Browser {
         cx: &mut Context<Self>,
     ) -> Self {
         let entries = model::build(&vault);
-        let groups = model::groups(&entries);
+        let groups = model::groups(&entries, &vault.empty_groups());
         let search = cx.new(|cx| TextField::new(cx, "Search", false).with_icon("icons/search.svg"));
         cx.subscribe_in(&search, window, |this, _, ev, window, cx| match ev {
             FieldEvent::Changed => this.refilter(cx),
@@ -181,6 +183,7 @@ impl Browser {
             confirm_delete: None,
             collapsed: Default::default(),
             group_menu: None,
+            new_group: None,
             upgrade: None,
             dialog_focus: cx.focus_handle(),
             _ticker: ticker,
@@ -228,7 +231,7 @@ impl Browser {
     /// Rebuild the view model after the vault changed and re-select `uuid`.
     fn rebuild(&mut self, select_uuid: Option<Vec<u8>>, cx: &mut Context<Self>) {
         self.entries = model::build(self.vault());
-        self.groups = model::groups(&self.entries);
+        self.groups = model::groups(&self.entries, &self.vault().empty_groups());
         if let Filter::Group(p) = &self.filter {
             if !self.groups.iter().any(|g| &g.path == p) {
                 self.filter = Filter::All;
@@ -290,6 +293,16 @@ impl Browser {
             .any(|g| g.path.len() > path.len() && g.path.starts_with(&path));
         self.group_menu = Some((path, has_children, gpui::point(px(150.), px(470.))));
         cx.notify();
+    }
+
+    #[cfg(feature = "devtools")]
+    pub fn dev_new_group(&mut self, parent: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let p: Vec<String> = if parent.is_empty() {
+            vec![]
+        } else {
+            parent.split('/').map(str::to_string).collect()
+        };
+        self.open_new_group(p, window, cx);
     }
 
     #[cfg(feature = "devtools")]
@@ -402,6 +415,7 @@ impl Browser {
             }
         };
         self.editor = None;
+        self.vault_mut().prune_empty_groups();
         self.rebuild(Some(uuid), cx);
         self.persist(false, cx);
         window.focus(&self.focus);
@@ -427,6 +441,7 @@ impl Browser {
         }
         r.set_text(rec::TITLE, &format!("{} (copy)", src.title()));
         self.vault_mut().records.push(r);
+        self.vault_mut().prune_empty_groups();
         self.rebuild(Some(uuid), cx);
         self.persist(false, cx);
     }
@@ -647,6 +662,187 @@ impl Browser {
         )
     }
 
+    fn open_new_group(&mut self, parent: Vec<String>, window: &mut Window, cx: &mut Context<Self>) {
+        if self.read_only() {
+            return;
+        }
+        let f = cx.new(|cx| TextField::new(cx, "Group name", false).with_icon("icons/folder.svg"));
+        cx.subscribe_in(&f, window, |this, _, ev, window, cx| match ev {
+            FieldEvent::Submit => this.create_group(window, cx),
+            FieldEvent::Escape => {
+                this.new_group = None;
+                window.focus(&this.focus);
+                cx.notify();
+            }
+            FieldEvent::Changed => {
+                if let Some((_, _, err)) = &mut this.new_group {
+                    *err = None;
+                }
+                cx.notify();
+            }
+        })
+        .detach();
+        window.focus(&f.focus_handle(cx));
+        self.new_group = Some((parent, f, None));
+        cx.notify();
+    }
+
+    fn create_group(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some((parent, field, _)) = &self.new_group else {
+            return;
+        };
+        let name = field.read(cx).text().trim().to_string();
+        let parent = parent.clone();
+        let err = |this: &mut Self, msg: &'static str, cx: &mut Context<Self>| {
+            if let Some((_, _, e)) = &mut this.new_group {
+                *e = Some(crate::i18n::t(msg).into());
+            }
+            cx.notify();
+        };
+        if name.is_empty() {
+            return err(self, "Enter a name.", cx);
+        }
+        let mut path = parent.clone();
+        path.push(name);
+        if self.groups.iter().any(|g| g.path == path) {
+            return err(self, "That group already exists.", cx);
+        }
+        self.vault_mut().add_empty_group(&path);
+        self.new_group = None;
+        self.collapsed.remove(&parent);
+        self.filter = Filter::Group(path);
+        self.rebuild(None, cx);
+        if self.vault().format() == Format::V3 {
+            self.persist(false, cx);
+        } else {
+            self.toast(crate::i18n::t(
+                "Group created; v2 files keep it only once it has an entry",
+            ));
+        }
+        window.focus(&self.focus);
+        cx.notify();
+    }
+
+    fn delete_empty_group(&mut self, path: Vec<String>, cx: &mut Context<Self>) {
+        if self.read_only() || self.entries.iter().any(|e| e.group.starts_with(&path)) {
+            return;
+        }
+        let doomed: Vec<Vec<String>> = self
+            .vault()
+            .empty_groups()
+            .into_iter()
+            .filter(|g| g.starts_with(&path))
+            .collect();
+        for g in doomed {
+            self.vault_mut().remove_empty_group(&g);
+        }
+        if self.filter == Filter::Group(path) {
+            self.filter = Filter::All;
+        }
+        self.rebuild(None, cx);
+        self.persist(false, cx);
+        cx.notify();
+    }
+
+    fn render_new_group(
+        &self,
+        corner: gpui::Pixels,
+        cx: &mut Context<Self>,
+    ) -> Option<impl IntoElement> {
+        let (parent, field, err) = self.new_group.as_ref()?;
+        let title = if parent.is_empty() {
+            crate::i18n::t("New group").to_string()
+        } else {
+            tf(
+                "New subgroup in “{group}”",
+                &[("group", &parent.join(" / "))],
+            )
+        };
+        let btn = |id: &'static str, label: &'static str, primary: bool| {
+            div()
+                .id(id)
+                .h(px(32.))
+                .px_4()
+                .flex()
+                .items_center()
+                .rounded(px(8.))
+                .cursor_pointer()
+                .text_size(px(12.5))
+                .when(primary, |d| {
+                    d.bg(c(ACCENT))
+                        .text_color(c(ACCENT_INK))
+                        .font_weight(FontWeight::SEMIBOLD)
+                })
+                .when(!primary, |d| {
+                    d.bg(c(RAISED))
+                        .border_1()
+                        .border_color(c(BORDER))
+                        .text_color(c(TEXT))
+                })
+                .child(crate::i18n::t(label))
+        };
+        Some(
+            div()
+                .id("newgroup-backdrop")
+                .absolute()
+                .inset_0()
+                .rounded(corner)
+                .flex()
+                .items_center()
+                .justify_center()
+                .bg(ca(0x050B1A, 0xB0))
+                .occlude()
+                .child(
+                    div()
+                        .w(px(400.))
+                        .p_5()
+                        .rounded(px(12.))
+                        .bg(c(PANEL))
+                        .border_1()
+                        .border_color(c(0x2A4A85))
+                        .shadow_lg()
+                        .flex()
+                        .flex_col()
+                        .gap_3()
+                        .child(
+                            div()
+                                .text_size(px(15.))
+                                .font_weight(FontWeight::BOLD)
+                                .text_color(c(TEXT))
+                                .child(title),
+                        )
+                        .child(field.clone())
+                        .when_some(err.clone(), |d, e| {
+                            d.child(div().text_size(px(11.5)).text_color(c(DANGER)).child(e))
+                        })
+                        .when(self.vault().format() == Format::V2, |d| {
+                            d.child(div().text_size(px(11.)).text_color(c(DIM)).child(
+                                crate::i18n::t(
+                                    "v2 files can't store empty groups: add an entry to keep it.",
+                                ),
+                            ))
+                        })
+                        .child(
+                            div()
+                                .flex()
+                                .justify_end()
+                                .gap_2()
+                                .child(btn("ng-cancel", "Cancel", false).on_click(cx.listener(
+                                    |t, _, w, cx| {
+                                        t.new_group = None;
+                                        w.focus(&t.focus);
+                                        cx.notify();
+                                    },
+                                )))
+                                .child(
+                                    btn("ng-ok", "Create", true)
+                                        .on_click(cx.listener(|t, _, w, cx| t.create_group(w, cx))),
+                                ),
+                        ),
+                ),
+        )
+    }
+
     fn render_group_menu(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
         let (path, has_children, pos) = self.group_menu.clone()?;
         let item = |id: &'static str, icon: &'static str, label: String| {
@@ -673,6 +869,15 @@ impl Browser {
         let collapsed = self.collapsed.contains(&path);
         let p_new = path.clone();
         let p_fold = path.clone();
+        let p_sub = path.clone();
+        let p_del = path.clone();
+        let sub_label = if path.is_empty() {
+            crate::i18n::t("New group…").to_string()
+        } else {
+            crate::i18n::t("New subgroup…").to_string()
+        };
+        let is_empty_group =
+            !path.is_empty() && !self.entries.iter().any(|e| e.group.starts_with(&path));
         Some(
             gpui::deferred(
                 gpui::anchored()
@@ -700,6 +905,29 @@ impl Browser {
                                         this.start_edit_in(true, p_new.clone(), window, cx);
                                     }),
                                 ))
+                            })
+                            .when(!self.read_only(), |d| {
+                                d.child(item("gm-sub", "icons/folder.svg", sub_label).on_click(
+                                    cx.listener(move |this, _, window, cx| {
+                                        this.group_menu = None;
+                                        this.open_new_group(p_sub.clone(), window, cx);
+                                    }),
+                                ))
+                            })
+                            .when(is_empty_group && !self.read_only(), |d| {
+                                d.child(
+                                    item(
+                                        "gm-del",
+                                        "icons/warning.svg",
+                                        crate::i18n::t("Delete empty group").to_string(),
+                                    )
+                                    .on_click(cx.listener(
+                                        move |this, _, _, cx| {
+                                            this.group_menu = None;
+                                            this.delete_empty_group(p_del.clone(), cx);
+                                        },
+                                    )),
+                                )
                             })
                             .when(has_children, |d| {
                                 d.child(
@@ -2142,6 +2370,7 @@ impl Render for Browser {
             .children(self.render_confirm_delete(corner, cx))
             .children(self.render_upgrade(corner, cx))
             .children(self.render_group_menu(cx))
+            .children(self.render_new_group(corner, cx))
             .into_any_element()
     }
 }

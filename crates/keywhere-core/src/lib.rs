@@ -45,6 +45,33 @@ pub mod hdr {
     pub const UUID: u8 = 0x01;
     pub const LAST_SAVE_TIME: u8 = 0x04;
     pub const LAST_SAVE_WHAT: u8 = 0x06;
+    /// One field per empty group (full path, Password Safe 3.x).
+    pub const EMPTY_GROUP: u8 = 0x11;
+}
+
+/// "Work.Dev\.ops" → ["Work", "Dev.ops"] (Password Safe's group encoding).
+pub fn decode_group_path(g: &str) -> Vec<String> {
+    if g.is_empty() {
+        return vec![];
+    }
+    let mut out = vec![String::new()];
+    let mut chars = g.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '\\' if chars.peek() == Some(&'.') => {
+                out.last_mut().unwrap().push('.');
+                chars.next();
+            }
+            '.' => out.push(String::new()),
+            c => out.last_mut().unwrap().push(c),
+        }
+    }
+    out
+}
+
+/// ["Work", "Dev.ops"] → "Work.Dev\.ops".
+pub fn encode_group_path<S: AsRef<str>>(segments: &[S]) -> String {
+    segments.iter().map(|s| s.as_ref().replace('.', "\\.")).collect::<Vec<_>>().join(".")
 }
 
 /// Record field types.
@@ -130,8 +157,7 @@ impl Record {
 
     /// Set the group from path segments, escaping literal dots as "\.".
     pub fn set_group_path(&mut self, segments: &[&str]) {
-        let g: Vec<String> = segments.iter().map(|s| s.replace('.', "\\.")).collect();
-        self.set_text(rec::GROUP, &g.join("."));
+        self.set_text(rec::GROUP, &encode_group_path(segments));
     }
 
     pub fn title(&self) -> &str {
@@ -244,22 +270,7 @@ impl Record {
     }
     /// Group path segments; '.' separates levels, "\." is a literal dot.
     pub fn group_path(&self) -> Vec<String> {
-        let Some(g) = self.text(rec::GROUP) else {
-            return vec![];
-        };
-        let mut out = vec![String::new()];
-        let mut chars = g.chars().peekable();
-        while let Some(c) = chars.next() {
-            match c {
-                '\\' if chars.peek() == Some(&'.') => {
-                    out.last_mut().unwrap().push('.');
-                    chars.next();
-                }
-                '.' => out.push(String::new()),
-                c => out.last_mut().unwrap().push(c),
-            }
-        }
-        out
+        self.text(rec::GROUP).map(decode_group_path).unwrap_or_default()
     }
 }
 
@@ -608,6 +619,41 @@ impl Vault {
         result
     }
 
+    /// Groups that exist without entries (header field 0x11). v2 files have
+    /// no such field: there an empty group lasts for the session only.
+    pub fn empty_groups(&self) -> Vec<Vec<String>> {
+        self.header
+            .iter()
+            .filter(|f| f.kind == hdr::EMPTY_GROUP)
+            .filter_map(|f| std::str::from_utf8(&f.data).ok())
+            .map(decode_group_path)
+            .filter(|p| !p.is_empty())
+            .collect()
+    }
+
+    pub fn add_empty_group(&mut self, path: &[String]) {
+        if path.is_empty() || self.empty_groups().iter().any(|g| g == path) {
+            return;
+        }
+        self.header.push(Field { kind: hdr::EMPTY_GROUP, data: encode_group_path(path).into_bytes() });
+    }
+
+    pub fn remove_empty_group(&mut self, path: &[String]) {
+        let enc = encode_group_path(path);
+        self.header.retain(|f| !(f.kind == hdr::EMPTY_GROUP && f.data == enc.as_bytes()));
+    }
+
+    /// Drop "empty group" markers for groups that now contain entries (or
+    /// have subgroups with entries), as Password Safe does.
+    pub fn prune_empty_groups(&mut self) {
+        let used: Vec<Vec<String>> = self.records.iter().map(|r| r.group_path()).collect();
+        for g in self.empty_groups() {
+            if used.iter().any(|u| u.starts_with(&g)) {
+                self.remove_empty_group(&g);
+            }
+        }
+    }
+
     /// Index of the record with this UUID.
     pub fn find(&self, uuid: &[u8]) -> Option<usize> {
         self.records.iter().position(|r| r.uuid() == Some(uuid))
@@ -859,6 +905,27 @@ mod tests {
             "no backup written on conflict"
         );
         fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn empty_groups_roundtrip_and_prune() {
+        let mut v = Vault::decrypt(FIXTURE, b"test123").unwrap();
+        let g = vec!["Work".to_string(), "acme.example".to_string()];
+        // The Password Safe fixture already has an empty group "test".
+        assert_eq!(v.empty_groups(), vec![vec!["test".to_string()]]);
+        v.add_empty_group(&g);
+        v.add_empty_group(&g); // no duplicates
+        assert_eq!(v.empty_groups().iter().filter(|x| **x == g).count(), 1);
+        v.change_password(b"pw").unwrap();
+        let bytes = v.encrypt().unwrap();
+        let mut v2 = Vault::decrypt(&bytes, b"pw").unwrap();
+        assert!(v2.empty_groups().contains(&g));
+        let mut r = Record::new().unwrap();
+        r.set_group_path(&["Work", "acme.example", "Sub"]);
+        v2.records.push(r);
+        v2.prune_empty_groups();
+        assert_eq!(v2.empty_groups(), vec![vec!["test".to_string()]]);
+        assert_eq!(decode_group_path("Work.Dev\\.ops"), vec!["Work", "Dev.ops"]);
     }
 
     #[test]
