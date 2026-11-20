@@ -270,7 +270,7 @@ impl Browser {
             Ok(()) => {
                 self.conflict = false;
                 self.save_error = None;
-                self.toast("Saved");
+                self.toast(crate::i18n::t("Saved"));
                 true
             }
             Err(Error::Conflict) => {
@@ -858,6 +858,10 @@ impl Browser {
 
     fn render_group_menu(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
         let (path, has_children, pos) = self.group_menu.clone()?;
+        // Read-only and nothing to fold: no menu at all (not an empty box).
+        if self.read_only() && !has_children {
+            return None;
+        }
         let item = |id: &'static str, icon: &'static str, label: String| {
             div()
                 .id(id)
@@ -1094,7 +1098,7 @@ impl Browser {
             Ok(l) => {
                 self.vault_lock = Some(l);
                 self.locked_by = None;
-                self.toast("Lock taken over — editing enabled");
+                self.toast(crate::i18n::t("Lock taken over — editing enabled"));
             }
             Err(e) => {
                 self.save_error =

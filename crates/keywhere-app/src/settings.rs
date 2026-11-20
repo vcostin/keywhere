@@ -33,7 +33,8 @@ impl Default for Settings {
             clipboard_clear_secs: 30,
             close_action: CloseAction::Hide,
             language: None,
-            theme: ThemeChoice::System,
+            // Keywhere's identity is the navy dark look; System/Light are opt-in.
+            theme: ThemeChoice::Dark,
         }
     }
 }

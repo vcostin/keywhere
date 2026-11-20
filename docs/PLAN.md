@@ -23,7 +23,7 @@ Syncthing).
 * Navy colour range: bg `#0A1631`, surface `#0F2042`, panel `#132852`, selection `#244A8F`,
   focus `#5B8CFF`. A single warm accent, amber `#F2B24C`, is reserved for the main action
   and for the active row marker. A light theme comes later and uses the same tokens.
-* Logo: a map pin whose point becomes a key shaft (*Key‑where*): `assets/keywhere-logo.svg`.
+* Logo: a map pin whose point becomes a key shaft (*Key‑where*): `assets/keywhere-key.svg` (no background, neutral outline; app draws it as crisp vector layers).
   A monochrome tray glyph is derived from it, with a "locked" and an "unlocked" variant.
 * Mockups: `docs/mockups/keywhere-mockups.html` (identity, unlock, main window, tray, generator).
 

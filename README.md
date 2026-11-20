@@ -1,4 +1,4 @@
-<p align="center"><img src="assets/keywhere-logo.svg" width="96" alt="Keywhere logo"></p>
+<p align="center"><img src="assets/keywhere-key.svg" width="96" alt="Keywhere logo"></p>
 <h1 align="center">Keywhere</h1>
 <p align="center">A modern, cross‑platform password manager for <b>Password Safe v3</b> (<code>.psafe3</code>) vaults.<br>
 Works with files from Password Safe and Password Gorilla. No cloud account, no subscription, no nags.</p>

@@ -2,7 +2,7 @@
 
 use std::borrow::Cow;
 
-use gpui::{AssetSource, Result, SharedString, Styled};
+use gpui::{AssetSource, Result, SharedString};
 
 pub struct Assets;
 
@@ -13,7 +13,7 @@ macro_rules! asset_table {
 }
 
 static TABLE: &[(&str, &[u8])] = asset_table![
-    "keywhere-logo.svg",
+    "keywhere-key.svg",
     "icons/check.svg",
     "icons/chevron-down.svg",
     "icons/chevron-right.svg",
@@ -27,6 +27,8 @@ static TABLE: &[(&str, &[u8])] = asset_table![
     "icons/folder.svg",
     "icons/gear.svg",
     "icons/list.svg",
+    "icons/logo-fill.svg",
+    "icons/logo-outline.svg",
     "icons/lock.svg",
     "icons/search.svg",
     "icons/shield.svg",
@@ -39,13 +41,29 @@ static TABLE: &[(&str, &[u8])] = asset_table![
     "icons/win-restore.svg",
 ];
 
-/// The app logo, loaded from the embedded asset table (a bare string would be
-/// parsed as a URI by `img`).
-pub fn logo(size: f32) -> gpui::Img {
-    gpui::img(gpui::ImageSource::Resource(gpui::Resource::Embedded(
-        "keywhere-logo.svg".into(),
-    )))
-    .size(gpui::px(size))
+/// The app logo: the amber key, drawn as vector layers (crisp at any size,
+/// unlike a rasterised image). From 40px up it gets the neutral slate
+/// outline; below that the outline would be a hairline, so it's fill only.
+pub fn logo(size: f32) -> gpui::Div {
+    use gpui::{div, prelude::*, px, svg};
+    let fill = svg()
+        .path("icons/logo-fill.svg")
+        .size(px(size))
+        .text_color(crate::theme::c(crate::theme::ACCENT));
+    let layers = div().relative().size(px(size)).flex_none().child(fill);
+    if size >= 40. {
+        layers.child(
+            svg()
+                .path("icons/logo-outline.svg")
+                .absolute()
+                .top_0()
+                .left_0()
+                .size(px(size))
+                .text_color(gpui::rgb(0x64748B)),
+        )
+    } else {
+        layers
+    }
 }
 
 /// Inter (SIL OFL 1.1, see assets/fonts/Inter-LICENSE.txt), bundled so the UI

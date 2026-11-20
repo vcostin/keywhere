@@ -54,7 +54,8 @@ impl ThemeChoice {
         match c {
             "dark" => ThemeChoice::Dark,
             "light" => ThemeChoice::Light,
-            _ => ThemeChoice::System,
+            "system" => ThemeChoice::System,
+            _ => ThemeChoice::Dark,
         }
     }
 }

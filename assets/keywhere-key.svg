@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <defs>
+    <linearGradient id="gold" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFD58A"/>
+      <stop offset="1" stop-color="#EFA53A"/>
+    </linearGradient>
+  </defs>
+  <!-- Keywhere: a map pin that becomes a key ("Key-where"). No background. -->
+  <path fill="url(#gold)" fill-rule="evenodd" stroke="#64748B" stroke-width="8" stroke-linejoin="round" d="M128 24a68 68 0 0 1 68 68c0 27-17 45-50 66v18h30v22h-30v8h24v20h-24v2a18 18 0 0 1-36 0v-70c-33-21-50-39-50-66a68 68 0 0 1 68-68zM128 64a28 28 0 1 0 .01 0z"/>
+</svg>
