@@ -189,6 +189,11 @@ impl Shell {
         let b = cx.new(|cx| Browser::new(path, vault, lock, window, cx));
         cx.subscribe_in(&b, window, |this, _, ev, window, cx| match ev {
             BrowserEvent::LockRequested => this.lock(window, cx),
+            BrowserEvent::PathChanged(p) => {
+                if cx.has_global::<AppState>() {
+                    cx.global_mut::<AppState>().path = Some(p.clone());
+                }
+            }
         })
         .detach();
         self.screen = Screen::Vault(b);

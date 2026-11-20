@@ -40,6 +40,8 @@ pub const REVEAL_FOR: Duration = Duration::from_secs(15);
 
 pub enum BrowserEvent {
     LockRequested,
+    /// The session moved to another file (v2 → v3 upgrade).
+    PathChanged(PathBuf),
 }
 
 pub struct Browser {
@@ -481,10 +483,15 @@ impl Browser {
         // Switch to the new file: release the v2 lock, take the v3 one.
         self.vault_lock = None;
         self.path = new_path.clone();
-        if let Ok((Some(l), _)) = VaultLock::acquire(&new_path) {
-            self.vault_lock = Some(l);
+        match VaultLock::acquire(&new_path) {
+            Ok((Some(l), _)) => self.vault_lock = Some(l),
+            _ => {
+                self.save_error =
+                    Some("Upgraded, but the new file's lock could not be taken; read-only until you reopen it.".into())
+            }
         }
         config::remember_vault(&new_path);
+        cx.emit(BrowserEvent::PathChanged(new_path.clone()));
         self.upgrade = None;
         self.toast(format!(
             "Upgraded — now using {} (the v2 file is unchanged)",
