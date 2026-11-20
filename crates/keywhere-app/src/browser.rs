@@ -75,6 +75,8 @@ pub struct Browser {
     downgraded: bool,
     /// Other local users can read the vault file.
     exposed: bool,
+    /// Rescued-changes note carried over from a hidden session.
+    notice: Option<SharedString>,
     /// Folded groups in the sidebar tree. Kept in memory only: group names
     /// are vault content and must not be written to a plain config file.
     collapsed: std::collections::HashSet<Vec<String>>,
@@ -208,6 +210,8 @@ impl Browser {
             save_error: None,
             downgraded: false,
             exposed: false,
+            // Reopened from the tray after a rescue: say so here too.
+            notice: rescue_note().map(Into::into),
             confirm_delete: None,
             collapsed: Default::default(),
             group_menu: None,
@@ -281,7 +285,7 @@ impl Browser {
         let rescue = self
             .path
             .with_file_name(format!("{stem}.unsaved-{}.{ext}", now_secs()));
-        let msg = match vault.save_overwrite(&rescue) {
+        let msg = match vault.save_copy(&rescue) {
             Ok(()) => tf(
                 "Changes that could not be saved were kept in {name} (same master password).",
                 &[("name", &config::display_path(&rescue))],
@@ -2494,6 +2498,17 @@ impl Render for Browser {
                     )
                     .child(chrome::window_controls(window)),
             )
+            .when_some(self.notice.clone(), |d, n| {
+                d.child(
+                    Self::banner("rescued", WARN, n).child(
+                        Self::text_btn("dismiss", crate::i18n::t("Dismiss")).on_click(cx.listener(|t, _, _, cx| {
+                            t.notice = None;
+                            clear_rescue_note();
+                            cx.notify();
+                        })),
+                    ),
+                )
+            })
             .when(self.downgraded, |d| {
                 d.child(
                     Self::banner(

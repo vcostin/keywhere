@@ -101,6 +101,7 @@ static TABLE: &[(&str, &str)] = &[
     ("Edit as v2 anyway", "Editează totuși ca v2"),
     ("Other users on this computer can read the vault file.", "Alți utilizatori ai acestui calculator pot citi fișierul seifului."),
     ("Make private", "Fă-l privat"),
+    ("Dismiss", "Închide"),
     ("Could not change permissions: {e}", "Nu s-au putut schimba permisiunile: {e}"),
     ("Read‑only", "Doar citire"),
     ("Unsaved change", "Modificare nesalvată"),

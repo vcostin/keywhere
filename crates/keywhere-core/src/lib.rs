@@ -625,6 +625,16 @@ impl Vault {
         self.save_inner(path, true)
     }
 
+    /// Write a full encrypted copy to another file (e.g. a rescue copy of
+    /// unsaved changes) without changing which file this vault tracks:
+    /// conflict detection for the real vault path is unaffected.
+    pub fn save_copy(&mut self, path: &Path) -> Result<(), Error> {
+        let tracked = self.disk_hash;
+        let r = self.save_inner(path, false);
+        self.disk_hash = tracked;
+        r
+    }
+
     /// Like [`Vault::save`] but replaces whatever is on disk (user confirmed).
     pub fn save_overwrite(&mut self, path: &Path) -> Result<(), Error> {
         self.save_inner(path, false)
@@ -916,6 +926,28 @@ mod tests {
             .file_type()
             .is_symlink());
         assert_eq!(Vault::open(&real, b"pw-for-test").unwrap().records.len(), 1);
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn save_copy_keeps_conflict_tracking() {
+        let dir = std::env::temp_dir().join(format!("kw-copy-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let main = dir.join("v.psafe3");
+        let mut v = Vault::create(b"pw-for-test").unwrap();
+        v.save(&main).unwrap();
+        v.records.push(Record::new().unwrap());
+        v.save_copy(&dir.join("v.unsaved.psafe3")).unwrap();
+        // The real file is unchanged, so a normal save must still succeed.
+        v.save(&main).unwrap();
+        assert_eq!(
+            Vault::open(&dir.join("v.unsaved.psafe3"), b"pw-for-test")
+                .unwrap()
+                .records
+                .len(),
+            1
+        );
         fs::remove_dir_all(&dir).unwrap();
     }
 
