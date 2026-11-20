@@ -27,13 +27,19 @@ static TABLE: &[(&str, &[u8])] = asset_table![
     "icons/lock.svg",
     "icons/search.svg",
     "icons/warning.svg",
+    "icons/win-close.svg",
+    "icons/win-maximize.svg",
+    "icons/win-minimize.svg",
+    "icons/win-restore.svg",
 ];
 
 /// The app logo, loaded from the embedded asset table (a bare string would be
 /// parsed as a URI by `img`).
 pub fn logo(size: f32) -> gpui::Img {
-    gpui::img(gpui::ImageSource::Resource(gpui::Resource::Embedded("keywhere-logo.svg".into())))
-        .size(gpui::px(size))
+    gpui::img(gpui::ImageSource::Resource(gpui::Resource::Embedded(
+        "keywhere-logo.svg".into(),
+    )))
+    .size(gpui::px(size))
 }
 
 /// Inter (SIL OFL 1.1, see assets/fonts/Inter-LICENSE.txt), bundled so the UI
@@ -54,7 +60,10 @@ pub fn load_fonts(cx: &mut gpui::App) {
 
 impl AssetSource for Assets {
     fn load(&self, path: &str) -> Result<Option<Cow<'static, [u8]>>> {
-        Ok(TABLE.iter().find(|(p, _)| *p == path).map(|(_, b)| Cow::Borrowed(*b)))
+        Ok(TABLE
+            .iter()
+            .find(|(p, _)| *p == path)
+            .map(|(_, b)| Cow::Borrowed(*b)))
     }
 
     fn list(&self, path: &str) -> Result<Vec<SharedString>> {

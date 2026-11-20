@@ -181,8 +181,12 @@ impl Render for TextField {
                     .whitespace_nowrap()
                     .text_size(px(if self.large { 14. } else { 12.5 }))
                     .text_color(c(if empty { DIM } else { TEXT }))
-                    .when(self.secret && !self.revealed && !empty, |d| d.text_size(px(13.)))
-                    .when(focused && empty, |d| d.child(div().mr(px(2.)).w(px(1.5)).h(px(15.)).bg(c(FOCUS))))
+                    .when(self.secret && !self.revealed && !empty, |d| {
+                        d.text_size(px(13.))
+                    })
+                    .when(focused && empty, |d| {
+                        d.child(div().mr(px(2.)).w(px(1.5)).h(px(15.)).bg(c(FOCUS)))
+                    })
                     .child(shown)
                     .when(focused && !empty, |d| {
                         d.child(div().ml(px(1.)).w(px(1.5)).h(px(15.)).bg(c(FOCUS)))
@@ -212,7 +216,11 @@ impl Render for TextField {
                         }))
                         .child(
                             svg()
-                                .path(if self.revealed { "icons/eye-off.svg" } else { "icons/eye.svg" })
+                                .path(if self.revealed {
+                                    "icons/eye-off.svg"
+                                } else {
+                                    "icons/eye.svg"
+                                })
                                 .size(px(15.))
                                 .text_color(c(MUTED)),
                         ),

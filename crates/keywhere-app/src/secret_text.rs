@@ -20,7 +20,10 @@ static GRAVEYARD: Mutex<Vec<Arc<str>>> = Mutex::new(Vec::new());
 pub fn display(secret: &str) -> SharedString {
     let arc: Arc<str> = Arc::from(secret);
     // A poisoned lock must not stop us from tracking secrets.
-    GRAVEYARD.lock().unwrap_or_else(|e| e.into_inner()).push(arc.clone());
+    GRAVEYARD
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .push(arc.clone());
     SharedString::from(arc)
 }
 
@@ -49,12 +52,20 @@ mod tests {
         let s = display("hunter2-secret");
         let raw: Arc<str> = s.clone().into();
         sweep();
-        assert!(GRAVEYARD.lock().unwrap().iter().any(|a| Arc::ptr_eq(a, &raw))); // still in use
+        assert!(GRAVEYARD
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|a| Arc::ptr_eq(a, &raw))); // still in use
         drop(s);
         drop(raw);
         // Our registry now holds the last reference; sweep zeroizes + frees it.
         sweep();
-        assert!(GRAVEYARD.lock().unwrap().iter().all(|a| &**a != "hunter2-secret"));
+        assert!(GRAVEYARD
+            .lock()
+            .unwrap()
+            .iter()
+            .all(|a| &**a != "hunter2-secret"));
     }
 
     #[test]

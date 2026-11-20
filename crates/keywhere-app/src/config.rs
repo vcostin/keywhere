@@ -7,7 +7,8 @@ fn config_dir() -> Option<PathBuf> {
     #[cfg(target_os = "windows")]
     let base = std::env::var_os("APPDATA").map(PathBuf::from);
     #[cfg(target_os = "macos")]
-    let base = std::env::var_os("HOME").map(|h| PathBuf::from(h).join("Library/Application Support"));
+    let base =
+        std::env::var_os("HOME").map(|h| PathBuf::from(h).join("Library/Application Support"));
     #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     let base = std::env::var_os("XDG_CONFIG_HOME")
         .map(PathBuf::from)

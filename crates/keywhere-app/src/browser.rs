@@ -13,11 +13,20 @@ use sha2::{Digest, Sha256};
 
 use crate::field::{FieldEvent, TextField};
 use crate::model::{self, EntryVm, Filter, GroupNode};
-use crate::{config, theme::*};
+use crate::{chrome, config, theme::*};
 
 actions!(
     keywhere,
-    [Lock, FocusSearch, SelectNext, SelectPrev, CopyPassword, CopyUsername, OpenUrl, ToggleReveal]
+    [
+        Lock,
+        FocusSearch,
+        SelectNext,
+        SelectPrev,
+        CopyPassword,
+        CopyUsername,
+        OpenUrl,
+        ToggleReveal
+    ]
 );
 
 pub const CLIPBOARD_CLEAR: Duration = Duration::from_secs(30);
@@ -33,7 +42,7 @@ pub struct Browser {
     entries: Vec<EntryVm>,
     groups: Vec<GroupNode>,
     filter: Filter,
-    visible: Vec<usize>, // indices into `entries`
+    visible: Vec<usize>,     // indices into `entries`
     selected: Option<usize>, // index into `entries`
     search: Entity<TextField>,
     focus: FocusHandle,
@@ -81,7 +90,9 @@ impl Browser {
 
         // 1 Hz housekeeping: clipboard clear, reveal timeout, toast expiry.
         let ticker = cx.spawn_in(window, async move |this, cx| loop {
-            cx.background_executor().timer(Duration::from_millis(1000)).await;
+            cx.background_executor()
+                .timer(Duration::from_millis(1000))
+                .await;
             if this.update_in(cx, |this, _, cx| this.tick(cx)).is_err() {
                 break;
             }
@@ -158,7 +169,12 @@ impl Browser {
             .filter(|&i| model::matches(&self.entries[i], &self.filter, &q, now))
             .collect();
         self.selected = keep
-            .and_then(|k| self.visible.iter().copied().find(|&i| self.entries[i].index == k))
+            .and_then(|k| {
+                self.visible
+                    .iter()
+                    .copied()
+                    .find(|&i| self.entries[i].index == k)
+            })
             .or_else(|| self.visible.first().copied());
         self.revealed = false;
         cx.notify();
@@ -179,7 +195,11 @@ impl Browser {
     }
 
     pub fn select_title(&mut self, title: &str, cx: &mut Context<Self>) {
-        if let Some(pos) = self.visible.iter().position(|&i| self.entries[i].title == title) {
+        if let Some(pos) = self
+            .visible
+            .iter()
+            .position(|&i| self.entries[i].title == title)
+        {
             self.select_visible(pos, cx);
         }
     }
@@ -192,12 +212,17 @@ impl Browser {
     fn copy(&mut self, kind: u8, label: &str, cx: &mut Context<Self>) {
         let Some(sel) = self.selected else { return };
         let r = &self.vault.records[self.entries[sel].index];
-        let Some(text) = r.text(kind).filter(|t| !t.is_empty()) else { return };
+        let Some(text) = r.text(kind).filter(|t| !t.is_empty()) else {
+            return;
+        };
         // TODO(M3): per-OS "concealed / exclude from history" clipboard hints (keywhere-sys).
         self.clip_hash = Some(hash(text));
         self.clip_until = Some(Instant::now() + CLIPBOARD_CLEAR);
         cx.write_to_clipboard(ClipboardItem::new_string(text.to_string()));
-        self.toast = Some((format!("{label} copied").into(), Instant::now() + Duration::from_secs(3)));
+        self.toast = Some((
+            format!("{label} copied").into(),
+            Instant::now() + Duration::from_secs(3),
+        ));
         cx.notify();
     }
 
@@ -246,8 +271,21 @@ impl Browser {
             .when(on, |d| d.bg(c(SELECTION)))
             .when(!on, |d| d.hover(|d| d.bg(c(HOVER))))
             .on_click(cx.listener(move |this, _, _, cx| this.set_filter(filter.clone(), cx)))
-            .when_some(icon, |d, i| d.child(svg().path(i).size(px(13.)).text_color(c(if on { TEXT } else { MUTED }))))
-            .child(div().flex_1().overflow_hidden().whitespace_nowrap().child(label))
+            .when_some(icon, |d, i| {
+                d.child(
+                    svg()
+                        .path(i)
+                        .size(px(13.))
+                        .text_color(c(if on { TEXT } else { MUTED })),
+                )
+            })
+            .child(
+                div()
+                    .flex_1()
+                    .overflow_hidden()
+                    .whitespace_nowrap()
+                    .child(label),
+            )
             .child(match badge {
                 Some(col) if count > 0 => div()
                     .px(px(6.))
@@ -256,13 +294,20 @@ impl Browser {
                     .bg(ca(col, 0x2a))
                     .text_color(c(col))
                     .child(count.to_string()),
-                _ => div().text_size(px(11.)).text_color(c(DIM)).child(count.to_string()),
+                _ => div()
+                    .text_size(px(11.))
+                    .text_color(c(DIM))
+                    .child(count.to_string()),
             })
     }
 
     fn render_sidebar(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let now = now_secs() as u64;
-        let expiring = self.entries.iter().filter(|e| model::is_expiring(e, now)).count();
+        let expiring = self
+            .entries
+            .iter()
+            .filter(|e| model::is_expiring(e, now))
+            .count();
         let mut col = div()
             .id("sidebar")
             .w(px(200.))
@@ -277,8 +322,26 @@ impl Browser {
             .flex_col()
             .gap(px(1.))
             .text_size(px(12.5))
-            .child(self.nav_item("all".into(), Some("icons/list.svg"), "All entries".into(), self.entries.len(), 0, Filter::All, None, cx))
-            .child(self.nav_item("exp".into(), Some("icons/clock.svg"), "Expiring".into(), expiring, 0, Filter::Expiring, Some(WARN), cx))
+            .child(self.nav_item(
+                "all".into(),
+                Some("icons/list.svg"),
+                "All entries".into(),
+                self.entries.len(),
+                0,
+                Filter::All,
+                None,
+                cx,
+            ))
+            .child(self.nav_item(
+                "exp".into(),
+                Some("icons/clock.svg"),
+                "Expiring".into(),
+                expiring,
+                0,
+                Filter::Expiring,
+                Some(WARN),
+                cx,
+            ))
             .child(
                 div()
                     .mt_3()
@@ -331,8 +394,18 @@ impl Browser {
                     .items_center()
                     .border_b_1()
                     .border_color(c(LINE))
-                    .child(div().font_weight(FontWeight::SEMIBOLD).text_color(c(TEXT)).child(title))
-                    .child(div().text_size(px(11.)).text_color(c(DIM)).child(format!("{n}"))),
+                    .child(
+                        div()
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(c(TEXT))
+                            .child(title),
+                    )
+                    .child(
+                        div()
+                            .text_size(px(11.))
+                            .text_color(c(DIM))
+                            .child(format!("{n}")),
+                    ),
             )
             .child(if n == 0 {
                 div()
@@ -364,15 +437,29 @@ impl Browser {
         let e = &self.entries[i];
         let on = self.selected == Some(i);
         let now = now_secs() as u64;
-        let initial: SharedString = e.title.chars().next().map(|c| c.to_uppercase().to_string()).unwrap_or_default().into();
-        let sub: SharedString = match (e.username.is_empty(), e.group_label.is_empty(), matches!(self.filter, Filter::Group(_))) {
+        let initial: SharedString = e
+            .title
+            .chars()
+            .next()
+            .map(|c| c.to_uppercase().to_string())
+            .unwrap_or_default()
+            .into();
+        let sub: SharedString = match (
+            e.username.is_empty(),
+            e.group_label.is_empty(),
+            matches!(self.filter, Filter::Group(_)),
+        ) {
             (false, false, false) => format!("{} · {}", e.username, e.group_label).into(),
             (false, _, _) => e.username.clone(),
             (true, false, _) => e.group_label.clone(),
             _ => "".into(),
         };
         let exp_badge = e.expiry.filter(|_| model::is_expiring(e, now)).map(|t| {
-            if t <= now { ("expired".to_string(), DANGER) } else { (format!("{}d", (t - now).div_ceil(86_400)), WARN) }
+            if t <= now {
+                ("expired".to_string(), DANGER)
+            } else {
+                (format!("{}d", (t - now).div_ceil(86_400)), WARN)
+            }
         });
         div()
             .id(pos)
@@ -385,7 +472,9 @@ impl Browser {
             .cursor_pointer()
             .border_b_1()
             .border_color(ca(BORDER, 0x55))
-            .when(on, |d| d.bg(c(SELECTION)).border_l_2().border_color(c(ACCENT)))
+            .when(on, |d| {
+                d.bg(c(SELECTION)).border_l_2().border_color(c(ACCENT))
+            })
             .when(!on, |d| d.hover(|d| d.bg(c(HOVER))))
             .on_click(cx.listener(move |this, ev: &gpui::ClickEvent, _, cx| {
                 this.select_visible(pos, cx);
@@ -411,11 +500,35 @@ impl Browser {
                     .flex_1()
                     .min_w_0()
                     .overflow_hidden()
-                    .child(div().font_weight(FontWeight::SEMIBOLD).text_color(c(TEXT)).whitespace_nowrap().overflow_hidden().text_ellipsis().child(e.title.clone()))
-                    .child(div().text_size(px(11.)).text_color(c(MUTED)).whitespace_nowrap().overflow_hidden().text_ellipsis().child(sub)),
+                    .child(
+                        div()
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(c(TEXT))
+                            .whitespace_nowrap()
+                            .overflow_hidden()
+                            .text_ellipsis()
+                            .child(e.title.clone()),
+                    )
+                    .child(
+                        div()
+                            .text_size(px(11.))
+                            .text_color(c(MUTED))
+                            .whitespace_nowrap()
+                            .overflow_hidden()
+                            .text_ellipsis()
+                            .child(sub),
+                    ),
             )
             .when_some(exp_badge, |d, (t, col)| {
-                d.child(div().px(px(6.)).rounded(px(8.)).text_size(px(10.)).bg(ca(col, 0x2a)).text_color(c(col)).child(t))
+                d.child(
+                    div()
+                        .px(px(6.))
+                        .rounded(px(8.))
+                        .text_size(px(10.))
+                        .bg(ca(col, 0x2a))
+                        .text_color(c(col))
+                        .child(t),
+                )
             })
     }
 
@@ -442,8 +555,23 @@ impl Browser {
             .px_3()
             .border_b_1()
             .border_color(c(LINE))
-            .child(div().w(px(76.)).flex_none().text_size(px(11.)).text_color(c(DIM)).child(label))
-            .child(div().flex_1().min_w_0().overflow_hidden().whitespace_nowrap().text_ellipsis().child(value))
+            .child(
+                div()
+                    .w(px(76.))
+                    .flex_none()
+                    .text_size(px(11.))
+                    .text_color(c(DIM))
+                    .child(label),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .overflow_hidden()
+                    .whitespace_nowrap()
+                    .text_ellipsis()
+                    .child(value),
+            )
     }
 
     fn render_detail(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -462,8 +590,22 @@ impl Browser {
         let now = now_secs() as u64;
         let pw = r.text(rec::PASSWORD).unwrap_or("");
         let bits = model::strength_bits(pw);
-        let bars = if pw.is_empty() { 0 } else if bits < 40. { 1 } else if bits < 60. { 2 } else if bits < 80. { 3 } else { 4 };
-        let bar_col = match bars { 1 => DANGER, 2 => WARN, _ => OK };
+        let bars = if pw.is_empty() {
+            0
+        } else if bits < 40. {
+            1
+        } else if bits < 60. {
+            2
+        } else if bits < 80. {
+            3
+        } else {
+            4
+        };
+        let bar_col = match bars {
+            1 => DANGER,
+            2 => WARN,
+            _ => OK,
+        };
         let pw_shown: SharedString = if self.revealed {
             // Hidden again after REVEAL_FOR or on lock; the Arc is wiped by
             // secret_text::sweep once GPUI drops it.
@@ -474,11 +616,25 @@ impl Browser {
             "••••••••••••".into()
         };
 
-        let mut fields = div().mt_3().rounded(px(9.)).border_1().border_color(c(LINE)).bg(c(SURFACE)).overflow_hidden();
+        let mut fields = div()
+            .mt_3()
+            .rounded(px(9.))
+            .border_1()
+            .border_color(c(LINE))
+            .bg(c(SURFACE))
+            .overflow_hidden();
         if let Some(u) = r.text(rec::USERNAME).filter(|s| !s.is_empty()) {
             fields = fields.child(
-                Self::field_row("Username", div().text_color(c(TEXT)).child(SharedString::from(u.to_string())))
-                    .child(Self::icon_btn("cu", "icons/copy.svg").on_click(cx.listener(|t, _, _, cx| t.copy(rec::USERNAME, "Username", cx)))),
+                Self::field_row(
+                    "Username",
+                    div()
+                        .text_color(c(TEXT))
+                        .child(SharedString::from(u.to_string())),
+                )
+                .child(
+                    Self::icon_btn("cu", "icons/copy.svg")
+                        .on_click(cx.listener(|t, _, _, cx| t.copy(rec::USERNAME, "Username", cx))),
+                ),
             );
         }
         fields = fields.child(
@@ -488,48 +644,101 @@ impl Browser {
                     .flex()
                     .items_center()
                     .gap_2()
-                    .child(div().text_color(c(TEXT)).font_family("monospace").child(pw_shown))
+                    .child(
+                        div()
+                            .text_color(c(TEXT))
+                            .font_family("monospace")
+                            .child(pw_shown),
+                    )
                     .when(bars > 0, |d| {
                         d.child(div().flex().gap(px(3.)).children((0..4).map(move |i| {
-                            div().w(px(14.)).h(px(4.)).rounded(px(2.)).bg(c(if i < bars { bar_col } else { RAISED }))
+                            div()
+                                .w(px(14.))
+                                .h(px(4.))
+                                .rounded(px(2.))
+                                .bg(c(if i < bars { bar_col } else { RAISED }))
                         })))
                     }),
             )
             .when(!pw.is_empty(), |d| {
                 d.child(
-                    Self::icon_btn("rv", if self.revealed { "icons/eye-off.svg" } else { "icons/eye.svg" })
-                        .on_click(cx.listener(|t, _, _, cx| t.toggle_reveal(cx))),
+                    Self::icon_btn(
+                        "rv",
+                        if self.revealed {
+                            "icons/eye-off.svg"
+                        } else {
+                            "icons/eye.svg"
+                        },
+                    )
+                    .on_click(cx.listener(|t, _, _, cx| t.toggle_reveal(cx))),
                 )
-                .child(Self::icon_btn("cp", "icons/copy.svg").on_click(cx.listener(|t, _, _, cx| t.copy(rec::PASSWORD, "Password", cx))))
+                .child(
+                    Self::icon_btn("cp", "icons/copy.svg")
+                        .on_click(cx.listener(|t, _, _, cx| t.copy(rec::PASSWORD, "Password", cx))),
+                )
             }),
         );
         if let Some(u) = r.text(rec::URL).filter(|s| !s.is_empty()) {
             let web = u.starts_with("http://") || u.starts_with("https://");
             fields = fields.child(
-                Self::field_row("Website", div().text_color(c(if web { LINK } else { TEXT })).child(SharedString::from(u.to_string())))
-                    .child(Self::icon_btn("cl", "icons/copy.svg").on_click(cx.listener(|t, _, _, cx| t.copy(rec::URL, "URL", cx))))
-                    .when(web, |d| d.child(Self::icon_btn("ou", "icons/external.svg").on_click(cx.listener(|t, _, _, cx| t.open_url(cx))))),
+                Self::field_row(
+                    "Website",
+                    div()
+                        .text_color(c(if web { LINK } else { TEXT }))
+                        .child(SharedString::from(u.to_string())),
+                )
+                .child(
+                    Self::icon_btn("cl", "icons/copy.svg")
+                        .on_click(cx.listener(|t, _, _, cx| t.copy(rec::URL, "URL", cx))),
+                )
+                .when(web, |d| {
+                    d.child(
+                        Self::icon_btn("ou", "icons/external.svg")
+                            .on_click(cx.listener(|t, _, _, cx| t.open_url(cx))),
+                    )
+                }),
             );
         }
         if let Some(m) = r.text(rec::EMAIL).filter(|s| !s.is_empty()) {
             fields = fields.child(
-                Self::field_row("Email", div().text_color(c(TEXT)).child(SharedString::from(m.to_string())))
-                    .child(Self::icon_btn("ce", "icons/copy.svg").on_click(cx.listener(|t, _, _, cx| t.copy(rec::EMAIL, "Email", cx)))),
+                Self::field_row(
+                    "Email",
+                    div()
+                        .text_color(c(TEXT))
+                        .child(SharedString::from(m.to_string())),
+                )
+                .child(
+                    Self::icon_btn("ce", "icons/copy.svg")
+                        .on_click(cx.listener(|t, _, _, cx| t.copy(rec::EMAIL, "Email", cx))),
+                ),
             );
         }
 
-        let notes = r
-            .text(rec::NOTES)
-            .filter(|s| !s.is_empty())
-            .map(|n| crate::secret_text::display(&zeroize::Zeroizing::new(n.replace("\r\n", "\n"))));
+        let notes = r.text(rec::NOTES).filter(|s| !s.is_empty()).map(|n| {
+            crate::secret_text::display(&zeroize::Zeroizing::new(n.replace("\r\n", "\n")))
+        });
         let mut meta: Vec<String> = vec![];
-        if let Some(t) = r.time(rec::CTIME) { meta.push(format!("Created {}", model::fmt_date(t))); }
-        if let Some(t) = r.time(rec::MTIME) { meta.push(format!("Modified {}", model::fmt_date(t))); }
-        if let Some(t) = r.time(rec::PTIME) { meta.push(format!("Password changed {}", model::fmt_date(t))); }
+        if let Some(t) = r.time(rec::CTIME) {
+            meta.push(format!("Created {}", model::fmt_date(t)));
+        }
+        if let Some(t) = r.time(rec::MTIME) {
+            meta.push(format!("Modified {}", model::fmt_date(t)));
+        }
+        if let Some(t) = r.time(rec::PTIME) {
+            meta.push(format!("Password changed {}", model::fmt_date(t)));
+        }
         let hist = model::history_count(r);
-        if hist > 0 { meta.push(format!("Password history · {hist}")); }
+        if hist > 0 {
+            meta.push(format!("Password history · {hist}"));
+        }
 
-        let initial: SharedString = e.title.chars().next().map(|c| c.to_uppercase().to_string()).unwrap_or_default().into();
+        let initial: SharedString = e
+            .title
+            .chars()
+            .next()
+            .map(|c| c.to_uppercase().to_string())
+            .unwrap_or_default()
+            .into();
 
         base.id("detail")
             .overflow_y_scroll()
@@ -542,13 +751,37 @@ impl Browser {
                     .flex()
                     .items_center()
                     .gap_3()
-                    .child(div().size(px(44.)).rounded(px(10.)).bg(c(ACCENT)).text_color(c(ACCENT_INK)).flex().items_center().justify_center().text_size(px(18.)).font_weight(FontWeight::BOLD).child(initial))
+                    .child(
+                        div()
+                            .size(px(44.))
+                            .rounded(px(10.))
+                            .bg(c(ACCENT))
+                            .text_color(c(ACCENT_INK))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .text_size(px(18.))
+                            .font_weight(FontWeight::BOLD)
+                            .child(initial),
+                    )
                     .child(
                         div()
                             .flex_1()
                             .min_w_0()
-                            .child(div().text_size(px(18.)).font_weight(FontWeight::BOLD).text_color(c(TEXT)).child(e.title.clone()))
-                            .child(div().text_size(px(11.5)).text_color(c(MUTED)).child(if e.group_label.is_empty() { SharedString::from("No group") } else { e.group_label.clone() })),
+                            .child(
+                                div()
+                                    .text_size(px(18.))
+                                    .font_weight(FontWeight::BOLD)
+                                    .text_color(c(TEXT))
+                                    .child(e.title.clone()),
+                            )
+                            .child(div().text_size(px(11.5)).text_color(c(MUTED)).child(
+                                if e.group_label.is_empty() {
+                                    SharedString::from("No group")
+                                } else {
+                                    e.group_label.clone()
+                                },
+                            )),
                     ),
             )
             .when_some(e.expiry, |d, exp| {
@@ -569,7 +802,12 @@ impl Browser {
                             .flex()
                             .items_center()
                             .gap_2()
-                            .child(svg().path("icons/clock.svg").size(px(13.)).text_color(c(col)))
+                            .child(
+                                svg()
+                                    .path("icons/clock.svg")
+                                    .size(px(13.))
+                                    .text_color(c(col)),
+                            )
                             .child(msg),
                     )
                 })
@@ -585,18 +823,36 @@ impl Browser {
                         .border_color(c(LINE))
                         .bg(c(SURFACE))
                         .text_color(c(TEXT_SOFT))
-                        .child(div().text_size(px(10.5)).text_color(c(DIM)).mb_1().child("NOTES"))
+                        .child(
+                            div()
+                                .text_size(px(10.5))
+                                .text_color(c(DIM))
+                                .mb_1()
+                                .child("NOTES"),
+                        )
                         .child(n),
                 )
             })
-            .child(div().mt_3().flex().flex_wrap().gap_x_4().gap_y_1().text_size(px(11.)).text_color(c(DIM)).children(meta))
+            .child(
+                div()
+                    .mt_3()
+                    .flex()
+                    .flex_wrap()
+                    .gap_x_4()
+                    .gap_y_1()
+                    .text_size(px(11.))
+                    .text_color(c(DIM))
+                    .children(meta),
+            )
             .into_any_element()
     }
 }
 
 impl Render for Browser {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let clip_left = self.clip_until.map(|t| t.saturating_duration_since(Instant::now()).as_secs());
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let clip_left = self
+            .clip_until
+            .map(|t| t.saturating_duration_since(Instant::now()).as_secs());
         let file: SharedString = self
             .path
             .file_name()
@@ -615,42 +871,73 @@ impl Render for Browser {
             .text_color(c(TEXT))
             .text_size(px(12.5))
             .on_action(cx.listener(|_, _: &Lock, _, cx| cx.emit(BrowserEvent::LockRequested)))
-            .on_action(cx.listener(|this, _: &FocusSearch, window, cx| window.focus(&this.search.focus_handle(cx))))
+            .on_action(cx.listener(|this, _: &FocusSearch, window, cx| {
+                window.focus(&this.search.focus_handle(cx))
+            }))
             .on_action(cx.listener(|this, _: &SelectNext, _, cx| {
-                let p = this.selected_pos().map_or(0, |p| (p + 1).min(this.visible.len().saturating_sub(1)));
+                let p = this
+                    .selected_pos()
+                    .map_or(0, |p| (p + 1).min(this.visible.len().saturating_sub(1)));
                 this.select_visible(p, cx);
             }))
             .on_action(cx.listener(|this, _: &SelectPrev, _, cx| {
                 let p = this.selected_pos().map_or(0, |p| p.saturating_sub(1));
                 this.select_visible(p, cx);
             }))
-            .on_action(cx.listener(|this, _: &CopyPassword, _, cx| this.copy(rec::PASSWORD, "Password", cx)))
-            .on_action(cx.listener(|this, _: &CopyUsername, _, cx| this.copy(rec::USERNAME, "Username", cx)))
+            .on_action(
+                cx.listener(|this, _: &CopyPassword, _, cx| {
+                    this.copy(rec::PASSWORD, "Password", cx)
+                }),
+            )
+            .on_action(
+                cx.listener(|this, _: &CopyUsername, _, cx| {
+                    this.copy(rec::USERNAME, "Username", cx)
+                }),
+            )
             .on_action(cx.listener(|this, _: &OpenUrl, _, cx| this.open_url(cx)))
             .on_action(cx.listener(|this, _: &ToggleReveal, _, cx| this.toggle_reveal(cx)))
-            // toolbar
+            // toolbar = title bar (drag on logo/empty space, window buttons at right)
             .child(
                 div()
-                    .h(px(44.))
+                    .h(px(46.))
                     .flex_none()
                     .flex()
                     .items_center()
-                    .gap_3()
-                    .px_3()
+                    .pr(px(6.))
                     .bg(c(SURFACE))
                     .border_b_1()
                     .border_color(c(LINE))
-                    .child(crate::assets::logo(20.).flex_none())
-                    .child(div().font_weight(FontWeight::SEMIBOLD).child("Keywhere"))
-                    .child(div().flex_none().text_color(c(DIM)).text_size(px(11.5)).child(file))
-                    .child(div().flex_1().flex().justify_center().child(div().w(px(340.)).child(self.search.clone())))
+                    .child(
+                        chrome::drag_area("tb-left")
+                            .h_full()
+                            .flex()
+                            .flex_none()
+                            .items_center()
+                            .gap_3()
+                            .pl(px(12.) + chrome::leading_inset())
+                            .pr_3()
+                            .child(crate::assets::logo(20.).flex_none())
+                            .child(div().font_weight(FontWeight::SEMIBOLD).child("Keywhere"))
+                            .child(
+                                div()
+                                    .flex_none()
+                                    .text_color(c(DIM))
+                                    .text_size(px(11.5))
+                                    .child(file),
+                            ),
+                    )
+                    .child(chrome::drag_area("tb-mid-l").h_full().flex_1())
+                    .child(div().w(px(340.)).flex_none().child(self.search.clone()))
+                    .child(chrome::drag_area("tb-mid-r").h_full().flex_1())
                     .child(
                         div()
                             .id("lock")
                             .flex()
+                            .flex_none()
                             .items_center()
                             .gap_1()
                             .px_2()
+                            .mr_2()
                             .h(px(26.))
                             .rounded(px(7.))
                             .border_1()
@@ -658,10 +945,18 @@ impl Render for Browser {
                             .bg(c(RAISED))
                             .cursor_pointer()
                             .hover(|d| d.bg(c(HOVER)))
-                            .on_click(cx.listener(|_, _, _, cx| cx.emit(BrowserEvent::LockRequested)))
-                            .child(svg().path("icons/lock.svg").size(px(13.)).text_color(c(TEXT_SOFT)))
+                            .on_click(
+                                cx.listener(|_, _, _, cx| cx.emit(BrowserEvent::LockRequested)),
+                            )
+                            .child(
+                                svg()
+                                    .path("icons/lock.svg")
+                                    .size(px(13.))
+                                    .text_color(c(TEXT_SOFT)),
+                            )
                             .child(div().text_size(px(11.5)).child("Lock")),
-                    ),
+                    )
+                    .child(chrome::window_controls(window)),
             )
             .child(
                 div()
@@ -686,13 +981,35 @@ impl Render for Browser {
                     .border_color(c(LINE))
                     .text_size(px(11.))
                     .text_color(c(DIM))
-                    .child(div().flex().items_center().gap_1().child(div().size(px(7.)).rounded_full().bg(c(OK))).child("Read‑only · psafe3"))
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap_1()
+                            .child(div().size(px(7.)).rounded_full().bg(c(OK)))
+                            .child("Read‑only · psafe3"),
+                    )
                     .child(format!("{} entries", self.entries.len()))
                     .child(div().flex_1())
                     .when_some(self.toast.as_ref().map(|t| t.0.clone()), |d, t| {
-                        d.child(div().flex().items_center().gap_1().text_color(c(OK)).child(svg().path("icons/check.svg").size(px(12.)).text_color(c(OK))).child(t))
+                        d.child(
+                            div()
+                                .flex()
+                                .items_center()
+                                .gap_1()
+                                .text_color(c(OK))
+                                .child(
+                                    svg()
+                                        .path("icons/check.svg")
+                                        .size(px(12.))
+                                        .text_color(c(OK)),
+                                )
+                                .child(t),
+                        )
                     })
-                    .when_some(clip_left, |d, s| d.child(format!("Clipboard clears in {s}s")))
+                    .when_some(clip_left, |d, s| {
+                        d.child(format!("Clipboard clears in {s}s"))
+                    })
                     .child(if cfg!(target_os = "macos") {
                         "⌘C password · ⌘B user · ⌘L lock"
                     } else {

@@ -2,6 +2,7 @@
 
 pub mod assets;
 pub mod browser;
+pub mod chrome;
 pub mod config;
 pub mod field;
 pub mod model;
@@ -12,11 +13,11 @@ pub mod unlock;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-use keywhere_core::Vault;
 use gpui::{
     div, prelude::*, px, size, App, Application, Bounds, Context, Entity, KeyBinding, Window,
     WindowBounds, WindowOptions,
 };
+use keywhere_core::Vault;
 
 use browser::{Browser, BrowserEvent};
 use unlock::{UnlockEvent, UnlockView};
@@ -48,7 +49,8 @@ impl Shell {
             cx.background_executor().timer(Duration::from_secs(1)).await;
             secret_text::sweep();
             let r = this.update_in(cx, |this, window, cx| {
-                if matches!(this.screen, Screen::Vault(_)) && this.last_input.elapsed() >= IDLE_LOCK {
+                if matches!(this.screen, Screen::Vault(_)) && this.last_input.elapsed() >= IDLE_LOCK
+                {
                     this.lock(window, cx);
                 }
             });
@@ -75,7 +77,11 @@ impl Shell {
         this
     }
 
-    fn unlock_view(path: Option<PathBuf>, window: &mut Window, cx: &mut Context<Self>) -> Entity<UnlockView> {
+    fn unlock_view(
+        path: Option<PathBuf>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Entity<UnlockView> {
         let view = cx.new(|cx| UnlockView::new(path, window, cx));
         cx.subscribe_in(&view, window, |this, view, ev, window, cx| match ev {
             UnlockEvent::Unlocked => {
@@ -90,7 +96,13 @@ impl Shell {
         view
     }
 
-    fn show_vault(&mut self, path: PathBuf, vault: Vault, window: &mut Window, cx: &mut Context<Self>) {
+    fn show_vault(
+        &mut self,
+        path: PathBuf,
+        vault: Vault,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let b = cx.new(|cx| Browser::new(path, vault, window, cx));
         cx.subscribe_in(&b, window, |this, _, ev, window, cx| match ev {
             BrowserEvent::LockRequested => this.lock(window, cx),
@@ -103,7 +115,9 @@ impl Shell {
 
     /// Drop the vault (zeroizing all decrypted fields) and return to unlock.
     fn lock(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Screen::Vault(b) = &self.screen else { return };
+        let Screen::Vault(b) = &self.screen else {
+            return;
+        };
         let path = b.update(cx, |b, cx| {
             b.clear_clipboard_if_ours(cx);
             b.path.clone()
@@ -117,8 +131,8 @@ impl Shell {
 }
 
 impl Render for Shell {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        div()
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let content = div()
             .size_full()
             .font_family(assets::UI_FONT)
             .capture_any_mouse_down(cx.listener(|this, _, _, _| this.last_input = Instant::now()))
@@ -127,7 +141,8 @@ impl Render for Shell {
             .child(match &self.screen {
                 Screen::Unlock(v) => v.clone().into_any_element(),
                 Screen::Vault(b) => b.clone().into_any_element(),
-            })
+            });
+        chrome::frame(window, content)
     }
 }
 
@@ -135,7 +150,10 @@ pub fn harden_process() {
     // No core dumps of a process that holds decrypted secrets.
     #[cfg(unix)]
     unsafe {
-        let zero = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
+        let zero = libc::rlimit {
+            rlim_cur: 0,
+            rlim_max: 0,
+        };
         libc::setrlimit(libc::RLIMIT_CORE, &zero);
         #[cfg(target_os = "linux")]
         libc::prctl(libc::PR_SET_DUMPABLE, 0, 0, 0, 0);
@@ -156,37 +174,45 @@ pub fn run_preunlocked(path: PathBuf, vault: Vault, select: Option<String>) {
 
 fn run_inner(path: Option<PathBuf>, preunlocked: Option<Vault>, select: Option<String>) {
     harden_process();
-    Application::new().with_assets(assets::Assets).run(move |cx: &mut App| {
-        assets::load_fonts(cx);
-        use browser::*;
-        cx.bind_keys([
-            KeyBinding::new("secondary-l", Lock, None),
-            KeyBinding::new("secondary-f", FocusSearch, Some("Browser")),
-            KeyBinding::new("secondary-k", FocusSearch, Some("Browser")),
-            KeyBinding::new("down", SelectNext, Some("Browser")),
-            KeyBinding::new("up", SelectPrev, Some("Browser")),
-            KeyBinding::new("secondary-c", CopyPassword, Some("Browser")),
-            KeyBinding::new("secondary-b", CopyUsername, Some("Browser")),
-            KeyBinding::new("secondary-u", OpenUrl, Some("Browser")),
-            KeyBinding::new("secondary-r", ToggleReveal, Some("Browser")),
-            KeyBinding::new("secondary-q", Quit, None),
-        ]);
-        cx.on_action(|_: &Quit, cx| cx.quit());
+    Application::new()
+        .with_assets(assets::Assets)
+        .run(move |cx: &mut App| {
+            assets::load_fonts(cx);
+            use browser::*;
+            cx.bind_keys([
+                KeyBinding::new("secondary-l", Lock, None),
+                KeyBinding::new("secondary-f", FocusSearch, Some("Browser")),
+                KeyBinding::new("secondary-k", FocusSearch, Some("Browser")),
+                KeyBinding::new("down", SelectNext, Some("Browser")),
+                KeyBinding::new("up", SelectPrev, Some("Browser")),
+                KeyBinding::new("secondary-c", CopyPassword, Some("Browser")),
+                KeyBinding::new("secondary-b", CopyUsername, Some("Browser")),
+                KeyBinding::new("secondary-u", OpenUrl, Some("Browser")),
+                KeyBinding::new("secondary-r", ToggleReveal, Some("Browser")),
+                KeyBinding::new("secondary-q", Quit, None),
+            ]);
+            cx.on_action(|_: &Quit, cx| cx.quit());
 
-        let bounds = Bounds::centered(None, size(px(1120.), px(720.)), cx);
-        cx.open_window(
-            WindowOptions {
-                window_bounds: Some(WindowBounds::Windowed(bounds)),
-                app_id: Some("keywhere".into()),
-                titlebar: Some(gpui::TitlebarOptions { title: Some("Keywhere".into()), ..Default::default() }),
-                window_min_size: Some(size(px(820.), px(520.))),
-                ..Default::default()
-            },
-            |window, cx| cx.new(|cx| Shell::new(path, preunlocked, select, window, cx)),
-        )
-        .expect("open window");
-        cx.activate(true);
-    });
+            let bounds = Bounds::centered(None, size(px(1120.), px(720.)), cx);
+            cx.open_window(
+                WindowOptions {
+                    window_bounds: Some(WindowBounds::Windowed(bounds)),
+                    app_id: Some("keywhere".into()),
+                    // Our own title bar (see chrome.rs). macOS keeps native traffic lights.
+                    titlebar: Some(gpui::TitlebarOptions {
+                        title: Some("Keywhere".into()),
+                        appears_transparent: true,
+                        traffic_light_position: Some(gpui::point(px(14.), px(14.))),
+                    }),
+                    window_decorations: Some(gpui::WindowDecorations::Client),
+                    window_min_size: Some(size(px(820.), px(520.))),
+                    ..Default::default()
+                },
+                |window, cx| cx.new(|cx| Shell::new(path, preunlocked, select, window, cx)),
+            )
+            .expect("open window");
+            cx.activate(true);
+        });
 }
 
 gpui::actions!(keywhere, [Quit]);

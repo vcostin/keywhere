@@ -70,7 +70,9 @@ pub fn groups(entries: &[EntryVm]) -> Vec<GroupNode> {
             *map.entry(e.group[..depth].to_vec()).or_default() += 1;
         }
     }
-    map.into_iter().map(|(path, count)| GroupNode { path, count }).collect()
+    map.into_iter()
+        .map(|(path, count)| GroupNode { path, count })
+        .collect()
 }
 
 pub const EXPIRY_WINDOW_SECS: u64 = 14 * 86_400;
@@ -91,12 +93,24 @@ pub fn matches(e: &EntryVm, filter: &Filter, query: &str, now: u64) -> bool {
 /// Rough strength in bits from length and character classes (UI hint only).
 pub fn strength_bits(pw: &str) -> f64 {
     let mut pool = 0u32;
-    if pw.chars().any(|c| c.is_ascii_lowercase()) { pool += 26; }
-    if pw.chars().any(|c| c.is_ascii_uppercase()) { pool += 26; }
-    if pw.chars().any(|c| c.is_ascii_digit()) { pool += 10; }
-    if pw.chars().any(|c| c.is_ascii_punctuation() || c == ' ') { pool += 33; }
-    if !pw.is_ascii() { pool += 100; }
-    if pool == 0 { return 0.0; }
+    if pw.chars().any(|c| c.is_ascii_lowercase()) {
+        pool += 26;
+    }
+    if pw.chars().any(|c| c.is_ascii_uppercase()) {
+        pool += 26;
+    }
+    if pw.chars().any(|c| c.is_ascii_digit()) {
+        pool += 10;
+    }
+    if pw.chars().any(|c| c.is_ascii_punctuation() || c == ' ') {
+        pool += 33;
+    }
+    if !pw.is_ascii() {
+        pool += 100;
+    }
+    if pool == 0 {
+        return 0.0;
+    }
     pw.chars().count() as f64 * (pool as f64).log2()
 }
 
@@ -108,7 +122,9 @@ pub fn history_count(r: &Record) -> usize {
         .unwrap_or(0)
 }
 
-const MONTHS: [&str; 12] = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const MONTHS: [&str; 12] = [
+    "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+];
 
 /// Unix seconds → (year, month 1-12, day), proleptic Gregorian, UTC.
 fn civil(secs: u64) -> (i64, u32, u32) {
@@ -132,11 +148,21 @@ pub fn fmt_date(secs: u64) -> String {
 pub fn fmt_relative_expiry(exp: u64, now: u64) -> (String, bool) {
     if exp <= now {
         let days = (now - exp) / 86_400;
-        (format!("Password expired {} ({}).", ago(days), fmt_date(exp)), true)
+        (
+            format!("Password expired {} ({}).", ago(days), fmt_date(exp)),
+            true,
+        )
     } else {
         let days = (exp - now).div_ceil(86_400);
-        let when = if days == 1 { "tomorrow".to_string() } else { format!("in {days} days") };
-        (format!("Password expires {when} ({}).", fmt_date(exp)), false)
+        let when = if days == 1 {
+            "tomorrow".to_string()
+        } else {
+            format!("in {days} days")
+        };
+        (
+            format!("Password expires {when} ({}).", fmt_date(exp)),
+            false,
+        )
     }
 }
 
