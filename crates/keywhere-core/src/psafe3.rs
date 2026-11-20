@@ -13,14 +13,16 @@
 //!
 //! Security notes:
 //! * Password hash and HMAC are compared in constant time.
-//! * No parsed data is returned unless the HMAC verifies.
-//! * Every length read from the file is bounds-checked before use.
+//! * No field is materialised unless the HMAC verifies; after a correct
+//!   passphrase every failure maps to one uniform `Error::Integrity`.
+//! * Every length read from the file is bounds-checked and size-capped.
 //! * Key material and decrypted field data are zeroized on drop.
 //! * Unknown header / record field types are preserved for round-trip.
 
 use hmac::{Hmac, Mac};
 use sha2::{Digest, Sha256};
 use subtle::ConstantTimeEq;
+use cbc::cipher::{block_padding::NoPadding, BlockDecryptMut, BlockEncryptMut, KeyIvInit};
 use twofish::cipher::{generic_array::GenericArray, BlockDecrypt, BlockEncrypt, KeyInit};
 use twofish::Twofish;
 use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
@@ -37,8 +39,12 @@ pub const END_OF_ENTRY: u8 = 0xff;
 pub const MIN_ITERATIONS_ON_OPEN: u32 = 2048;
 /// Floor applied whenever Keywhere writes a file.
 pub const MIN_ITERATIONS_ON_SAVE: u32 = 262_144;
-/// Upper bound to avoid a hostile file pinning the CPU forever (~2^28).
-pub const MAX_ITERATIONS: u32 = 1 << 28;
+/// Upper bound so a hostile ITER cannot pin the CPU for minutes (2^24).
+pub const MAX_ITERATIONS: u32 = 1 << 24;
+/// Hostile-input caps, checked before allocation.
+pub const MAX_CIPHERTEXT: usize = 64 * 1024 * 1024;
+pub const MAX_FIELD: usize = 32 * 1024 * 1024;
+pub const MAX_FIELDS: usize = 1_000_000;
 
 /// One TLV field: header or record. Data is zeroized when dropped.
 #[derive(Clone, Zeroize, ZeroizeOnDrop)]
@@ -128,84 +134,92 @@ pub fn decode(bytes: &[u8], password: &[u8]) -> Result<RawDb, Error> {
     let l = ecb_decrypt_32(&pc, b3b4);
 
     let tail = bytes.len() - 48;
-    if &bytes[tail..tail + 16] != EOF_MARKER {
-        return Err(Error::Corrupt("missing EOF marker / truncated file"));
-    }
     let enc = &bytes[PREAMBLE_LEN..tail];
-    if enc.len() % BLOCK != 0 {
-        return Err(Error::Corrupt("ciphertext not block aligned"));
+    if enc.len() > MAX_CIPHERTEXT {
+        return Err(Error::TooLarge);
     }
     let stored_mac = &bytes[tail + 16..];
+    // From here on the passphrase is known-good: every failure is reported as
+    // a single, uniform integrity error so a tamperer learns nothing.
+    parse_authenticated(&bytes[tail..tail + 16], enc, &iv, &k, &l, stored_mac)
+        .map(|(header, records)| RawDb { iterations, header, records })
+        .map_err(|()| Error::Integrity)
+}
 
-    // CBC decrypt into a zeroizing buffer.
-    let kc = twofish(&k[..]);
-    let mut plain = Zeroizing::new(enc.to_vec());
-    let mut prev = iv;
-    for chunk in plain.chunks_mut(BLOCK) {
-        let mut c = [0u8; 16];
-        c.copy_from_slice(chunk);
-        kc.decrypt_block(GenericArray::from_mut_slice(chunk));
-        for (b, p) in chunk.iter_mut().zip(prev.iter()) {
-            *b ^= p;
-        }
-        prev = c;
+type Parsed = (Vec<Field>, Vec<Vec<Field>>);
+
+fn parse_authenticated(
+    eof: &[u8],
+    enc: &[u8],
+    iv: &[u8; 16],
+    k: &[u8; 32],
+    l: &[u8; 32],
+    stored_mac: &[u8],
+) -> Result<Parsed, ()> {
+    if eof != EOF_MARKER || enc.is_empty() || !enc.len().is_multiple_of(BLOCK) {
+        return Err(());
     }
+    let mut plain = Zeroizing::new(enc.to_vec());
+    cbc::Decryptor::<Twofish>::new(k.into(), iv.into())
+        .decrypt_padded_mut::<NoPadding>(&mut plain)
+        .map_err(|_| ())?;
 
-    // Parse TLV fields.
-    let mut fields: Vec<Field> = Vec::new();
+    // Walk the TLV stream once, collecting (kind, start, end) spans only.
+    let mut spans: Vec<(u8, usize, usize)> = Vec::new();
     let mut pos = 0usize;
     while pos < plain.len() {
-        if plain.len() - pos < BLOCK {
-            return Err(Error::Corrupt("short field block"));
+        if plain.len() - pos < BLOCK || spans.len() >= MAX_FIELDS {
+            return Err(());
         }
         let len = u32::from_le_bytes(plain[pos..pos + 4].try_into().unwrap()) as usize;
-        let kind = plain[pos + 4];
-        let start = pos + 5;
-        let end = start.checked_add(len).ok_or(Error::Corrupt("field length overflow"))?;
-        if end > plain.len() {
-            return Err(Error::Corrupt("field length past end of data"));
+        if len > MAX_FIELD {
+            return Err(());
         }
-        fields.push(Field { kind, data: plain[start..end].to_vec() });
-        let used = (5 + len).max(BLOCK);
-        pos += used.div_ceil(BLOCK) * BLOCK;
+        let start = pos + 5;
+        let end = start + len; // len <= 32 MiB, cannot overflow
+        if end > plain.len() {
+            return Err(());
+        }
+        spans.push((plain[pos + 4], start, end));
+        pos += (5 + len).max(BLOCK).div_ceil(BLOCK) * BLOCK;
     }
 
-    // Authenticate before trusting anything structural.
-    let mut mac = <Hmac<Sha256> as Mac>::new_from_slice(&l[..]).expect("hmac key");
-    for f in &fields {
-        mac.update(&f.data);
+    // Authenticate before materialising any field.
+    let mut mac = <Hmac<Sha256> as Mac>::new_from_slice(l).expect("hmac key");
+    for &(_, a, b) in &spans {
+        mac.update(&plain[a..b]);
     }
     let computed = mac.finalize().into_bytes();
     if !bool::from(computed.as_slice().ct_eq(stored_mac)) {
-        return Err(Error::HmacMismatch);
+        return Err(());
     }
 
-    let mut it = fields.into_iter();
+    let mut it = spans.into_iter();
     let mut header = Vec::new();
     let mut saw_header_end = false;
-    for f in it.by_ref() {
-        if f.kind == END_OF_ENTRY {
+    for (kind, a, b) in it.by_ref() {
+        if kind == END_OF_ENTRY {
             saw_header_end = true;
             break;
         }
-        header.push(f);
+        header.push(Field { kind, data: plain[a..b].to_vec() });
     }
     if !saw_header_end {
-        return Err(Error::Corrupt("header not terminated"));
+        return Err(());
     }
     let mut records = Vec::new();
     let mut cur = Vec::new();
-    for f in it {
-        if f.kind == END_OF_ENTRY {
+    for (kind, a, b) in it {
+        if kind == END_OF_ENTRY {
             records.push(std::mem::take(&mut cur));
         } else {
-            cur.push(f);
+            cur.push(Field { kind, data: plain[a..b].to_vec() });
         }
     }
     if !cur.is_empty() {
-        return Err(Error::Corrupt("last record not terminated"));
+        return Err(());
     }
-    Ok(RawDb { iterations, header, records })
+    Ok((header, records))
 }
 
 fn push_field(out: &mut Vec<u8>, mac: &mut Hmac<Sha256>, kind: u8, data: &[u8]) -> Result<(), Error> {
@@ -259,17 +273,13 @@ pub fn encode(db: &RawDb, password: &[u8]) -> Result<Vec<u8>, Error> {
         push_field(&mut plain, &mut mac, END_OF_ENTRY, &[])?;
     }
 
-    let kc = twofish(&k[..]);
-    let mut prev = iv;
-    for chunk in plain.chunks(BLOCK) {
-        let mut b = [0u8; 16];
-        for i in 0..BLOCK {
-            b[i] = chunk[i] ^ prev[i];
-        }
-        kc.encrypt_block(GenericArray::from_mut_slice(&mut b));
-        out.extend_from_slice(&b);
-        prev = b;
-    }
+    debug_assert!(plain.len().is_multiple_of(BLOCK));
+    let ct_start = out.len();
+    out.extend_from_slice(&plain);
+    let n = plain.len();
+    cbc::Encryptor::<Twofish>::new((&*k).into(), (&iv).into())
+        .encrypt_padded_mut::<NoPadding>(&mut out[ct_start..], n)
+        .map_err(|_| Error::Integrity)?;
 
     out.extend_from_slice(EOF_MARKER);
     out.extend_from_slice(&mac.finalize().into_bytes());

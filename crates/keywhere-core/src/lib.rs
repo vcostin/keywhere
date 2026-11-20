@@ -6,6 +6,7 @@ pub mod psafe3;
 
 use std::fs;
 use std::io::Write;
+use std::path::PathBuf;
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -17,8 +18,10 @@ pub enum Error {
     NotPsafe3,
     #[error("wrong master password")]
     WrongPassword,
-    #[error("file integrity check (HMAC) failed — file is corrupt or was tampered with")]
-    HmacMismatch,
+    #[error("file integrity check failed — the file is corrupt or was tampered with")]
+    Integrity,
+    #[error("file is larger than Keywhere will open")]
+    TooLarge,
     #[error("corrupt file: {0}")]
     Corrupt(&'static str),
     #[error("unsupported key-stretch iteration count {0}")]
@@ -107,9 +110,16 @@ impl Record {
         let d = self.get(kind)?;
         match d.len() {
             4 => Some(u32::from_le_bytes(d.try_into().ok()?) as u64),
-            8 => Some(u64::from_le_bytes(d.try_into().ok()?)),
+            // pre-3.09 files stored times as 8 ASCII hex digits
+            8 => std::str::from_utf8(d).ok().and_then(|h| u64::from_str_radix(h, 16).ok()),
             _ => None,
         }
+    }
+
+    /// Set the group from path segments, escaping literal dots as "\.".
+    pub fn set_group_path(&mut self, segments: &[&str]) {
+        let g: Vec<String> = segments.iter().map(|s| s.replace('.', "\\.")).collect();
+        self.set_text(rec::GROUP, &g.join("."));
     }
 
     pub fn title(&self) -> &str {
@@ -162,6 +172,7 @@ impl Vault {
 
     fn set_header(&mut self, kind: u8, data: Vec<u8>) {
         if let Some(f) = self.header.iter_mut().find(|f| f.kind == kind) {
+            f.data.iter_mut().for_each(|b| *b = 0);
             f.data = data;
         } else {
             self.header.push(Field { kind, data });
@@ -185,31 +196,65 @@ impl Vault {
         psafe3::encode(&raw, password)
     }
 
-    /// Safe save for synced folders: write `<file>.tmp`, fsync, verify it
-    /// decrypts, keep `<file>~` as the previous version, then atomic rename.
+    /// Safe save for synced folders:
+    /// 1. write `<file>.tmp.<random>` (mode 0600) in the same directory, fsync;
+    /// 2. re-read the temp file from disk and decrypt-verify it;
+    /// 3. copy the current file to `<stem>.ibak` (Password Safe's name), fsync;
+    /// 4. atomically replace (`rename`; on Windows std uses MoveFileExW with
+    ///    MOVEFILE_REPLACE_EXISTING), then fsync the directory.
+    ///
+    /// The temp file is removed on any failure.
     pub fn save(&mut self, path: &Path, password: &[u8]) -> Result<(), Error> {
         let bytes = self.encrypt(password)?;
-        // Round-trip check before we touch the real file.
-        Vault::decrypt(&bytes, password)?;
-        let tmp = path.with_extension("psafe3.tmp");
-        {
-            let mut f = fs::File::create(&tmp)?;
-            f.write_all(&bytes)?;
-            f.sync_all()?;
-        }
-        if path.exists() {
-            let mut bak = path.as_os_str().to_owned();
-            bak.push("~");
-            fs::copy(path, &bak)?;
-        }
-        fs::rename(&tmp, path)?;
-        if let Some(dir) = path.parent() {
-            if let Ok(d) = fs::File::open(dir) {
-                let _ = d.sync_all();
+        let tmp = temp_path(path)?;
+        let result = (|| {
+            write_new_file(&tmp, &bytes)?;
+            let on_disk = zeroize::Zeroizing::new(fs::read(&tmp)?);
+            Vault::decrypt(&on_disk, password)?;
+            if path.exists() {
+                let bak = path.with_extension("ibak");
+                let prev = zeroize::Zeroizing::new(fs::read(path)?);
+                let bak_tmp = temp_path(&bak)?;
+                write_new_file(&bak_tmp, &prev)?;
+                fs::rename(&bak_tmp, &bak)?;
             }
+            fs::rename(&tmp, path)?;
+            if let Some(dir) = path.parent() {
+                if let Ok(d) = fs::File::open(dir) {
+                    let _ = d.sync_all();
+                }
+            }
+            Ok(())
+        })();
+        if result.is_err() {
+            let _ = fs::remove_file(&tmp);
         }
-        Ok(())
+        result
     }
+}
+
+fn temp_path(path: &Path) -> Result<PathBuf, Error> {
+    let mut r = [0u8; 8];
+    getrandom::getrandom(&mut r).map_err(|_| Error::Rng)?;
+    let hex: String = r.iter().map(|b| format!("{b:02x}")).collect();
+    let mut name = path.as_os_str().to_owned();
+    name.push(format!(".tmp.{hex}"));
+    Ok(PathBuf::from(name))
+}
+
+/// Create a brand-new file (fails if it exists), owner-only on Unix, fsync'd.
+fn write_new_file(path: &Path, data: &[u8]) -> Result<(), Error> {
+    let mut opts = fs::OpenOptions::new();
+    opts.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        opts.mode(0o600);
+    }
+    let mut f = opts.open(path)?;
+    f.write_all(data)?;
+    f.sync_all()?;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -240,6 +285,67 @@ mod tests {
         // flip a ciphertext bit in the first record area
         bytes[152 + 16 * 3] ^= 1;
         assert!(Vault::decrypt(&bytes, b"pw").is_err());
+    }
+
+    #[test]
+    fn hostile_iterations_rejected() {
+        let mut b = FIXTURE.to_vec();
+        b[36..40].copy_from_slice(&((1u32 << 24) + 1).to_le_bytes());
+        assert!(matches!(Vault::decrypt(&b, b"test123"), Err(Error::BadIterations(_))));
+    }
+
+    #[test]
+    fn every_ciphertext_bitflip_is_uniform_integrity_error() {
+        let bytes = sample_bytes();
+        for i in (152..bytes.len() - 48).step_by(7) {
+            let mut b = bytes.clone();
+            b[i] ^= 0x40;
+            assert!(matches!(Vault::decrypt(&b, b"pw"), Err(Error::Integrity)), "offset {i}");
+        }
+    }
+
+    fn sample_bytes() -> Vec<u8> {
+        let mut v = Vault::decrypt(FIXTURE, b"test123").unwrap();
+        for i in 0..3 {
+            let mut r = Record::new().unwrap();
+            r.set_text(rec::TITLE, &format!("entry {i}"));
+            r.set_text(rec::PASSWORD, "hunter2hunter2");
+            v.records.push(r);
+        }
+        v.encrypt(b"pw").unwrap()
+    }
+
+    #[test]
+    fn safe_save_roundtrip_and_backup() {
+        let dir = std::env::temp_dir().join(format!("kw-test-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("vault.psafe3");
+        fs::write(&path, FIXTURE).unwrap();
+        let mut v = Vault::open(&path, b"test123").unwrap();
+        v.records.push(Record::new().unwrap());
+        v.save(&path, b"test123").unwrap();
+        assert_eq!(Vault::open(&path, b"test123").unwrap().records.len(), 1);
+        assert_eq!(fs::read(dir.join("vault.ibak")).unwrap(), FIXTURE);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o600);
+        }
+        let leftovers: Vec<_> = fs::read_dir(&dir).unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_name().to_string_lossy().contains(".tmp."))
+            .collect();
+        assert!(leftovers.is_empty());
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn group_path_escape_roundtrip() {
+        let mut r = Record::new().unwrap();
+        r.set_group_path(&["Work", "acme.example", "Dev"]);
+        assert_eq!(r.text(rec::GROUP), Some("Work.acme\\.example.Dev"));
+        assert_eq!(r.group_path(), vec!["Work", "acme.example", "Dev"]);
     }
 
     #[test]
