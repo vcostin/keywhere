@@ -8,15 +8,17 @@ pub mod editor;
 pub mod field;
 pub mod model;
 pub mod secret_text;
+pub mod sys;
 pub mod theme;
 pub mod unlock;
 
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
+use futures::StreamExt;
 use gpui::{
-    div, prelude::*, px, size, App, Application, Bounds, Context, Entity, KeyBinding, Window,
-    WindowBounds, WindowOptions,
+    div, prelude::*, px, size, App, Application, Bounds, Context, Entity, Focusable, Global,
+    KeyBinding, Window, WindowBounds, WindowHandle, WindowOptions,
 };
 use keywhere_core::Vault;
 
@@ -25,6 +27,22 @@ use unlock::{UnlockEvent, UnlockView};
 
 /// Lock after this much time without keyboard or mouse input.
 const IDLE_LOCK: Duration = Duration::from_secs(5 * 60);
+
+/// App-wide state that outlives any one window (the tray keeps the app
+/// running after the window is closed).
+struct AppState {
+    path: Option<PathBuf>,
+    tray: sys::Tray,
+    window: Option<WindowHandle<Shell>>,
+}
+
+impl Global for AppState {}
+
+fn set_tray(state: sys::TrayState, cx: &mut App) {
+    if cx.has_global::<AppState>() {
+        cx.global::<AppState>().tray.set_state(state);
+    }
+}
 
 enum Screen {
     Unlock(Entity<UnlockView>),
@@ -71,12 +89,16 @@ impl Shell {
         };
         if let (Some(v), Some(p)) = (preunlocked, path) {
             this.show_vault(p, v, window, cx);
-            // Dev screenshots: "Title", "edit:Title", "delete:Title" or "new".
+            // Dev screenshots: "Title", "edit:Title", "delete:Title", "copy:Title" or "new".
             if let (Some(t), Screen::Vault(b)) = (select, &this.screen) {
                 b.update(cx, |b, cx| match t.split_once(':') {
                     Some(("delete", title)) => {
                         b.select_title(title, cx);
                         b.delete(window, cx);
+                    }
+                    Some(("copy", title)) => {
+                        b.select_title(title, cx);
+                        b.copy_password(cx);
                     }
                     Some(("edit", title)) => {
                         b.select_title(title, cx);
@@ -123,7 +145,32 @@ impl Shell {
         .detach();
         self.screen = Screen::Vault(b);
         self.last_input = Instant::now();
+        set_tray(sys::TrayState::Unlocked, cx);
         cx.notify();
+    }
+
+    /// Bring-to-front from the tray / `keywhere --show`: quick search when
+    /// unlocked, password field otherwise.
+    fn focus_primary(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        match &self.screen {
+            Screen::Vault(b) => b.update(cx, |b, cx| b.focus_search(window, cx)),
+            Screen::Unlock(u) => window.focus(&u.focus_handle(cx)),
+        }
+    }
+
+    /// Window close button: always locks. With a tray the app keeps running
+    /// minimised (tray click / `keywhere --show` brings it back; tray → Quit
+    /// exits). GPUI 0.2.2 on Linux ends the event loop when the last window
+    /// is removed, so we minimise instead of truly hiding. Without a tray:
+    /// quit.
+    fn close_window(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let tray = cx.has_global::<AppState>() && cx.global::<AppState>().tray.available();
+        self.lock(window, cx);
+        if tray {
+            window.minimize_window();
+        } else {
+            cx.quit();
+        }
     }
 
     /// Drop the vault (zeroizing all decrypted fields) and return to unlock.
@@ -136,6 +183,7 @@ impl Shell {
             b.path.clone()
         });
         self.screen = Screen::Unlock(Self::unlock_view(Some(path), window, cx));
+        set_tray(sys::TrayState::Locked, cx);
         cx.notify();
         // Wipe what we can now; the rest goes on the next ticks once GPUI
         // drops the old frame's text.
@@ -147,6 +195,9 @@ impl Render for Shell {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let content = div()
             .size_full()
+            .on_action(cx.listener(|this, _: &chrome::CloseWindow, window, cx| {
+                this.close_window(window, cx)
+            }))
             .font_family(assets::UI_FONT)
             .capture_any_mouse_down(cx.listener(|this, _, _, _| this.last_input = Instant::now()))
             .on_mouse_move(cx.listener(|this, _, _, _| this.last_input = Instant::now()))
@@ -175,6 +226,12 @@ pub fn harden_process() {
 
 /// Run the app.
 pub fn run(path: Option<PathBuf>) {
+    // Second start (e.g. a desktop shortcut running `keywhere --show`): hand
+    // over to the running instance and exit.
+    #[cfg(unix)]
+    if sys::instance::forward_to_running("show") {
+        return;
+    }
     run_inner(path, None, None)
 }
 
@@ -214,26 +271,97 @@ fn run_inner(path: Option<PathBuf>, preunlocked: Option<Vault>, select: Option<S
             ]);
             cx.on_action(|_: &Quit, cx| cx.quit());
 
-            let bounds = Bounds::centered(None, size(px(1120.), px(720.)), cx);
-            cx.open_window(
-                WindowOptions {
-                    window_bounds: Some(WindowBounds::Windowed(bounds)),
-                    app_id: Some("keywhere".into()),
-                    // Our own title bar (see chrome.rs). macOS keeps native traffic lights.
-                    titlebar: Some(gpui::TitlebarOptions {
-                        title: Some("Keywhere".into()),
-                        appears_transparent: true,
-                        traffic_light_position: Some(gpui::point(px(14.), px(14.))),
-                    }),
-                    window_decorations: Some(gpui::WindowDecorations::Client),
-                    window_min_size: Some(size(px(820.), px(520.))),
-                    ..Default::default()
-                },
-                |window, cx| cx.new(|cx| Shell::new(path, preunlocked, select, window, cx)),
-            )
-            .expect("open window");
+            let (tx, mut rx) = sys::channel();
+            // Dev "copy:" runs still listen so tests can send `lock`.
+            #[cfg(unix)]
+            if select.as_deref().is_none_or(|s| s.starts_with("copy:")) {
+                sys::instance::listen(tx.clone());
+            }
+            sys::watch_session(tx.clone());
+            let tray = sys::Tray::start(tx);
+            cx.set_global(AppState {
+                path: path.clone(),
+                tray,
+                window: None,
+            });
+            cx.on_app_quit(|_| {
+                #[cfg(unix)]
+                sys::instance::cleanup();
+                async {}
+            })
+            .detach();
+
+            open_main_window(path, preunlocked, select, cx);
+
+            cx.spawn(async move |cx| {
+                while let Some(ev) = rx.next().await {
+                    if cx.update(|cx| handle_sys_event(ev, cx)).is_err() {
+                        break;
+                    }
+                }
+            })
+            .detach();
             cx.activate(true);
         });
+}
+
+fn open_main_window(
+    path: Option<PathBuf>,
+    preunlocked: Option<Vault>,
+    select: Option<String>,
+    cx: &mut App,
+) {
+    let bounds = Bounds::centered(None, size(px(1120.), px(720.)), cx);
+    let handle = cx
+        .open_window(
+            WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(bounds)),
+                app_id: Some("keywhere".into()),
+                // Our own title bar (see chrome.rs). macOS keeps native traffic lights.
+                titlebar: Some(gpui::TitlebarOptions {
+                    title: Some("Keywhere".into()),
+                    appears_transparent: true,
+                    traffic_light_position: Some(gpui::point(px(14.), px(14.))),
+                }),
+                window_decorations: Some(gpui::WindowDecorations::Client),
+                window_min_size: Some(size(px(820.), px(520.))),
+                ..Default::default()
+            },
+            |window, cx| cx.new(|cx| Shell::new(path, preunlocked, select, window, cx)),
+        )
+        .expect("open window");
+    cx.global_mut::<AppState>().window = Some(handle);
+    cx.activate(true);
+}
+
+fn handle_sys_event(ev: sys::SysEvent, cx: &mut App) {
+    let window = cx.global::<AppState>().window;
+    match ev {
+        sys::SysEvent::Show => {
+            let shown = window.is_some_and(|w| {
+                w.update(cx, |shell, window, cx| {
+                    window.activate_window();
+                    shell.focus_primary(window, cx);
+                })
+                .is_ok()
+            });
+            if !shown {
+                // Window was closed to the tray: open a fresh (locked) one.
+                let path = cx
+                    .global::<AppState>()
+                    .path
+                    .clone()
+                    .or_else(config::last_vault);
+                open_main_window(path, None, None, cx);
+            }
+        }
+        sys::SysEvent::Lock => {
+            if let Some(w) = window {
+                let _ = w.update(cx, |shell, window, cx| shell.lock(window, cx));
+            }
+        }
+        sys::SysEvent::Quit => cx.quit(),
+    }
 }
 
 gpui::actions!(keywhere, [Quit]);

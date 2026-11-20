@@ -171,6 +171,12 @@ impl Browser {
         this
     }
 
+    pub fn focus_search(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.editor.is_none() && self.confirm_delete.is_none() {
+            window.focus(&self.search.focus_handle(cx));
+        }
+    }
+
     pub fn read_only(&self) -> bool {
         self.vault_lock.is_none()
     }
@@ -514,12 +520,14 @@ impl Browser {
     /// Only clears if the clipboard still holds what we put there.
     pub fn clear_clipboard_if_ours(&mut self, cx: &mut Context<Self>) {
         if let Some(h) = self.clip_hash.take() {
-            let current = cx.read_from_clipboard().and_then(|c| c.text());
-            if current.as_deref().map(hash) == Some(h) {
+            let current = crate::sys::clipboard::get_text().or_else(|| {
+                cx.read_from_clipboard()
+                    .and_then(|c| c.text())
+                    .map(zeroize::Zeroizing::new)
+            });
+            if current.as_deref().map(|s| hash(s)) == Some(h) {
+                crate::sys::clipboard::clear();
                 cx.write_to_clipboard(ClipboardItem::new_string(String::new()));
-            }
-            if let Some(mut s) = current {
-                zeroize::Zeroize::zeroize(&mut s);
             }
         }
         self.clip_until = None;
@@ -584,11 +592,17 @@ impl Browser {
         self.copy_text(&text, label, cx);
     }
 
+    pub fn copy_password(&mut self, cx: &mut Context<Self>) {
+        self.copy(rec::PASSWORD, "Password", cx);
+    }
+
     fn copy_text(&mut self, text: &str, label: &str, cx: &mut Context<Self>) {
-        // TODO(M3): per-OS "concealed / exclude from history" clipboard hints (keywhere-sys).
         self.clip_hash = Some(hash(text));
         self.clip_until = Some(Instant::now() + CLIPBOARD_CLEAR);
-        cx.write_to_clipboard(ClipboardItem::new_string(text.to_string()));
+        // Secure path first (clipboard-history exclusion); GPUI as fallback.
+        if !crate::sys::clipboard::set_secret(text) {
+            cx.write_to_clipboard(ClipboardItem::new_string(text.to_string()));
+        }
         self.toast(format!("{label} copied"));
         cx.notify();
     }

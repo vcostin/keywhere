@@ -13,6 +13,8 @@ use gpui::{
 
 use crate::theme::*;
 
+gpui::actions!(keywhere_chrome, [CloseWindow]);
+
 /// Invisible resize margin around a floating client-decorated window.
 pub const RESIZE_INSET: Pixels = px(6.);
 const RADIUS: Pixels = px(10.);
@@ -114,14 +116,13 @@ pub fn window_controls(window: &Window) -> Div {
             |w, _| w.zoom_window(),
         ))
     })
-    // Single-window app: closing the window quits (runs the clipboard /
-    // secret-wipe quit hooks). The tray in M3 will change this.
+    // Close = lock; the shell then hides to the tray (or quits without one).
     .child(control_button(
         "win-close",
         "icons/win-close.svg",
         WindowControlArea::Close,
         true,
-        |_, cx| cx.quit(),
+        |w, cx| w.dispatch_action(Box::new(CloseWindow), cx),
     ))
 }
 
