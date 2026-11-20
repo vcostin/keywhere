@@ -528,6 +528,13 @@ impl WindowTextSystem {
         self.line_layout_cache.finish_frame()
     }
 
+    /// Keywhere patch: drop every cached line layout (both frames), so text
+    /// that is no longer shown (e.g. a revealed password) is released now
+    /// instead of after two more drawn frames.
+    pub fn clear_line_layout_cache(&self) {
+        self.line_layout_cache.clear()
+    }
+
     /// Layout the given line of text, at the given font_size.
     /// Subsets of the line can be styled independently with the `runs` parameter.
     /// Generally, you should prefer to use [`Self::shape_line`] instead, which

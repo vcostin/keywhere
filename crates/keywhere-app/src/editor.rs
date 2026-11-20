@@ -109,7 +109,8 @@ impl EntryEditor {
         cx: &mut Context<Self>,
     ) -> Self {
         let field = |cx: &mut Context<Self>, ph: &'static str, secret: bool| {
-            cx.new(|cx| TextField::new(cx, ph, secret))
+            // Every editor field shows vault content: use the wiped path.
+            cx.new(|cx| TextField::new(cx, ph, secret).sensitive())
         };
         let title = field(cx, "Title (required)", false);
         let group = field(cx, "Group — pick or type, levels separated by “ / ”", false);
@@ -118,7 +119,7 @@ impl EntryEditor {
         let url = field(cx, "https://…", false);
         let email = field(cx, "Email", false);
         let expiry = field(cx, "YYYY-MM-DD (optional)", false);
-        let notes = cx.new(|cx| TextField::new(cx, "Notes", false).multiline());
+        let notes = cx.new(|cx| TextField::new(cx, "Notes", false).multiline().sensitive());
 
         let get = |k| record.and_then(|r| r.text(k)).unwrap_or("").to_string();
         let set = |e: &Entity<TextField>, s: &str, cx: &mut Context<Self>| {

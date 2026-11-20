@@ -170,6 +170,10 @@ impl Shell {
                         b.select_title(title, cx);
                         b.delete(window, cx);
                     }
+                    Some(("reveal", title)) => {
+                        b.select_title(title, cx);
+                        b.toggle_reveal(cx);
+                    }
                     Some(("copy", title)) => {
                         b.select_title(title, cx);
                         b.copy_password(cx);
@@ -330,9 +334,32 @@ impl Shell {
         self.screen = Screen::Unlock(Self::unlock_view(Some(path), window, cx));
         set_tray(sys::TrayState::Locked, cx);
         cx.notify();
-        // Wipe what we can now; the rest goes on the next ticks once GPUI
-        // drops the old frame's text.
+        window.text_system().clear_line_layout_cache();
         secret_text::sweep();
+        Self::flush_frames(window, cx);
+    }
+
+    /// GPUI keeps the previous frame's text layouts (which may contain a
+    /// revealed password) until two more frames are drawn, and an idle app
+    /// draws none. Force them, so the old layouts are freed — and zeroed by
+    /// the global allocator — then sweep the secret display strings.
+    fn flush_frames(window: &mut Window, cx: &mut Context<Self>) {
+        cx.spawn_in(window, async move |_, cx| {
+            for _ in 0..3 {
+                cx.background_executor()
+                    .timer(std::time::Duration::from_millis(60))
+                    .await;
+                if cx.update(|window, _| window.refresh()).is_err() {
+                    return;
+                }
+            }
+            cx.background_executor()
+                .timer(std::time::Duration::from_millis(60))
+                .await;
+            let _ = cx.update(|window, _| window.text_system().clear_line_layout_cache());
+            secret_text::sweep();
+        })
+        .detach();
     }
 }
 
@@ -624,6 +651,19 @@ fn handle_sys_event(ev: sys::SysEvent, cx: &mut App) {
             if let Some(w) = window {
                 let _ = w.update(cx, |shell, window, cx| shell.lock(window, cx));
             }
+        }
+        sys::SysEvent::LockForSleep => {
+            drop_hidden_session(cx);
+            if let Some(w) = window {
+                let _ = w.update(cx, |shell, window, cx| {
+                    shell.lock(window, cx);
+                    // Paint the locked screen now so no secret frame is in
+                    // the GPU buffers when RAM is frozen.
+                    window.refresh();
+                });
+            }
+            secret_text::sweep();
+            sys::ack_lock();
         }
         sys::SysEvent::Hide => {
             if let Some(w) = window {

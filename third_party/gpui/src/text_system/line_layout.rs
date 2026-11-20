@@ -455,6 +455,12 @@ impl LineLayoutCache {
             .truncate(index.wrapped_lines_index);
     }
 
+    /// Keywhere patch: forget everything cached in both frames.
+    pub fn clear(&self) {
+        *self.previous_frame.lock() = FrameCache::default();
+        *self.current_frame.write() = FrameCache::default();
+    }
+
     pub fn finish_frame(&self) {
         let mut prev_frame = self.previous_frame.lock();
         let mut curr_frame = self.current_frame.write();

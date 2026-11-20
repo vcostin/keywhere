@@ -47,7 +47,14 @@ impl TaffyLayoutEngine {
     }
 
     pub fn clear(&mut self) {
-        self.taffy.clear();
+        // Keywhere patch: taffy 0.9's `TaffyTree::clear` keeps
+        // `node_context_data`, so measure closures (which own clones of the
+        // text being measured, e.g. a revealed password) outlive their frame
+        // until their slot happens to be reused. Start from a fresh tree so
+        // they are dropped with the frame.
+        let mut taffy = TaffyTree::new();
+        taffy.enable_rounding();
+        self.taffy = taffy;
         self.absolute_layout_bounds.clear();
         self.computed_layouts.clear();
     }

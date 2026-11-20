@@ -201,14 +201,55 @@ fn watch_logind(tx: &EventTx) -> zbus::Result<()> {
         }
         Err(e) => eprintln!("keywhere: no logind session ({e}); watching sleep only"),
     }
+    // Delay inhibitor: logind waits (up to InhibitDelayMaxSec, default 5 s)
+    // until we release it, so the vault is locked *before* RAM is frozen or
+    // written to a hibernation image. Re-armed after every resume.
+    let mut inhibitor = take_sleep_inhibitor(&conn);
     for msg in sleep.flatten() {
-        if let Ok(true) = msg.body().deserialize::<bool>() {
-            if tx.unbounded_send(SysEvent::Lock).is_err() {
-                break;
+        match msg.body().deserialize::<bool>() {
+            Ok(true) => {
+                let before = super::lock_ack();
+                if tx.unbounded_send(SysEvent::LockForSleep).is_err() {
+                    break;
+                }
+                // Wait for the app to confirm the lock (and draw one
+                // non-secret frame), then let the system sleep.
+                let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+                while super::lock_ack() == before && std::time::Instant::now() < deadline {
+                    thread::sleep(std::time::Duration::from_millis(20));
+                }
+                thread::sleep(std::time::Duration::from_millis(150));
+                inhibitor = None; // closing the fd releases the inhibitor
             }
+            Ok(false) => {
+                if inhibitor.is_none() {
+                    inhibitor = take_sleep_inhibitor(&conn);
+                }
+            }
+            Err(_) => {}
         }
     }
+    drop(inhibitor);
     Ok(())
+}
+
+/// logind `Inhibit("sleep", …, "delay")`; the returned fd holds the lock.
+fn take_sleep_inhibitor(conn: &zbus::blocking::Connection) -> Option<zbus::zvariant::OwnedFd> {
+    conn.call_method(
+        Some("org.freedesktop.login1"),
+        "/org/freedesktop/login1",
+        Some("org.freedesktop.login1.Manager"),
+        "Inhibit",
+        &(
+            "sleep",
+            "Keywhere",
+            "Locking the password vault before sleep",
+            "delay",
+        ),
+    )
+    .and_then(|m| m.body().deserialize::<zbus::zvariant::OwnedFd>())
+    .map_err(|e| eprintln!("keywhere: no sleep inhibitor ({e}); locking without delay"))
+    .ok()
 }
 
 fn watch_screensaver(tx: &EventTx) -> zbus::Result<()> {

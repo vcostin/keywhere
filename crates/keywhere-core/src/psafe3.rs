@@ -113,6 +113,48 @@ fn random<const N: usize>() -> Result<[u8; N], Error> {
     Ok(b)
 }
 
+/// The stretched key, pinned in RAM: heap-boxed so it never moves,
+/// `mlock`ed (kept out of swap/zram) and excluded from core dumps where the
+/// OS allows; wiped and unlocked on drop. Failure to lock (RLIMIT_MEMLOCK)
+/// is not fatal: the key is still zeroized.
+pub struct LockedKey(Box<Zeroizing<[u8; 32]>>);
+
+impl LockedKey {
+    fn new(key: Zeroizing<[u8; 32]>) -> Self {
+        let b = Box::new(key);
+        #[cfg(unix)]
+        unsafe {
+            let ptr = b.as_ptr() as *const libc::c_void;
+            libc::mlock(ptr, 32);
+            #[cfg(target_os = "linux")]
+            {
+                // madvise needs a page-aligned range: cover the key's page.
+                let page = libc::sysconf(libc::_SC_PAGESIZE) as usize;
+                let start = (ptr as usize) & !(page - 1);
+                libc::madvise(start as *mut libc::c_void, page, libc::MADV_DONTDUMP);
+            }
+        }
+        LockedKey(b)
+    }
+
+    fn get(&self) -> &[u8; 32] {
+        &self.0
+    }
+}
+
+impl Drop for LockedKey {
+    fn drop(&mut self) {
+        // Zeroizing wipes the bytes when the box drops; unlock afterwards is
+        // fine (the page stays resident until then).
+        use zeroize::Zeroize;
+        self.0.zeroize();
+        #[cfg(unix)]
+        unsafe {
+            libc::munlock(self.0.as_ptr() as *const libc::c_void, 32);
+        }
+    }
+}
+
 /// The password-derived key for one vault: salt, iteration count and the
 /// stretched key P'. Lets an unlocked vault be saved again without keeping the
 /// master password in memory. Zeroized on drop; never written anywhere except
@@ -120,7 +162,7 @@ fn random<const N: usize>() -> Result<[u8; N], Error> {
 pub struct KeyMaterial {
     salt: [u8; 32],
     pub iterations: u32,
-    p_prime: Zeroizing<[u8; 32]>,
+    p_prime: LockedKey,
 }
 
 impl KeyMaterial {
@@ -133,7 +175,7 @@ impl KeyMaterial {
         Ok(Self {
             salt,
             iterations,
-            p_prime,
+            p_prime: LockedKey::new(p_prime),
         })
     }
 }
@@ -165,7 +207,7 @@ pub fn decode(bytes: &[u8], password: &[u8]) -> Result<(RawDb, KeyMaterial), Err
         KeyMaterial {
             salt: salt.try_into().unwrap(),
             iterations,
-            p_prime,
+            p_prime: LockedKey::new(p_prime),
         },
     ))
 }
@@ -177,7 +219,7 @@ pub fn decode_with_key(bytes: &[u8], key: &KeyMaterial) -> Result<RawDb, Error> 
     if !bool::from(salt.ct_eq(&key.salt)) || iterations != key.iterations {
         return Err(Error::WrongPassword);
     }
-    decode_core(bytes, &key.p_prime, iterations)
+    decode_core(bytes, key.p_prime.get(), iterations)
 }
 
 fn decode_core(bytes: &[u8], p_prime: &[u8; 32], iterations: u32) -> Result<RawDb, Error> {
@@ -328,7 +370,7 @@ pub fn encode(db: &RawDb, key: &KeyMaterial) -> Result<Vec<u8>, Error> {
     let l = Zeroizing::new(random::<32>()?);
     let iv: [u8; 16] = random()?;
 
-    let p_prime = &key.p_prime;
+    let p_prime = key.p_prime.get();
     let hp = Sha256::digest(&p_prime[..]);
     let pc = twofish(&p_prime[..]);
 

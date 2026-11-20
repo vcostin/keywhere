@@ -18,12 +18,26 @@ pub enum SysEvent {
     /// Bring the window to the front (tray click, `keywhere --show`), with
     /// the Wayland activation token from that user action if there is one.
     Show(Option<String>),
-    /// Lock now (tray menu, screen locked, system going to sleep).
+    /// Lock now (tray menu, screen locked).
     Lock,
+    /// System is about to sleep: lock, then confirm via [`ack_lock`] so the
+    /// sleep inhibitor can be released.
+    LockForSleep,
     /// Same as the window's close button: lock and hide to the tray.
     Hide,
     /// Quit the app (tray menu).
     Quit,
+}
+
+static LOCK_ACK: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// The app has finished locking (sleep handshake).
+pub fn ack_lock() {
+    LOCK_ACK.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+}
+
+pub fn lock_ack() -> u64 {
+    LOCK_ACK.load(std::sync::atomic::Ordering::SeqCst)
 }
 
 pub type EventTx = mpsc::UnboundedSender<SysEvent>;

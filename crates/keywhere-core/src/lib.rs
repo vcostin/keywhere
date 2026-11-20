@@ -71,7 +71,11 @@ pub fn decode_group_path(g: &str) -> Vec<String> {
 
 /// ["Work", "Dev.ops"] → "Work.Dev\.ops".
 pub fn encode_group_path<S: AsRef<str>>(segments: &[S]) -> String {
-    segments.iter().map(|s| s.as_ref().replace('.', "\\.")).collect::<Vec<_>>().join(".")
+    segments
+        .iter()
+        .map(|s| s.as_ref().replace('.', "\\."))
+        .collect::<Vec<_>>()
+        .join(".")
 }
 
 /// Record field types.
@@ -285,7 +289,9 @@ impl Record {
     }
     /// Group path segments; '.' separates levels, "\." is a literal dot.
     pub fn group_path(&self) -> Vec<String> {
-        self.text(rec::GROUP).map(decode_group_path).unwrap_or_default()
+        self.text(rec::GROUP)
+            .map(decode_group_path)
+            .unwrap_or_default()
     }
 }
 
@@ -650,12 +656,16 @@ impl Vault {
         if path.is_empty() || self.empty_groups().iter().any(|g| g == path) {
             return;
         }
-        self.header.push(Field { kind: hdr::EMPTY_GROUP, data: encode_group_path(path).into_bytes() });
+        self.header.push(Field {
+            kind: hdr::EMPTY_GROUP,
+            data: encode_group_path(path).into_bytes(),
+        });
     }
 
     pub fn remove_empty_group(&mut self, path: &[String]) {
         let enc = encode_group_path(path);
-        self.header.retain(|f| !(f.kind == hdr::EMPTY_GROUP && f.data == enc.as_bytes()));
+        self.header
+            .retain(|f| !(f.kind == hdr::EMPTY_GROUP && f.data == enc.as_bytes()));
     }
 
     /// Drop "empty group" markers for groups that now contain entries (or

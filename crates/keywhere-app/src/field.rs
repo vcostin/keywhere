@@ -29,6 +29,9 @@ pub struct TextField {
     /// English text; translated at render so a language switch applies live.
     placeholder: &'static str,
     secret: bool,
+    /// Not masked, but drawn through `secret_text` so the display copies are
+    /// wiped (notes, usernames… in the editor).
+    sensitive: bool,
     revealed: bool,
     multiline: bool,
     icon: Option<&'static str>,
@@ -55,6 +58,7 @@ impl TextField {
             cursor: 0,
             placeholder,
             secret,
+            sensitive: false,
             revealed: false,
             multiline: false,
             icon: None,
@@ -65,6 +69,11 @@ impl TextField {
 
     pub fn with_icon(mut self, icon: &'static str) -> Self {
         self.icon = Some(icon);
+        self
+    }
+
+    pub fn sensitive(mut self) -> Self {
+        self.sensitive = true;
         self
     }
 
@@ -253,7 +262,7 @@ impl TextField {
     fn shown(&self, s: &str) -> SharedString {
         if self.secret && !self.revealed {
             "•".repeat(s.chars().count()).into()
-        } else if self.secret {
+        } else if self.secret || self.sensitive {
             crate::secret_text::display(s)
         } else {
             SharedString::from(s.to_string())

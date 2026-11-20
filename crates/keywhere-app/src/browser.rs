@@ -1232,7 +1232,7 @@ impl Browser {
         self.copy_text(&e.password, crate::i18n::t("Old password"), cx);
     }
 
-    fn toggle_reveal(&mut self, cx: &mut Context<Self>) {
+    pub fn toggle_reveal(&mut self, cx: &mut Context<Self>) {
         self.revealed = !self.revealed;
         self.reveal_until = self.revealed.then(|| Instant::now() + REVEAL_FOR);
         cx.notify();
@@ -1845,7 +1845,7 @@ impl Browser {
                     crate::i18n::t("Username"),
                     div()
                         .text_color(c(TEXT))
-                        .child(SharedString::from(u.to_string())),
+                        .child(crate::secret_text::display(u)),
                 )
                 .child(Self::icon_btn("cu", "icons/copy.svg").on_click(
                     cx.listener(|t, _, _, cx| {
@@ -1902,7 +1902,7 @@ impl Browser {
                     crate::i18n::t("Website"),
                     div()
                         .text_color(c(if web { LINK } else { TEXT }))
-                        .child(SharedString::from(u.to_string())),
+                        .child(crate::secret_text::display(u)),
                 )
                 .child(
                     Self::icon_btn("cl", "icons/copy.svg")
@@ -1922,7 +1922,7 @@ impl Browser {
                     crate::i18n::t("Email"),
                     div()
                         .text_color(c(TEXT))
-                        .child(SharedString::from(m.to_string())),
+                        .child(crate::secret_text::display(m)),
                 )
                 .child(Self::icon_btn("ce", "icons/copy.svg").on_click(
                     cx.listener(|t, _, _, cx| t.copy(rec::EMAIL, crate::i18n::t("Email"), cx)),
