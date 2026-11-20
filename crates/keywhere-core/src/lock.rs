@@ -73,15 +73,15 @@ pub fn decode_holder(b: &[u8]) -> String {
         return trim(String::from_utf8_lossy(b).into_owned());
     }
     if b.len().is_multiple_of(4) {
-        let utf32: Option<String> = b
-            .chunks_exact(4)
-            .map(|c| char::from_u32(u32::from_le_bytes([c[0], c[1], c[2], c[3]])))
-            .collect();
+        let (quads, _) = b.as_chunks::<4>();
+        let utf32: Option<String> =
+            quads.iter().map(|c| char::from_u32(u32::from_le_bytes(*c))).collect();
         if let Some(s) = utf32.filter(|s| s.chars().all(|c| c == '\0' || !c.is_control())) {
             return trim(s);
         }
     }
-    let units: Vec<u16> = b.chunks_exact(2).map(|c| u16::from_le_bytes([c[0], c[1]])).collect();
+    let (pairs, _) = b.as_chunks::<2>();
+    let units: Vec<u16> = pairs.iter().map(|c| u16::from_le_bytes(*c)).collect();
     trim(String::from_utf16_lossy(&units))
 }
 
@@ -265,9 +265,12 @@ mod tests {
         fs::remove_file(&plk).unwrap();
 
         // ...nor one that was replaced by a new file with our identity.
+        // (Create the replacement before the original disappears, so the
+        // filesystem cannot hand back the same inode number.)
         let (l, _) = VaultLock::acquire(&vault).unwrap();
-        fs::remove_file(&plk).unwrap();
-        fs::write(&plk, encode_wide(&identity())).unwrap();
+        let repl = dir.join("v.plk.new");
+        fs::write(&repl, encode_wide(&identity())).unwrap();
+        fs::rename(&repl, &plk).unwrap();
         #[cfg(unix)]
         {
             drop(l);

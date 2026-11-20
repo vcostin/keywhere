@@ -52,11 +52,11 @@ jobs:
 
   audit:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      checks: write
     steps:
       - uses: actions/checkout@v5
-      - uses: rustsec/audit-check@v2
+      - uses: taiki-e/install-action@v2
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          tool: cargo-audit
+      # Fails on vulnerabilities; "unmaintained"/"unsound" warnings (all
+      # transitive via gpui today) are reported but don't fail the build.
+      - run: cargo audit
