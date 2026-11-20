@@ -1,0 +1,267 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Keywhere Mockups</title>
+<style>
+  .kw {
+    --bg:#0A1631; --surface:#0F2042; --panel:#132852; --raised:#1A3464; --hover:#1F3C73;
+    --border:#23427A; --line:#1B3560; --text:#E7EDF9; --muted:#8EA3CB; --dim:#6077A3;
+    --accent:#F2B24C; --accent-ink:#2A1A00; --blue:#5B8CFF; --sel:#244A8F;
+    --danger:#FF7A7A; --warn:#F7C04A; --ok:#4FD69C;
+    font-family: "Inter", "Segoe UI", system-ui, sans-serif; color:var(--text);
+    font-size:12.5px; line-height:1.35;
+  }
+  .kw * { box-sizing:border-box; }
+  .sec { margin:0 0 26px; }
+  .sec h2 { font-size:13px; font-weight:600; letter-spacing:.02em; margin:0 0 4px; color:var(--foreground); }
+  .sec p.cap { margin:0 0 10px; color:var(--muted-foreground); font-size:12.5px; }
+  .win { background:var(--bg); border:1px solid #2A4A85; border-radius:12px; overflow:hidden;
+         box-shadow:0 18px 50px rgba(2,8,24,.45); }
+  .mono { font-family: "JetBrains Mono", ui-monospace, monospace; }
+
+  /* brand */
+  .brand { display:flex; gap:18px; align-items:center; padding:18px; }
+  .brand img { width:84px; height:84px; }
+  .wm { font-size:30px; font-weight:700; letter-spacing:-.02em; }
+  .wm span { color:var(--accent); }
+  .tag { color:var(--muted); margin-top:2px; }
+  .sw { display:flex; flex-wrap:wrap; gap:6px; padding:0 18px 18px; }
+  .sw div { flex:1 1 70px; border-radius:8px; padding:26px 8px 6px; font-size:10.5px; border:1px solid rgba(255,255,255,.08); }
+
+  /* title bar */
+  .tb { height:40px; display:flex; align-items:center; gap:10px; padding:0 12px; background:var(--surface); border-bottom:1px solid var(--line); }
+  .dots { display:flex; gap:6px; } .dots i { width:10px; height:10px; border-radius:50%; background:#2B4A82; display:block; }
+  .tb img { width:18px; height:18px; }
+  .tb .name { font-weight:600; }
+  .tb .file { color:var(--dim); }
+  .search { flex:1; max-width:300px; margin:0 auto; height:26px; border-radius:7px; background:var(--panel); border:1px solid var(--border);
+            display:flex; align-items:center; gap:6px; padding:0 8px; color:var(--dim); }
+  .kbd { margin-left:auto; font-size:10px; padding:1px 5px; border-radius:4px; border:1px solid var(--border); color:var(--muted); }
+  .iconbtn { width:26px; height:26px; border-radius:7px; display:grid; place-items:center; color:var(--muted); }
+  .iconbtn.p { background:var(--accent); color:var(--accent-ink); font-weight:700; }
+
+  /* main 3-pane */
+  .main { display:grid; grid-template-columns:150px 215px 1fr; height:430px; }
+  .side { background:var(--surface); border-right:1px solid var(--line); padding:10px 8px; overflow:hidden; }
+  .side h4 { font-size:10px; text-transform:uppercase; letter-spacing:.08em; color:var(--dim); margin:12px 6px 4px; font-weight:600; }
+  .nav { display:flex; align-items:center; gap:7px; padding:5px 6px; border-radius:6px; color:#C9D5EE; }
+  .nav .c { margin-left:auto; color:var(--dim); font-size:11px; }
+  .nav.on { background:var(--sel); color:#fff; }
+  .nav.sub { padding-left:20px; }
+  .nav .ic { width:14px; text-align:center; color:var(--muted); }
+  .badge { font-size:10px; border-radius:9px; padding:0 6px; }
+  .b-warn { background:rgba(247,192,74,.16); color:var(--warn); }
+  .b-bad { background:rgba(255,122,122,.15); color:var(--danger); }
+
+  .list { background:var(--bg); border-right:1px solid var(--line); overflow:hidden; }
+  .lh { display:flex; align-items:center; padding:9px 12px; color:var(--muted); font-size:11px; border-bottom:1px solid var(--line); }
+  .lh b { color:var(--text); font-size:12.5px; margin-right:6px; }
+  .row { display:flex; gap:9px; align-items:center; padding:7px 12px; border-bottom:1px solid rgba(35,66,122,.35); }
+  .row.on { background:var(--sel); box-shadow:inset 3px 0 0 var(--accent); }
+  .av { width:28px; height:28px; border-radius:7px; display:grid; place-items:center; font-weight:700; font-size:12px; color:#fff; flex:none; }
+  .row .t { font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .row .u { color:var(--muted); font-size:11px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .row .m { min-width:0; flex:1; }
+  .gh { font-size:10px; color:var(--dim); text-transform:uppercase; letter-spacing:.07em; padding:8px 12px 3px; }
+
+  .det { background:var(--panel); padding:16px 18px; overflow:hidden; }
+  .dh { display:flex; gap:12px; align-items:center; }
+  .dh .av { width:42px; height:42px; font-size:17px; border-radius:10px; }
+  .dh h3 { margin:0; font-size:17px; }
+  .crumb { color:var(--muted); font-size:11px; }
+  .acts { margin-left:auto; display:flex; gap:6px; }
+  .btn { height:26px; padding:0 10px; border-radius:7px; border:1px solid var(--border); background:var(--raised); color:var(--text); display:inline-flex; align-items:center; gap:5px; font-size:11.5px; }
+  .btn.pri { background:var(--accent); border-color:var(--accent); color:var(--accent-ink); font-weight:600; }
+  .alert { margin:12px 0 4px; padding:7px 10px; border-radius:8px; background:rgba(247,192,74,.10); border:1px solid rgba(247,192,74,.35); color:#F8D98E; font-size:11.5px; }
+  .fld { margin-top:10px; background:var(--surface); border:1px solid var(--line); border-radius:9px; }
+  .fr { display:flex; align-items:center; padding:7px 10px; border-bottom:1px solid var(--line); gap:8px; }
+  .fr:last-child { border-bottom:0; }
+  .fl { width:72px; color:var(--dim); font-size:11px; flex:none; }
+  .fv { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .fv a { color:#8FB2FF; text-decoration:none; }
+  .ib { color:var(--muted); font-size:12px; padding:0 3px; }
+  .strength { display:flex; gap:3px; margin-left:6px; } .strength i { width:14px; height:4px; border-radius:2px; background:var(--ok); display:block; }
+  .notes { padding:9px 10px; color:#C9D5EE; white-space:pre-line; }
+  .meta { margin-top:10px; color:var(--dim); font-size:10.5px; display:flex; gap:14px; flex-wrap:wrap; }
+
+  .sb { height:26px; display:flex; align-items:center; gap:14px; padding:0 12px; background:var(--surface); border-top:1px solid var(--line); color:var(--dim); font-size:10.5px; }
+  .dot { width:7px; height:7px; border-radius:50%; background:var(--ok); display:inline-block; margin-right:5px; }
+  .sb .r { margin-left:auto; }
+
+  /* unlock */
+  .unlock { height:330px; display:grid; place-items:center; background:
+      radial-gradient(600px 300px at 50% 0%, #1C3C7C 0%, transparent 70%), var(--bg); }
+  .card { width:300px; text-align:center; }
+  .card img { width:64px; height:64px; }
+  .card h3 { margin:10px 0 2px; font-size:18px; }
+  .file { color:var(--muted); font-size:11.5px; }
+  .pw { margin:16px 0 8px; height:38px; border-radius:9px; background:var(--surface); border:1.5px solid var(--blue);
+        box-shadow:0 0 0 4px rgba(91,140,255,.18); display:flex; align-items:center; padding:0 12px; gap:8px; text-align:left; }
+  .pw .bul { letter-spacing:3px; flex:1; }
+  .ul { width:100%; height:36px; border-radius:9px; background:var(--accent); color:var(--accent-ink); font-weight:700; display:grid; place-items:center; }
+  .hint { margin-top:12px; color:var(--dim); font-size:11px; display:flex; justify-content:center; gap:14px; }
+  .caps { color:var(--warn); font-size:10.5px; }
+
+  /* tray + generator side by side */
+  .duo { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+  @media (max-width:640px){ .duo{ grid-template-columns:1fr; } .main{ grid-template-columns:1fr; height:auto; } .side,.list{ display:none; } }
+  .tray { background:var(--surface); }
+  .tray .q { margin:10px; height:32px; border-radius:8px; background:var(--panel); border:1.5px solid var(--blue); display:flex; align-items:center; padding:0 10px; gap:6px; }
+  .tray .row { border-bottom:0; border-radius:8px; margin:0 6px; }
+  .mini { margin-left:auto; display:flex; gap:4px; }
+  .mini span { font-size:10px; padding:2px 6px; border-radius:5px; background:var(--raised); color:var(--muted); border:1px solid var(--border); }
+  .row.on .mini span { background:#2E5AA8; color:#fff; border-color:#4470C0; }
+  .tf { display:flex; gap:8px; padding:9px 12px; border-top:1px solid var(--line); margin-top:8px; color:var(--muted); font-size:11px; }
+  .tf .r { margin-left:auto; }
+  .toast { margin:8px 10px 0; padding:6px 10px; border-radius:7px; background:rgba(79,214,156,.12); color:var(--ok); font-size:11px; }
+
+  .gen { background:var(--panel); padding:14px; }
+  .gen h4 { margin:0 0 10px; font-size:13px; }
+  .gout { background:var(--bg); border:1px solid var(--border); border-radius:9px; padding:10px; font-size:15px; letter-spacing:.5px; word-break:break-all; }
+  .gout .d { color:#8FB2FF; } .gout .s { color:var(--accent); }
+  .meter { height:5px; border-radius:3px; background:var(--raised); margin:8px 0 2px; overflow:hidden; } .meter i { display:block; height:100%; width:88%; background:linear-gradient(90deg,var(--ok),#7BE3B9); }
+  .ent { color:var(--muted); font-size:10.5px; display:flex; justify-content:space-between; }
+  .seg { display:flex; background:var(--bg); border-radius:8px; padding:3px; margin:12px 0 8px; border:1px solid var(--line); }
+  .seg span { flex:1; text-align:center; padding:4px; border-radius:6px; color:var(--muted); font-size:11px; }
+  .seg .on { background:var(--raised); color:var(--text); }
+  .slider { display:flex; align-items:center; gap:8px; margin:6px 0; color:var(--muted); font-size:11px; }
+  .track { flex:1; height:4px; background:var(--raised); border-radius:2px; position:relative; }
+  .track i { position:absolute; left:0; top:0; bottom:0; width:55%; background:var(--blue); border-radius:2px; }
+  .track b { position:absolute; left:55%; top:50%; width:13px; height:13px; margin:-6.5px; border-radius:50%; background:#fff; }
+  .chips { display:flex; flex-wrap:wrap; gap:5px; margin:8px 0 12px; }
+  .chip { font-size:11px; padding:3px 8px; border-radius:12px; border:1px solid var(--border); color:var(--muted); }
+  .chip.on { background:rgba(91,140,255,.18); border-color:#4E7BE0; color:#CFDCFF; }
+</style>
+</head>
+<body>
+<div class="kw">
+
+  <div class="sec">
+    <h2>1 · Identity</h2>
+    <p class="cap">A map pin that becomes a key: <em>Key‑where</em>. Amber on deep navy. Amber is used only for the main action and "you are here" highlights.</p>
+    <div class="win">
+      <div class="brand">
+        <img src="/home/roth/Work/Keywhere/assets/keywhere-logo.svg" alt="Keywhere logo">
+        <div><div class="wm">Key<span>where</span></div><div class="tag">Your passwords, right where you left them. Password Safe &amp; Gorilla compatible.</div></div>
+      </div>
+      <div class="sw mono">
+        <div style="background:#0A1631">#0A1631<br>bg</div>
+        <div style="background:#0F2042">#0F2042<br>surface</div>
+        <div style="background:#132852">#132852<br>panel</div>
+        <div style="background:#244A8F">#244A8F<br>selection</div>
+        <div style="background:#5B8CFF;color:#06122E">#5B8CFF<br>focus</div>
+        <div style="background:#F2B24C;color:#2A1A00">#F2B24C<br>accent</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="sec">
+    <h2>2 · Unlock</h2>
+    <p class="cap">One field, Caps Lock warning, recent vaults, read‑only toggle. Nothing about the vault is shown until it unlocks.</p>
+    <div class="win">
+      <div class="unlock">
+        <div class="card">
+          <img src="/home/roth/Work/Keywhere/assets/keywhere-logo.svg" alt="">
+          <h3>Unlock vault</h3>
+          <div class="file mono">~/GoogleDrive/new.psafe3</div>
+          <div class="pw"><span>🔒</span><span class="bul">•••••••</span><span class="ib">👁</span></div>
+          <div class="caps">⚠ Caps Lock is on</div>
+          <div style="height:8px"></div>
+          <div class="ul">Unlock</div>
+          <div class="hint"><span>☐ Open read‑only</span><span>Switch vault ▾</span><span>New…</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="sec">
+    <h2>3 · Main window</h2>
+    <p class="cap">Three panes inspired by Strongbox: smart views and the group tree, a dense searchable list, and a calm detail card with one‑click copy.</p>
+    <div class="win">
+      <div class="tb">
+        <div class="dots"><i></i><i></i><i></i></div>
+        <img src="/home/roth/Work/Keywhere/assets/keywhere-logo.svg" alt=""><span class="name">Keywhere</span><span class="file">— new.psafe3</span>
+        <div class="search">⌕ Search 22 entries… <span class="kbd">Ctrl K</span></div>
+        <div class="iconbtn p">＋</div><div class="iconbtn">⚙</div><div class="iconbtn" title="Lock">🔒</div>
+      </div>
+      <div class="main">
+        <div class="side">
+          <div class="nav on"><span class="ic">▤</span>All entries<span class="c">22</span></div>
+          <div class="nav"><span class="ic">★</span>Favorites<span class="c">3</span></div>
+          <div class="nav"><span class="ic">⏱</span>Expiring<span class="badge b-warn" style="margin-left:auto">2</span></div>
+          <div class="nav"><span class="ic">⚑</span>Weak<span class="badge b-bad" style="margin-left:auto">0</span></div>
+          <h4>Groups</h4>
+          <div class="nav"><span class="ic">▾</span>Personal<span class="c">6</span></div>
+          <div class="nav sub">Email<span class="c">2</span></div>
+          <div class="nav sub">Social<span class="c">2</span></div>
+          <div class="nav sub">Shopping<span class="c">2</span></div>
+          <div class="nav"><span class="ic">▸</span>Finance<span class="c">3</span></div>
+          <div class="nav"><span class="ic">▾</span>Work<span class="c">6</span></div>
+          <div class="nav sub">Dev<span class="c">3</span></div>
+          <div class="nav sub">Servers<span class="c">2</span></div>
+          <div class="nav"><span class="ic">▸</span>Home<span class="c">3</span></div>
+          <div class="nav"><span class="ic">▸</span>Travel<span class="c">2</span></div>
+        </div>
+        <div class="list">
+          <div class="lh"><b>All entries</b> sorted by title ▾</div>
+          <div class="row"><div class="av" style="background:#3B6FD8">A</div><div class="m"><div class="t">Amazon</div><div class="u">jane.doe@example.com</div></div></div>
+          <div class="row"><div class="av" style="background:#7C5BD8">B</div><div class="m"><div class="t">bastion.acme.example SSH</div><div class="u">jdoe · Work / Servers</div></div></div>
+          <div class="row"><div class="av" style="background:#2E9E8F">B</div><div class="m"><div class="t">Brokerage</div><div class="u">JD‑99812</div></div></div>
+          <div class="row on"><div class="av" style="background:#C77D2E">C</div><div class="m"><div class="t">Company SSO</div><div class="u">jdoe · Work</div></div><span class="badge b-warn">5d</span></div>
+          <div class="row"><div class="av" style="background:#3B6FD8">C</div><div class="m"><div class="t">Credit Card Portal</div><div class="u">jane.doe</div></div></div>
+          <div class="row"><div class="av" style="background:#D8455B">E</div><div class="m"><div class="t">eBay</div><div class="u">jdoe_deals</div></div></div>
+          <div class="row"><div class="av" style="background:#333">G</div><div class="m"><div class="t">GitHub</div><div class="u">janedoe‑dev</div></div></div>
+          <div class="row"><div class="av" style="background:#D8455B">G</div><div class="m"><div class="t">Gmail</div><div class="u">jane.doe</div></div></div>
+          <div class="row"><div class="av" style="background:#2E9E8F">H</div><div class="m"><div class="t">Home Wi‑Fi</div><div class="u">SSID: Nebula‑5G</div></div></div>
+          <div class="row"><div class="av" style="background:#7C5BD8">M</div><div class="m"><div class="t">Mastodon</div><div class="u">@jane@fosstodon.example</div></div></div>
+        </div>
+        <div class="det">
+          <div class="dh">
+            <div class="av" style="background:#C77D2E">C</div>
+            <div><h3>Company SSO</h3><div class="crumb">Work</div></div>
+            <div class="acts"><span class="btn">✎ Edit</span><span class="btn">⋯</span></div>
+          </div>
+          <div class="alert">⏱ Password expires in 5 days (Nov 25). <u>Generate new</u></div>
+          <div class="fld">
+            <div class="fr"><span class="fl">Username</span><span class="fv">jdoe</span><span class="ib">⧉</span></div>
+            <div class="fr"><span class="fl">Password</span><span class="fv mono">•••••••••••••••••• </span><span class="strength"><i></i><i></i><i></i><i style="background:var(--raised)"></i></span><span class="ib">👁</span><span class="ib">⧉</span></div>
+            <div class="fr"><span class="fl">Website</span><span class="fv"><a>sso.acme.example</a></span><span class="ib">↗</span></div>
+            <div class="fr"><span class="fl">Email</span><span class="fv">jane.doe@acme.example</span><span class="ib">⧉</span></div>
+          </div>
+          <div class="fld"><div class="notes">Rotates every 90 days.</div></div>
+          <div class="meta"><span>Created Oct 7, 2026</span><span>Modified Nov 1</span><span>Password history · 1</span></div>
+        </div>
+      </div>
+      <div class="sb"><span><span class="dot"></span>Saved · psafe3 v3.13</span><span>22 entries</span><span class="r">Auto‑lock in 4:32 · Clipboard clears in 0:18</span></div>
+    </div>
+  </div>
+
+  <div class="sec">
+    <h2>4 · Tray quick access &amp; generator</h2>
+    <p class="cap">Left: tray popover (global shortcut). Type, press Enter to copy the password, Ctrl+B to copy the username. Right: the generator, with presets and entropy shown live.</p>
+    <div class="duo">
+      <div class="win tray">
+        <div class="q">⌕ <span>git</span><span class="kbd">Esc</span></div>
+        <div class="row on"><div class="av" style="background:#333">G</div><div class="m"><div class="t">GitHub</div><div class="u">janedoe‑dev</div></div><div class="mini"><span>user</span><span>pass ⏎</span></div></div>
+        <div class="row"><div class="av" style="background:#333">G</div><div class="m"><div class="t">GitHub recovery codes</div><div class="u">Work / Dev</div></div><div class="mini"><span>notes</span></div></div>
+        <div class="toast">✓ Password copied, clears in 20 s</div>
+        <div class="tf"><span>🔒 Lock now</span><span class="r">Open Keywhere ⇱</span></div>
+      </div>
+      <div class="win gen">
+        <h4>Generate password</h4>
+        <div class="gout mono">r7<span class="s">#</span>Kq<span class="d">4</span>vN<span class="s">-</span>pX<span class="d">2</span>mE<span class="s">!</span>hZ<span class="d">9</span>wTb</div>
+        <div class="meter"><i></i></div>
+        <div class="ent"><span>Excellent · 118 bits</span><span>⟳ Regenerate</span></div>
+        <div class="seg"><span class="on">Random</span><span>Passphrase</span><span>PIN</span></div>
+        <div class="slider">Length <div class="track"><i></i><b></b></div><span class="mono">20</span></div>
+        <div class="chips"><span class="chip on">A‑Z</span><span class="chip on">a‑z</span><span class="chip on">0‑9</span><span class="chip on">!@#</span><span class="chip">No look‑alikes</span></div>
+        <div style="display:flex;gap:6px;justify-content:flex-end"><span class="btn">Copy</span><span class="btn pri">Use password</span></div>
+      </div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>
