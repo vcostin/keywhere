@@ -232,7 +232,7 @@ pub fn run(path: Option<PathBuf>) {
     // Second start (e.g. a desktop shortcut running `keywhere --show`): hand
     // over to the running instance and exit.
     #[cfg(unix)]
-    if sys::instance::forward_to_running("show") {
+    if sys::instance::forward_to_running(&sys::instance::show_command()) {
         return;
     }
     run_inner(path, None, None)
@@ -340,10 +340,23 @@ fn open_main_window(
 fn handle_sys_event(ev: sys::SysEvent, cx: &mut App) {
     let window = cx.global::<AppState>().window;
     match ev {
-        sys::SysEvent::Show => {
+        sys::SysEvent::Show(token) => {
             let shown = window.is_some_and(|w| {
                 w.update(cx, |shell, window, cx| {
-                    window.activate_window();
+                    // Wayland: use the tray/launcher token so the compositor
+                    // really raises us (GPUI's own request gets rejected).
+                    #[cfg(target_os = "linux")]
+                    let raised = token
+                        .as_deref()
+                        .is_some_and(|t| sys::wayland::activate_with_token(window, t));
+                    #[cfg(not(target_os = "linux"))]
+                    let raised = {
+                        let _ = &token;
+                        false
+                    };
+                    if !raised {
+                        window.activate_window();
+                    }
                     shell.focus_primary(window, cx);
                 })
                 .is_ok()

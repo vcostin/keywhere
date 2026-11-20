@@ -2899,7 +2899,11 @@ dependencies = [
  "keywhere-core",
  "ksni",
  "libc",
+ "raw-window-handle",
  "sha2 0.10.9",
+ "wayland-backend",
+ "wayland-client",
+ "wayland-protocols 0.31.2",
  "zbus",
  "zeroize",
 ]

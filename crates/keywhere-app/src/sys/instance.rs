@@ -20,6 +20,19 @@ use std::time::Duration;
 
 use super::{EventTx, SysEvent};
 
+fn valid_token(t: &str) -> bool {
+    (1..=256).contains(&t.len()) && t.bytes().all(|b| b.is_ascii_graphic())
+}
+
+/// `show` plus the launcher's activation token (KDE/GNOME set
+/// `XDG_ACTIVATION_TOKEN` when running a shortcut command).
+pub fn show_command() -> String {
+    match std::env::var("XDG_ACTIVATION_TOKEN") {
+        Ok(t) if valid_token(&t) => format!("show {t}"),
+        _ => "show".into(),
+    }
+}
+
 /// Unix socket paths are limited to ~108 bytes (sun_path).
 const MAX_SOCKET_PATH: usize = 100;
 
@@ -133,15 +146,18 @@ pub fn listen(tx: EventTx) {
                 }
                 let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
                 let mut line = String::new();
-                if BufReader::new(stream.take(64))
+                if BufReader::new(stream.take(300))
                     .read_line(&mut line)
                     .is_err()
                 {
                     continue;
                 }
-                let ev = match line.trim() {
-                    "show" => SysEvent::Show,
-                    "lock" => SysEvent::Lock,
+                let mut parts = line.trim().splitn(2, ' ');
+                let ev = match (parts.next(), parts.next()) {
+                    (Some("show"), token) => {
+                        SysEvent::Show(token.filter(|t| valid_token(t)).map(str::to_string))
+                    }
+                    (Some("lock"), None) => SysEvent::Lock,
                     _ => continue,
                 };
                 if tx.unbounded_send(ev).is_err() {

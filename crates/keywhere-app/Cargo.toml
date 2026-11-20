@@ -27,6 +27,11 @@ libc = "0.2"
 arboard = { version = "3.7", default-features = false, features = ["wayland-data-control"] }
 ksni = { version = "0.3", default-features = false, features = ["async-io", "blocking"] }
 zbus = { version = "5", default-features = false, features = ["async-io", "blocking-api"] }
+# Same versions as gpui 0.2.2 (system libwayland backend) for xdg-activation.
+wayland-client = "0.31"
+wayland-backend = { version = "0.3", features = ["client_system"] }
+wayland-protocols = { version = "0.31", features = ["client", "staging"] }
+raw-window-handle = "0.6"
 
 [target.'cfg(not(target_os = "linux"))'.dependencies]
 arboard = { version = "3.7", default-features = false }

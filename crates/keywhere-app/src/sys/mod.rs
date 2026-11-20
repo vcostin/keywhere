@@ -8,13 +8,16 @@ pub mod clipboard;
 pub mod instance;
 #[cfg(target_os = "linux")]
 pub mod linux;
+#[cfg(target_os = "linux")]
+pub mod wayland;
 
 use futures::channel::mpsc;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SysEvent {
-    /// Bring the window to the front (tray click, `keywhere --show`).
-    Show,
+    /// Bring the window to the front (tray click, `keywhere --show`), with
+    /// the Wayland activation token from that user action if there is one.
+    Show(Option<String>),
     /// Lock now (tray menu, screen locked, system going to sleep).
     Lock,
     /// Quit the app (tray menu).

@@ -72,7 +72,7 @@ impl ksni::Tray for KwTray {
     }
 
     fn activate(&mut self, _x: i32, _y: i32) {
-        self.send(SysEvent::Show);
+        self.send(SysEvent::Show(activation_token()));
     }
 
     /// Deliberately minimal: no entry titles or search in the tray, so a
@@ -82,7 +82,7 @@ impl ksni::Tray for KwTray {
         vec![
             StandardItem {
                 label: "Open Keywhere".into(),
-                activate: Box::new(|t: &mut Self| t.send(SysEvent::Show)),
+                activate: Box::new(|t: &mut Self| t.send(SysEvent::Show(activation_token()))),
                 ..Default::default()
             }
             .into(),
@@ -104,6 +104,18 @@ impl ksni::Tray for KwTray {
             .into(),
         ]
     }
+}
+
+/// The XDG activation token for the tray event being handled. KDE may
+/// deliver it slightly after the click, so retry briefly.
+fn activation_token() -> Option<String> {
+    for _ in 0..50 {
+        if let Some(t) = ksni::current_xdg_activation_token() {
+            return Some(t);
+        }
+        thread::sleep(std::time::Duration::from_millis(2));
+    }
+    None
 }
 
 pub fn start_tray(tx: EventTx) -> Option<TrayHandle> {
