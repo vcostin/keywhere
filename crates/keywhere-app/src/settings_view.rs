@@ -1,11 +1,12 @@
 //! Settings overlay (opened from the gear button or Ctrl/⌘+,).
 
 use gpui::{
-    div, prelude::*, px, svg, App, Context, EventEmitter, FocusHandle, Focusable, FontWeight,
-    KeyDownEvent, SharedString, Window,
+    div, prelude::*, px, svg, App, Context, Entity, EventEmitter, FocusHandle, Focusable,
+    FontWeight, KeyDownEvent, SharedString, Window,
 };
 
 use crate::i18n::{self, t, tf, Lang};
+use crate::select::{Select, SelectChanged};
 use crate::settings::{self, CloseAction, CLIPBOARD_MAX, CLIPBOARD_MIN, IDLE_CHOICES};
 use crate::theme::*;
 
@@ -15,6 +16,8 @@ pub enum SettingsEvent {
 
 pub struct SettingsView {
     focus: FocusHandle,
+    idle: Entity<Select>,
+    language: Entity<Select>,
 }
 
 impl EventEmitter<SettingsEvent> for SettingsView {}
@@ -25,11 +28,90 @@ impl Focusable for SettingsView {
     }
 }
 
+fn idle_labels() -> Vec<SharedString> {
+    IDLE_CHOICES
+        .iter()
+        .map(|&m| {
+            if m == 0 {
+                t("Never").into()
+            } else {
+                tf("{n} min", &[("n", &m.to_string())]).into()
+            }
+        })
+        .collect()
+}
+
+fn idle_index(minutes: u32) -> usize {
+    IDLE_CHOICES.iter().position(|&m| m == minutes).unwrap_or(2)
+}
+
+/// "System (…)" first, then every language by its own name.
+fn language_labels() -> Vec<SharedString> {
+    std::iter::once(tf("System ({lang})", &[("lang", Lang::system().native_name())]).into())
+        .chain(
+            Lang::ALL
+                .iter()
+                .map(|l| SharedString::from(l.native_name())),
+        )
+        .collect()
+}
+
+fn language_index(choice: Option<Lang>) -> usize {
+    choice
+        .and_then(|l| Lang::ALL.iter().position(|x| *x == l))
+        .map_or(0, |i| i + 1)
+}
+
 impl SettingsView {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let focus = cx.focus_handle();
         window.focus(&focus);
-        SettingsView { focus }
+        let st = settings::get();
+        let idle = cx
+            .new(|cx| Select::new(cx, idle_labels(), idle_index(st.idle_lock_minutes)).width(200.));
+        let language = cx
+            .new(|cx| Select::new(cx, language_labels(), language_index(st.language)).width(240.));
+        cx.subscribe_in(&idle, window, |this, _, SelectChanged(i), window, cx| {
+            let m = IDLE_CHOICES[*i];
+            Self::change(|s| s.idle_lock_minutes = m, window);
+            this.relabel(cx);
+        })
+        .detach();
+        cx.subscribe_in(
+            &language,
+            window,
+            |this, _, SelectChanged(i), window, cx| {
+                let choice = if *i == 0 {
+                    None
+                } else {
+                    Lang::ALL.get(*i - 1).copied()
+                };
+                Self::change(|s| s.language = choice, window);
+                this.relabel(cx);
+            },
+        )
+        .detach();
+        SettingsView {
+            focus,
+            idle,
+            language,
+        }
+    }
+
+    #[cfg(feature = "devtools")]
+    pub fn dev_open_language(&mut self, cx: &mut Context<Self>) {
+        self.language.update(cx, |s, cx| s.dev_open(cx));
+    }
+
+    /// Option labels are translated; refresh them after a language switch.
+    fn relabel(&mut self, cx: &mut Context<Self>) {
+        let st = settings::get();
+        self.idle.update(cx, |s, cx| {
+            s.set_options(idle_labels(), idle_index(st.idle_lock_minutes), cx)
+        });
+        self.language.update(cx, |s, cx| {
+            s.set_options(language_labels(), language_index(st.language), cx)
+        });
     }
 
     fn change(f: impl FnOnce(&mut settings::Settings), window: &mut Window) {
@@ -87,24 +169,6 @@ impl SettingsView {
 impl Render for SettingsView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let s = settings::get();
-
-        let idle = div()
-            .flex()
-            .flex_wrap()
-            .gap(px(6.))
-            .children(IDLE_CHOICES.iter().map(|&m| {
-                let label: SharedString = if m == 0 {
-                    t("Never").into()
-                } else {
-                    tf("{n} min", &[("n", &m.to_string())]).into()
-                };
-                Self::chip(
-                    SharedString::from(format!("idle-{m}")),
-                    label,
-                    s.idle_lock_minutes == m,
-                )
-                .on_click(move |_, window, _| Self::change(|s| s.idle_lock_minutes = m, window))
-            }));
 
         let step = |id: &'static str, label: &'static str| {
             div()
@@ -175,28 +239,6 @@ impl Render for SettingsView {
                 }),
             );
 
-        let sys = Lang::system();
-        let lang = div()
-            .flex()
-            .flex_wrap()
-            .gap(px(6.))
-            .child(
-                Self::chip(
-                    "lang-system".into(),
-                    tf("System ({lang})", &[("lang", sys.native_name())]).into(),
-                    s.language.is_none(),
-                )
-                .on_click(|_, window, _| Self::change(|s| s.language = None, window)),
-            )
-            .children(Lang::ALL.into_iter().map(|l| {
-                Self::chip(
-                    SharedString::from(format!("lang-{}", l.code())),
-                    l.native_name().into(),
-                    s.language == Some(l),
-                )
-                .on_click(move |_, window, _| Self::change(|s| s.language = Some(l), window))
-            }));
-
         div()
             .id("settings-card")
             .key_context("Settings")
@@ -238,11 +280,11 @@ impl Render for SettingsView {
                     ),
             )
             .child(Self::section("Security"))
-            .child(Self::row("Auto‑lock after", idle))
+            .child(Self::row("Auto‑lock after", self.idle.clone()))
             .child(Self::row("Clear clipboard after", clip))
             .child(Self::row("Closing the window", close))
             .child(Self::section("Language"))
-            .child(Self::row("Language", lang))
+            .child(Self::row("Language", self.language.clone()))
             .child(
                 div()
                     .mt_4()

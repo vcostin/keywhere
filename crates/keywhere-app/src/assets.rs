@@ -15,6 +15,7 @@ macro_rules! asset_table {
 static TABLE: &[(&str, &[u8])] = asset_table![
     "keywhere-logo.svg",
     "icons/check.svg",
+    "icons/chevron-down.svg",
     "icons/clock.svg",
     "icons/copy.svg",
     "icons/external.svg",

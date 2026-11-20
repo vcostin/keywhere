@@ -9,6 +9,7 @@ pub mod field;
 pub mod i18n;
 pub mod model;
 pub mod secret_text;
+pub mod select;
 pub mod settings;
 pub mod settings_view;
 pub mod sys;
@@ -135,8 +136,14 @@ impl Shell {
         };
         if let (Some((v, lock)), Some(p)) = (preunlocked, path) {
             this.show_vault(p, v, lock, window, cx);
-            if select.as_deref() == Some("settings") {
+            if matches!(select.as_deref(), Some("settings" | "settings-lang")) {
                 this.open_settings(window, cx);
+                #[cfg(feature = "devtools")]
+                if select.as_deref() == Some("settings-lang") {
+                    if let Some(v) = &this.settings {
+                        v.update(cx, |v, cx| v.dev_open_language(cx));
+                    }
+                }
             }
             // Dev screenshots: "Title", "edit:Title", "delete:Title", "copy:Title", "settings" or "new".
             if let (Some(t), Screen::Vault(b)) = (select, &this.screen) {
@@ -155,7 +162,7 @@ impl Shell {
                     }
                     _ if t == "new" => b.start_edit(true, window, cx),
                     _ if t == "upgrade" => b.open_upgrade(window, cx),
-                    _ if t == "settings" => {}
+                    _ if t == "settings" || t == "settings-lang" => {}
                     #[cfg(feature = "devtools")]
                     _ if t == "newpass" => {
                         b.start_edit(true, window, cx);
