@@ -5,6 +5,6 @@
       <stop offset="1" stop-color="#EFA53A"/>
     </linearGradient>
   </defs>
-  <!-- Keywhere: a map pin that becomes a key ("Key-where"), tilted 30°. No background. -->
-  <g transform="translate(128 128) rotate(-30) scale(0.88) translate(-128 -136)"><path fill="url(#gold)" fill-rule="evenodd" stroke="#64748B" stroke-width="9" stroke-linejoin="round" d="M128 24a68 68 0 0 1 68 68c0 27-17 45-50 66v18h30v22h-30v8h24v20h-24v2a18 18 0 0 1-36 0v-70c-33-21-50-39-50-66a68 68 0 0 1 68-68zM128 64a28 28 0 1 0 .01 0z"/></g>
+  <!-- Keywhere: a map pin that becomes a key ("Key-where"), tilted 30°. No background, no outline. -->
+  <g transform="translate(128 128) rotate(-30) scale(0.88) translate(-128 -136)"><path fill="url(#gold)" fill-rule="evenodd" d="M128 24a68 68 0 0 1 68 68c0 27-17 45-50 66v18h30v22h-30v8h24v20h-24v2a18 18 0 0 1-36 0v-70c-33-21-50-39-50-66a68 68 0 0 1 68-68zM128 64a28 28 0 1 0 .01 0z"/></g>
 </svg>

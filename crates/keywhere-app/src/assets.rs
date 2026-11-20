@@ -30,7 +30,6 @@ static TABLE: &[(&str, &[u8])] = asset_table![
     "icons/gear.svg",
     "icons/list.svg",
     "icons/logo-fill.svg",
-    "icons/logo-outline.svg",
     "icons/lock.svg",
     "icons/search.svg",
     "icons/shield.svg",
@@ -43,29 +42,16 @@ static TABLE: &[(&str, &[u8])] = asset_table![
     "icons/win-restore.svg",
 ];
 
-/// The app logo: the amber key, drawn as vector layers (crisp at any size,
-/// unlike a rasterised image). From 40px up it gets the neutral slate
-/// outline; below that the outline would be a hairline, so it's fill only.
+/// The app logo: the flat amber key, drawn as a vector layer (crisp at any
+/// size, unlike a rasterised image). No outline, by design.
 pub fn logo(size: f32) -> gpui::Div {
     use gpui::{div, prelude::*, px, svg};
-    let fill = svg()
-        .path("icons/logo-fill.svg")
-        .size(px(size))
-        .text_color(crate::theme::c(crate::theme::ACCENT));
-    let layers = div().relative().size(px(size)).flex_none().child(fill);
-    if size >= 40. {
-        layers.child(
-            svg()
-                .path("icons/logo-outline.svg")
-                .absolute()
-                .top_0()
-                .left_0()
-                .size(px(size))
-                .text_color(gpui::rgb(0x64748B)),
-        )
-    } else {
-        layers
-    }
+    div().size(px(size)).flex_none().child(
+        svg()
+            .path("icons/logo-fill.svg")
+            .size(px(size))
+            .text_color(crate::theme::c(crate::theme::ACCENT)),
+    )
 }
 
 /// Inter (SIL OFL 1.1, see assets/fonts/Inter-LICENSE.txt), bundled so the UI

@@ -196,7 +196,7 @@ impl Render for UnlockView {
                             .flex()
                             .flex_col()
                             .items_center()
-                            .child(crate::assets::logo(76.))
+                            .child(crate::assets::logo(88.))
                             .child(
                                 div()
                                     .mt_3()
