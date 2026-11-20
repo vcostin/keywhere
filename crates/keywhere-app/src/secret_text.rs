@@ -19,16 +19,15 @@ static GRAVEYARD: Mutex<Vec<Arc<str>>> = Mutex::new(Vec::new());
 /// Make a display string for secret text and register it for wiping.
 pub fn display(secret: &str) -> SharedString {
     let arc: Arc<str> = Arc::from(secret);
-    if let Ok(mut g) = GRAVEYARD.lock() {
-        g.push(arc.clone());
-    }
+    // A poisoned lock must not stop us from tracking secrets.
+    GRAVEYARD.lock().unwrap_or_else(|e| e.into_inner()).push(arc.clone());
     SharedString::from(arc)
 }
 
 /// Zeroize and drop every registered string nobody else references any more.
 /// Returns how many are still in use (held by GPUI).
 pub fn sweep() -> usize {
-    let Ok(mut g) = GRAVEYARD.lock() else { return 0 };
+    let mut g = GRAVEYARD.lock().unwrap_or_else(|e| e.into_inner());
     g.retain_mut(|arc| match Arc::get_mut(arc) {
         Some(s) => {
             // SAFETY: we are the unique owner (get_mut succeeded); writing NUL

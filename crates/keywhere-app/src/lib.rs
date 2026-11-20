@@ -33,6 +33,7 @@ struct Shell {
     screen: Screen,
     last_input: Instant,
     _idle: gpui::Task<()>,
+    _on_quit: gpui::Subscription,
 }
 
 impl Shell {
@@ -59,6 +60,11 @@ impl Shell {
             screen: Screen::Unlock(Self::unlock_view(path.clone(), window, cx)),
             last_input: Instant::now(),
             _idle: idle,
+            // Best-effort final wipe of secret display strings on exit.
+            _on_quit: cx.on_app_quit(|_, _| {
+                secret_text::sweep();
+                async {}
+            }),
         };
         if let (Some(v), Some(p)) = (preunlocked, path) {
             this.show_vault(p, v, window, cx);
