@@ -174,6 +174,12 @@ impl Shell {
                     #[cfg(feature = "devtools")]
                     _ if t == "nogroup" => b.dev_no_group(cx),
                     #[cfg(feature = "devtools")]
+                    _ if t.starts_with("cal:") => {
+                        b.select_title(&t["cal:".len()..], cx);
+                        b.start_edit(false, window, cx);
+                        b.dev_calendar(cx);
+                    }
+                    #[cfg(feature = "devtools")]
                     _ if t.starts_with("newgroup:") => {
                         b.dev_new_group(&t["newgroup:".len()..], window, cx)
                     }

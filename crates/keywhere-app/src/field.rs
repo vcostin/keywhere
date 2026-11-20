@@ -292,12 +292,18 @@ impl Render for TextField {
         let font = px(if self.large { 14. } else { 12.5 });
 
         let body = if empty {
+            // The caret is an overlay so the placeholder doesn't shift when
+            // the field gains focus.
             div()
+                .relative()
                 .flex()
                 .items_center()
+                .min_h(px(17.))
                 .text_color(c(DIM))
-                .when(focused, |d| d.child(Self::caret().mr(px(2.))))
                 .child(crate::i18n::t(self.placeholder))
+                .when(focused, |d| {
+                    d.child(Self::caret().absolute().left(px(-1.)).top(px(1.)))
+                })
         } else {
             let mut col = div().flex().flex_col().text_color(c(TEXT));
             let mut offset = 0;

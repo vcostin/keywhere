@@ -40,6 +40,8 @@ pub struct EntryEditor {
     groups: Vec<String>,
     group_menu: bool,
     group_hl: usize,
+    /// Date picker for "Expires": open + the month shown (year, month).
+    cal: Option<(i64, u32)>,
     focus: FocusHandle,
 }
 
@@ -191,6 +193,7 @@ impl EntryEditor {
             groups: groups.iter().map(|g| group_display(g)).collect(),
             group_menu: false,
             group_hl: 0,
+            cal: None,
             title,
             group,
             username,
@@ -402,6 +405,268 @@ impl EntryEditor {
                     ),
             )
             .children(list)
+    }
+
+    #[cfg(feature = "devtools")]
+    pub fn dev_open_calendar(&mut self, cx: &mut Context<Self>) {
+        self.open_calendar(cx);
+    }
+
+    fn open_calendar(&mut self, cx: &mut Context<Self>) {
+        let secs = model::parse_iso_date(self.expiry.read(cx).text())
+            .map(u64::from)
+            .unwrap_or(keywhere_core::now_secs() as u64);
+        let (y, m, _) = model::civil(secs);
+        self.cal = Some((y, m));
+        cx.notify();
+    }
+
+    fn set_expiry(&mut self, secs: Option<u64>, cx: &mut Context<Self>) {
+        let text = secs.map(model::fmt_iso_date).unwrap_or_default();
+        self.expiry.update(cx, |f, cx| f.set_text(&text, cx));
+        self.cal = None;
+        cx.notify();
+    }
+
+    fn render_expiry(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let toggle = div()
+            .id("cal-toggle")
+            .size(px(30.))
+            .flex_none()
+            .rounded(px(7.))
+            .flex()
+            .items_center()
+            .justify_center()
+            .cursor_pointer()
+            .bg(c(RAISED))
+            .border_1()
+            .border_color(c(BORDER))
+            .hover(|d| d.bg(c(HOVER)))
+            .on_click(cx.listener(|this, _, _, cx| {
+                if this.cal.is_some() {
+                    this.cal = None;
+                    cx.notify();
+                } else {
+                    this.open_calendar(cx);
+                }
+            }))
+            .child(
+                svg()
+                    .path("icons/calendar.svg")
+                    .size(px(14.))
+                    .text_color(c(MUTED)),
+            );
+        div()
+            .flex()
+            .flex_col()
+            .child(
+                div()
+                    .flex()
+                    .gap_2()
+                    .child(div().flex_1().min_w_0().child(self.expiry.clone()))
+                    .child(toggle),
+            )
+            .children(self.cal.map(|(y, m)| self.render_calendar(y, m, cx)))
+    }
+
+    fn render_calendar(&self, y: i64, m: u32, cx: &mut Context<Self>) -> impl IntoElement {
+        const MONTHS: [&str; 12] = [
+            "January",
+            "February",
+            "March",
+            "April",
+            "May",
+            "June",
+            "July",
+            "August",
+            "September",
+            "October",
+            "November",
+            "December",
+        ];
+        const WEEKDAYS: [&str; 7] = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"];
+        let today = keywhere_core::now_secs() as u64;
+        let (ty, tm, td) = model::civil(today);
+        let selected =
+            model::parse_iso_date(self.expiry.read(cx).text()).map(|s| model::civil(s as u64));
+        let first = model::weekday_mon0(y, m, 1);
+        let days = model::days_in_month(y, m);
+
+        let nav = |id: &'static str, icon: &'static str| {
+            div()
+                .id(id)
+                .size(px(26.))
+                .rounded(px(6.))
+                .flex()
+                .items_center()
+                .justify_center()
+                .cursor_pointer()
+                .hover(|d| d.bg(c(RAISED)))
+                .child(svg().path(icon).size(px(14.)).text_color(c(MUTED)))
+        };
+        let preset = |id: &'static str, label: String| {
+            div()
+                .id(id)
+                .px(px(8.))
+                .py(px(3.))
+                .rounded(px(12.))
+                .border_1()
+                .border_color(c(BORDER))
+                .text_size(px(11.))
+                .text_color(c(TEXT_SOFT))
+                .cursor_pointer()
+                .hover(|d| d.border_color(c(0x4E7BE0)))
+                .child(label)
+        };
+
+        let mut grid = div().flex().flex_wrap().w(px(7. * 34.));
+        for wd in WEEKDAYS {
+            grid = grid.child(
+                div()
+                    .w(px(34.))
+                    .h(px(22.))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .text_size(px(10.5))
+                    .text_color(c(DIM))
+                    .child(crate::i18n::t(wd)),
+            );
+        }
+        for _ in 0..first {
+            grid = grid.child(div().w(px(34.)).h(px(30.)));
+        }
+        for d in 1..=days {
+            let is_today = (y, m, d) == (ty, tm, td);
+            let is_sel = selected == Some((y, m, d));
+            let secs = (model::days_from_civil(y, m, d) * 86_400) as u64;
+            grid = grid.child(
+                div()
+                    .id(("day", d as usize))
+                    .w(px(34.))
+                    .h(px(30.))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .child(
+                        div()
+                            .size(px(28.))
+                            .rounded(px(7.))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .text_size(px(12.))
+                            .cursor_pointer()
+                            .text_color(c(if is_sel { ACCENT_INK } else { TEXT_SOFT }))
+                            .when(is_sel, |x| {
+                                x.bg(c(ACCENT)).font_weight(FontWeight::SEMIBOLD)
+                            })
+                            .when(!is_sel && is_today, |x| x.border_1().border_color(c(FOCUS)))
+                            .when(!is_sel, |x| x.hover(|x| x.bg(c(HOVER))))
+                            .child(d.to_string()),
+                    )
+                    .on_click(cx.listener(move |this, _, _, cx| this.set_expiry(Some(secs), cx))),
+            );
+        }
+
+        let shift = move |dm: i32| {
+            let idx = y * 12 + (m as i64 - 1) + dm as i64;
+            (idx.div_euclid(12), (idx.rem_euclid(12) + 1) as u32)
+        };
+        let (py, pm) = shift(-1);
+        let (ny, nm) = shift(1);
+        let in_days = move |n: u64| today - today % 86_400 + n * 86_400;
+
+        gpui::deferred(
+            gpui::anchored()
+                .offset(gpui::point(px(0.), px(34.)))
+                .snap_to_window_with_margin(px(8.))
+                .child(
+                    div()
+                        .id("calendar")
+                        .occlude()
+                        .p_3()
+                        .rounded(px(10.))
+                        .bg(c(PANEL))
+                        .border_1()
+                        .border_color(c(0x2A4A85))
+                        .shadow_lg()
+                        .flex()
+                        .flex_col()
+                        .gap_2()
+                        .on_mouse_down_out(cx.listener(|this, _, _, cx| {
+                            this.cal = None;
+                            cx.notify();
+                        }))
+                        .child(
+                            div()
+                                .flex()
+                                .items_center()
+                                .child(nav("cal-prev", "icons/chevron-left.svg").on_click(
+                                    cx.listener(move |this, _, _, cx| {
+                                        this.cal = Some((py, pm));
+                                        cx.notify();
+                                    }),
+                                ))
+                                .child(
+                                    div()
+                                        .flex_1()
+                                        .flex()
+                                        .justify_center()
+                                        .text_size(px(13.))
+                                        .font_weight(FontWeight::SEMIBOLD)
+                                        .text_color(c(TEXT))
+                                        .child(SharedString::from(format!(
+                                            "{} {y}",
+                                            crate::i18n::t(MONTHS[(m - 1) as usize])
+                                        ))),
+                                )
+                                .child(nav("cal-next", "icons/chevron-right.svg").on_click(
+                                    cx.listener(move |this, _, _, cx| {
+                                        this.cal = Some((ny, nm));
+                                        cx.notify();
+                                    }),
+                                )),
+                        )
+                        .child(grid)
+                        .child(
+                            div()
+                                .flex()
+                                .flex_wrap()
+                                .gap(px(6.))
+                                .pt_1()
+                                .border_t_1()
+                                .border_color(c(LINE))
+                                .child(
+                                    preset("cal-30", tf("In {n} days", &[("n", "30")])).on_click(
+                                        cx.listener(move |this, _, _, cx| {
+                                            this.set_expiry(Some(in_days(30)), cx)
+                                        }),
+                                    ),
+                                )
+                                .child(
+                                    preset("cal-90", tf("In {n} days", &[("n", "90")])).on_click(
+                                        cx.listener(move |this, _, _, cx| {
+                                            this.set_expiry(Some(in_days(90)), cx)
+                                        }),
+                                    ),
+                                )
+                                .child(
+                                    preset("cal-365", crate::i18n::t("In 1 year").to_string())
+                                        .on_click(cx.listener(move |this, _, _, cx| {
+                                            this.set_expiry(Some(in_days(365)), cx)
+                                        })),
+                                )
+                                .child(
+                                    preset("cal-clear", crate::i18n::t("Clear").to_string())
+                                        .on_click(
+                                            cx.listener(|this, _, _, cx| this.set_expiry(None, cx)),
+                                        ),
+                                ),
+                        ),
+                ),
+        )
+        .with_priority(1)
     }
 
     fn regenerate(&mut self) {
@@ -866,7 +1131,7 @@ impl Render for EntryEditor {
             ))
             .child(Self::row(crate::i18n::t("Website"), self.url.clone()))
             .child(Self::row(crate::i18n::t("Email"), self.email.clone()))
-            .child(Self::row(crate::i18n::t("Expires"), self.expiry.clone()))
+            .child(Self::row(crate::i18n::t("Expires"), self.render_expiry(cx)))
             .child(Self::row(crate::i18n::t("Notes"), self.notes.clone()))
             // Quiet compatibility hint (no colour, no icon, never blocks).
             .when(beyond_bmp, |d| {

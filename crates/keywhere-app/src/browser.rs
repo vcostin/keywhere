@@ -311,6 +311,13 @@ impl Browser {
     }
 
     #[cfg(feature = "devtools")]
+    pub fn dev_calendar(&mut self, cx: &mut Context<Self>) {
+        if let Some((ed, _)) = &self.editor {
+            ed.update(cx, |e, cx| e.dev_open_calendar(cx));
+        }
+    }
+
+    #[cfg(feature = "devtools")]
     pub fn dev_fold(&mut self, groups: &str, cx: &mut Context<Self>) {
         for g in groups.split(',') {
             self.collapsed.insert(vec![g.to_string()]);

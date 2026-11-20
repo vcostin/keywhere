@@ -174,7 +174,7 @@ const MONTHS: [&str; 12] = [
 ];
 
 /// Unix seconds → (year, month 1-12, day), proleptic Gregorian, UTC.
-fn civil(secs: u64) -> (i64, u32, u32) {
+pub fn civil(secs: u64) -> (i64, u32, u32) {
     let z = (secs / 86_400) as i64 + 719_468;
     let era = z.div_euclid(146_097);
     let doe = z.rem_euclid(146_097);
@@ -228,7 +228,7 @@ pub fn fmt_relative_expiry(exp: u64, now: u64) -> (String, bool) {
 }
 
 /// (year, month, day) → Unix seconds at 00:00 UTC.
-fn days_from_civil(y: i64, m: u32, d: u32) -> i64 {
+pub fn days_from_civil(y: i64, m: u32, d: u32) -> i64 {
     let y = if m <= 2 { y - 1 } else { y };
     let era = y.div_euclid(400);
     let yoe = y.rem_euclid(400);
@@ -236,6 +236,21 @@ fn days_from_civil(y: i64, m: u32, d: u32) -> i64 {
     let doy = (153 * mp + 2) / 5 + d as i64 - 1;
     let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
     era * 146_097 + doe - 719_468
+}
+
+/// Days in a month (1-12) of a proleptic Gregorian year.
+pub fn days_in_month(y: i64, m: u32) -> u32 {
+    let next = if m == 12 {
+        days_from_civil(y + 1, 1, 1)
+    } else {
+        days_from_civil(y, m + 1, 1)
+    };
+    (next - days_from_civil(y, m, 1)) as u32
+}
+
+/// Weekday of a date, Monday = 0 … Sunday = 6 (1970-01-01 was a Thursday).
+pub fn weekday_mon0(y: i64, m: u32, d: u32) -> u32 {
+    (days_from_civil(y, m, d) + 3).rem_euclid(7) as u32
 }
 
 pub fn fmt_iso_date(secs: u64) -> String {
@@ -281,6 +296,15 @@ mod tests {
         assert_eq!(fmt_iso_date(1_795_132_800), "2026-11-20");
         assert_eq!(parse_iso_date("2026-02-31"), None);
         assert_eq!(parse_iso_date("nope"), None);
+    }
+
+    #[test]
+    fn calendar_math() {
+        assert_eq!(days_in_month(2024, 2), 29);
+        assert_eq!(days_in_month(2026, 2), 28);
+        assert_eq!(days_in_month(2026, 12), 31);
+        assert_eq!(weekday_mon0(2026, 11, 20), 4); // a Friday
+        assert_eq!(weekday_mon0(1970, 1, 1), 3); // a Thursday
     }
 
     #[test]
