@@ -20,12 +20,12 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
-      - run: cargo test --release -p keywhere-core
-      - run: cargo clippy --release -p keywhere-core --all-targets -- -D warnings
+      - run: cargo test --locked --release -p keywhere-core
+      - run: cargo clippy --locked --release -p keywhere-core --all-targets -- -D warnings
 
   app:
     name: app build (${{ matrix.os }})
@@ -35,7 +35,7 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
@@ -44,15 +44,19 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev \
-            libx11-xcb-dev libxcb1-dev libfontconfig-dev libfreetype-dev libvulkan-dev libzstd-dev
+            libx11-xcb-dev libxcb1-dev libxcb-shape0-dev libxcb-xfixes0-dev libfontconfig-dev \
+            libfreetype-dev libvulkan-dev libzstd-dev libasound2-dev clang
       - uses: Swatinem/rust-cache@v2
-      - run: cargo test --release -p keywhere
-      - run: cargo clippy --release -p keywhere --all-targets -- -D warnings
+      - run: cargo test --locked --release -p keywhere
+      - run: cargo clippy --locked --release -p keywhere --all-targets --features devtools -- -D warnings
 
   audit:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      checks: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: rustsec/audit-check@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}

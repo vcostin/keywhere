@@ -27,7 +27,11 @@ pub struct TextField {
     revealed: bool,
     icon: Option<&'static str>,
     large: bool,
+    _hide_task: Option<gpui::Task<()>>,
 }
+
+/// Plaintext reveal in a secret field auto-hides after this long.
+const REVEAL_FOR: std::time::Duration = std::time::Duration::from_secs(15);
 
 impl EventEmitter<FieldEvent> for TextField {}
 
@@ -47,6 +51,7 @@ impl TextField {
             revealed: false,
             icon: None,
             large: false,
+            _hide_task: None,
         }
     }
 
@@ -99,7 +104,13 @@ impl TextField {
                 if m.secondary() || m.alt {
                     self.buf = Zeroizing::new(String::new());
                 } else {
-                    self.buf.pop();
+                    // Rebuild instead of pop() so the removed byte doesn't
+                    // linger in spare capacity.
+                    let mut s = self.buf.chars();
+                    s.next_back();
+                    let mut next = Zeroizing::new(String::with_capacity(self.buf.len()));
+                    next.push_str(s.as_str());
+                    self.buf = next;
                 }
             }
             "v" if m.secondary() && !m.alt => {
@@ -134,7 +145,11 @@ impl Render for TextField {
         } else if self.secret && !self.revealed {
             "•".repeat(self.buf.chars().count()).into()
         } else {
-            SharedString::from(self.buf.as_str().to_string())
+            if self.secret {
+                crate::secret_text::display(&self.buf)
+            } else {
+                SharedString::from(self.buf.as_str().to_string())
+            }
         };
         let h = if self.large { px(40.) } else { px(28.) };
 
@@ -182,6 +197,16 @@ impl Render for TextField {
                         .cursor_pointer()
                         .on_click(cx.listener(|this, _, _, cx| {
                             this.revealed = !this.revealed;
+                            this._hide_task = this.revealed.then(|| {
+                                cx.spawn(async move |this, cx| {
+                                    cx.background_executor().timer(REVEAL_FOR).await;
+                                    this.update(cx, |t, cx| {
+                                        t.revealed = false;
+                                        cx.notify();
+                                    })
+                                    .ok();
+                                })
+                            });
                             cx.stop_propagation();
                             cx.notify();
                         }))

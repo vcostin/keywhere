@@ -5,5 +5,5 @@ fn main() {
         .nth(1)
         .map(std::path::PathBuf::from)
         .or_else(keywhere::config::last_vault);
-    keywhere::run(path, None, None);
+    keywhere::run(path);
 }

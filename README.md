@@ -37,7 +37,7 @@ Keywhere keeps the format you already have and adds a calm, keyboard‑first UI 
 
 - Open/save `.psafe3` files, interoperable with Password Safe 1.x and Password Gorilla
 - Three‑pane browser: smart views, group tree, instant search, detail card
-- One‑click copy with clipboard auto‑clear and clipboard‑history exclusion
+- One‑click copy with clipboard auto‑clear (clipboard‑history exclusion planned for M3)
 - Auto‑lock on idle, sleep and screen lock
 - Tray icon with quick search, password generator, expiry and weak‑password views
 - Linux, macOS, Windows

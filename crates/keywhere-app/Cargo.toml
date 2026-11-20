@@ -5,6 +5,14 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[features]
+# Dev tooling only (pre-unlocked screenshot harness). Never enable for releases.
+devtools = []
+
+[[example]]
+name = "screenshot_demo"
+required-features = ["devtools"]
+
 [dependencies]
 keywhere-core = { path = "../keywhere-core" }
 gpui = "=0.2.2"

@@ -419,8 +419,7 @@ impl Browser {
             })
     }
 
-    fn icon_btn(id: &'static str, icon: &'static str, tip: &'static str) -> gpui::Stateful<gpui::Div> {
-        let _ = tip;
+    fn icon_btn(id: &'static str, icon: &'static str) -> gpui::Stateful<gpui::Div> {
         div()
             .id(id)
             .size(px(24.))
@@ -466,8 +465,9 @@ impl Browser {
         let bars = if pw.is_empty() { 0 } else if bits < 40. { 1 } else if bits < 60. { 2 } else if bits < 80. { 3 } else { 4 };
         let bar_col = match bars { 1 => DANGER, 2 => WARN, _ => OK };
         let pw_shown: SharedString = if self.revealed {
-            // Short-lived: hidden again after REVEAL_FOR or on lock.
-            pw.to_string().into()
+            // Hidden again after REVEAL_FOR or on lock; the Arc is wiped by
+            // secret_text::sweep once GPUI drops it.
+            crate::secret_text::display(pw)
         } else if pw.is_empty() {
             "—".into()
         } else {
@@ -478,7 +478,7 @@ impl Browser {
         if let Some(u) = r.text(rec::USERNAME).filter(|s| !s.is_empty()) {
             fields = fields.child(
                 Self::field_row("Username", div().text_color(c(TEXT)).child(SharedString::from(u.to_string())))
-                    .child(Self::icon_btn("cu", "icons/copy.svg", "Copy username").on_click(cx.listener(|t, _, _, cx| t.copy(rec::USERNAME, "Username", cx)))),
+                    .child(Self::icon_btn("cu", "icons/copy.svg").on_click(cx.listener(|t, _, _, cx| t.copy(rec::USERNAME, "Username", cx)))),
             );
         }
         fields = fields.child(
@@ -497,28 +497,31 @@ impl Browser {
             )
             .when(!pw.is_empty(), |d| {
                 d.child(
-                    Self::icon_btn("rv", if self.revealed { "icons/eye-off.svg" } else { "icons/eye.svg" }, "Reveal")
+                    Self::icon_btn("rv", if self.revealed { "icons/eye-off.svg" } else { "icons/eye.svg" })
                         .on_click(cx.listener(|t, _, _, cx| t.toggle_reveal(cx))),
                 )
-                .child(Self::icon_btn("cp", "icons/copy.svg", "Copy password").on_click(cx.listener(|t, _, _, cx| t.copy(rec::PASSWORD, "Password", cx))))
+                .child(Self::icon_btn("cp", "icons/copy.svg").on_click(cx.listener(|t, _, _, cx| t.copy(rec::PASSWORD, "Password", cx))))
             }),
         );
         if let Some(u) = r.text(rec::URL).filter(|s| !s.is_empty()) {
             let web = u.starts_with("http://") || u.starts_with("https://");
             fields = fields.child(
                 Self::field_row("Website", div().text_color(c(if web { LINK } else { TEXT })).child(SharedString::from(u.to_string())))
-                    .child(Self::icon_btn("cl", "icons/copy.svg", "Copy URL").on_click(cx.listener(|t, _, _, cx| t.copy(rec::URL, "URL", cx))))
-                    .when(web, |d| d.child(Self::icon_btn("ou", "icons/external.svg", "Open").on_click(cx.listener(|t, _, _, cx| t.open_url(cx))))),
+                    .child(Self::icon_btn("cl", "icons/copy.svg").on_click(cx.listener(|t, _, _, cx| t.copy(rec::URL, "URL", cx))))
+                    .when(web, |d| d.child(Self::icon_btn("ou", "icons/external.svg").on_click(cx.listener(|t, _, _, cx| t.open_url(cx))))),
             );
         }
         if let Some(m) = r.text(rec::EMAIL).filter(|s| !s.is_empty()) {
             fields = fields.child(
                 Self::field_row("Email", div().text_color(c(TEXT)).child(SharedString::from(m.to_string())))
-                    .child(Self::icon_btn("ce", "icons/copy.svg", "Copy email").on_click(cx.listener(|t, _, _, cx| t.copy(rec::EMAIL, "Email", cx)))),
+                    .child(Self::icon_btn("ce", "icons/copy.svg").on_click(cx.listener(|t, _, _, cx| t.copy(rec::EMAIL, "Email", cx)))),
             );
         }
 
-        let notes = r.text(rec::NOTES).filter(|s| !s.is_empty()).map(|n| SharedString::from(n.replace("\r\n", "\n")));
+        let notes = r
+            .text(rec::NOTES)
+            .filter(|s| !s.is_empty())
+            .map(|n| crate::secret_text::display(&zeroize::Zeroizing::new(n.replace("\r\n", "\n"))));
         let mut meta: Vec<String> = vec![];
         if let Some(t) = r.time(rec::CTIME) { meta.push(format!("Created {}", model::fmt_date(t))); }
         if let Some(t) = r.time(rec::MTIME) { meta.push(format!("Modified {}", model::fmt_date(t))); }

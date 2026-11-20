@@ -21,6 +21,7 @@ pub struct UnlockView {
     password: Entity<TextField>,
     error: Option<SharedString>,
     busy: bool,
+    failures: u32,
     /// Filled on success; taken by the shell.
     pub result: Option<Vault>,
 }
@@ -48,7 +49,7 @@ impl UnlockView {
         })
         .detach();
         window.focus(&password.focus_handle(cx));
-        Self { path, password, error: None, busy: false, result: None }
+        Self { path, password, error: None, busy: false, failures: 0, result: None }
     }
 
     fn unlock(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -69,16 +70,26 @@ impl UnlockView {
         cx.notify();
         // Key stretching (hundreds of thousands of SHA-256 rounds) runs off the UI thread.
         let task = cx.background_executor().spawn(async move { Vault::open(&path, &pw) });
+        let failures = self.failures;
         cx.spawn_in(window, async move |this, cx| {
             let res = task.await;
+            if matches!(res, Err(Error::WrongPassword)) {
+                // Small, capped backoff against rapid guessing at the UI.
+                let secs = (failures + 1).min(5) as u64;
+                cx.background_executor().timer(std::time::Duration::from_secs(secs)).await;
+            }
             this.update_in(cx, |this, window, cx| {
                 this.busy = false;
                 match res {
                     Ok(v) => {
+                        this.failures = 0;
                         this.result = Some(v);
                         cx.emit(UnlockEvent::Unlocked);
                     }
                     Err(e) => {
+                        if matches!(e, Error::WrongPassword) {
+                            this.failures += 1;
+                        }
                         this.error = Some(
                             match e {
                                 Error::WrongPassword => "Wrong master password.".to_string(),

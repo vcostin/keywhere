@@ -53,8 +53,10 @@ crates/
 * **Global hotkey:** `global-hotkey` on Windows/macOS/X11. **Wayland is first‑class**, not a
   footnote: use the xdg‑desktop‑portal GlobalShortcuts portal (KDE and recent GNOME). Where the
   portal is missing, say so in settings and fall back to the tray click.
-* **Secrets in the UI:** GPUI `SharedString` is interned for the life of the process, so no
-  password, passphrase or TOTP seed ever goes into one. The master‑password field and password
+* **Secrets in the UI:** GPUI draws text only from `SharedString` (an `Arc<str>` that isn't
+  zeroized on drop). Secret display text (revealed passwords, notes, the master password while
+  revealed) goes through `secret_text::display`, which keeps a reference to every such `Arc` and
+  zeroizes it in place once GPUI has released it (a sweep every 1 s and on lock). The master‑password field and password
   reveal use a custom masked input backed by `Zeroizing<Vec<u8>>`, with no undo stack. Revealed
   text is zeroized when the reveal times out or the vault locks. Key stretching runs off the UI thread.
 * **Crypto:** RustCrypto only (`twofish`, `cbc`, `sha2`, `hmac`, `subtle`, `zeroize`, `getrandom`).

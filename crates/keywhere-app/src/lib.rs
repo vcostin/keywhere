@@ -5,6 +5,7 @@ pub mod browser;
 pub mod config;
 pub mod field;
 pub mod model;
+pub mod secret_text;
 pub mod theme;
 pub mod unlock;
 
@@ -43,7 +44,8 @@ impl Shell {
         cx: &mut Context<Self>,
     ) -> Self {
         let idle = cx.spawn_in(window, async move |this, cx| loop {
-            cx.background_executor().timer(Duration::from_secs(5)).await;
+            cx.background_executor().timer(Duration::from_secs(1)).await;
+            secret_text::sweep();
             let r = this.update_in(cx, |this, window, cx| {
                 if matches!(this.screen, Screen::Vault(_)) && this.last_input.elapsed() >= IDLE_LOCK {
                     this.lock(window, cx);
@@ -102,6 +104,9 @@ impl Shell {
         });
         self.screen = Screen::Unlock(Self::unlock_view(Some(path), window, cx));
         cx.notify();
+        // Wipe what we can now; the rest goes on the next ticks once GPUI
+        // drops the old frame's text.
+        secret_text::sweep();
     }
 }
 
@@ -131,9 +136,19 @@ pub fn harden_process() {
     }
 }
 
-/// Run the app. `preunlocked` is only for development tooling (screenshots);
-/// the shipping binary always passes `None`.
-pub fn run(path: Option<PathBuf>, preunlocked: Option<Vault>, select: Option<String>) {
+/// Run the app.
+pub fn run(path: Option<PathBuf>) {
+    run_inner(path, None, None)
+}
+
+/// DEV ONLY (feature `devtools`): start with an already unlocked demo vault so
+/// screenshots can be automated. Not compiled into release builds by default.
+#[cfg(feature = "devtools")]
+pub fn run_preunlocked(path: PathBuf, vault: Vault, select: Option<String>) {
+    run_inner(Some(path), Some(vault), select)
+}
+
+fn run_inner(path: Option<PathBuf>, preunlocked: Option<Vault>, select: Option<String>) {
     harden_process();
     Application::new().with_assets(assets::Assets).run(move |cx: &mut App| {
         assets::load_fonts(cx);
