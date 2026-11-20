@@ -117,6 +117,13 @@ impl Shell {
                 break;
             }
         });
+        // Theme: resolve now and follow the desktop's light/dark switch live.
+        theme::apply(settings::get().theme, window.appearance());
+        cx.observe_window_appearance(window, |_, window, _| {
+            theme::apply(settings::get().theme, window.appearance());
+            window.refresh();
+        })
+        .detach();
         // Alt+F4 / taskbar "Close" go through the compositor, not our button:
         // route them to the same lock-and-hide logic and veto GPUI's default.
         window.on_window_should_close(cx, |window, cx| {

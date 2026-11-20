@@ -8,7 +8,7 @@ use gpui::{
 use crate::i18n::{self, t, tf, Lang};
 use crate::select::{Select, SelectChanged};
 use crate::settings::{self, CloseAction, CLIPBOARD_MAX, CLIPBOARD_MIN, IDLE_CHOICES};
-use crate::theme::*;
+use crate::theme::{ThemeChoice, *};
 
 pub enum SettingsEvent {
     Close,
@@ -18,6 +18,7 @@ pub struct SettingsView {
     focus: FocusHandle,
     idle: Entity<Select>,
     language: Entity<Select>,
+    theme: Entity<Select>,
 }
 
 impl EventEmitter<SettingsEvent> for SettingsView {}
@@ -26,6 +27,23 @@ impl Focusable for SettingsView {
     fn focus_handle(&self, _: &App) -> FocusHandle {
         self.focus.clone()
     }
+}
+
+fn theme_labels() -> Vec<SharedString> {
+    ThemeChoice::ALL
+        .iter()
+        .map(|t| {
+            SharedString::from(crate::i18n::t(match t {
+                ThemeChoice::System => "System",
+                ThemeChoice::Dark => "Dark",
+                ThemeChoice::Light => "Light",
+            }))
+        })
+        .collect()
+}
+
+fn theme_index(t: ThemeChoice) -> usize {
+    ThemeChoice::ALL.iter().position(|x| *x == t).unwrap_or(0)
 }
 
 fn idle_labels() -> Vec<SharedString> {
@@ -91,10 +109,18 @@ impl SettingsView {
             },
         )
         .detach();
+        let theme = cx.new(|cx| Select::new(cx, theme_labels(), theme_index(st.theme)).width(200.));
+        cx.subscribe_in(&theme, window, |this, _, SelectChanged(i), window, cx| {
+            let choice = ThemeChoice::ALL[*i];
+            Self::change(|s| s.theme = choice, window);
+            this.relabel(cx);
+        })
+        .detach();
         SettingsView {
             focus,
             idle,
             language,
+            theme,
         }
     }
 
@@ -112,11 +138,15 @@ impl SettingsView {
         self.language.update(cx, |s, cx| {
             s.set_options(language_labels(), language_index(st.language), cx)
         });
+        self.theme.update(cx, |s, cx| {
+            s.set_options(theme_labels(), theme_index(st.theme), cx)
+        });
     }
 
     fn change(f: impl FnOnce(&mut settings::Settings), window: &mut Window) {
         settings::update(f);
         i18n::apply_setting(settings::get().language);
+        crate::theme::apply(settings::get().theme, window.appearance());
         // Language and other settings affect every view: redraw all.
         window.refresh();
     }
@@ -283,7 +313,8 @@ impl Render for SettingsView {
             .child(Self::row("Auto‑lock after", self.idle.clone()))
             .child(Self::row("Clear clipboard after", clip))
             .child(Self::row("Closing the window", close))
-            .child(Self::section("Language"))
+            .child(Self::section("Appearance"))
+            .child(Self::row("Theme", self.theme.clone()))
             .child(Self::row("Language", self.language.clone()))
             .child(
                 div()

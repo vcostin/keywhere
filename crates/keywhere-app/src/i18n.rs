@@ -269,6 +269,11 @@ static TABLE: &[(&str, &str)] = &[
     ("Hide, keep unlocked", "Ascunde, rămâne deblocat"),
     ("Lock and hide", "Blochează și ascunde"),
     ("Language", "Limbă"),
+    ("Appearance", "Aspect"),
+    ("Theme", "Temă"),
+    ("System", "Sistem"),
+    ("Dark", "Întunecată"),
+    ("Light", "Luminoasă"),
     ("System ({lang})", "Sistem ({lang})"),
     ("Done", "Gata"),
     (

@@ -5,6 +5,7 @@ use std::sync::RwLock;
 use std::time::Duration;
 
 use crate::i18n::Lang;
+use crate::theme::ThemeChoice;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CloseAction {
@@ -22,6 +23,7 @@ pub struct Settings {
     pub close_action: CloseAction,
     /// `None` = follow the system language.
     pub language: Option<Lang>,
+    pub theme: ThemeChoice,
 }
 
 impl Default for Settings {
@@ -31,6 +33,7 @@ impl Default for Settings {
             clipboard_clear_secs: 30,
             close_action: CloseAction::Hide,
             language: None,
+            theme: ThemeChoice::System,
         }
     }
 }
@@ -78,6 +81,7 @@ impl Settings {
                     }
                 }
                 "language" => s.language = Lang::from_code(v),
+                "theme" => s.theme = ThemeChoice::from_code(v),
                 _ => {}
             }
         }
@@ -86,7 +90,7 @@ impl Settings {
 
     fn serialize(&self) -> String {
         format!(
-            "# Keywhere settings\nidle_lock_minutes = {}\nclipboard_clear_secs = {}\nclose_action = {}\nlanguage = {}\n",
+            "# Keywhere settings\nidle_lock_minutes = {}\nclipboard_clear_secs = {}\nclose_action = {}\nlanguage = {}\ntheme = {}\n",
             self.idle_lock_minutes,
             self.clipboard_clear_secs,
             match self.close_action {
@@ -94,6 +98,7 @@ impl Settings {
                 CloseAction::Lock => "lock",
             },
             self.language.map(Lang::code).unwrap_or("system"),
+            self.theme.code(),
         )
     }
 }
@@ -130,6 +135,7 @@ mod tests {
             clipboard_clear_secs: 45,
             close_action: CloseAction::Lock,
             language: Some(Lang::Ro),
+            theme: ThemeChoice::Light,
         };
         assert_eq!(Settings::parse(&s.serialize()), s);
         let bad = Settings::parse("clipboard_clear_secs = 9999\nlanguage = xx\nnonsense\n");
