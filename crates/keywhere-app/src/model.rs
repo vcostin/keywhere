@@ -22,6 +22,8 @@ pub enum Filter {
     All,
     Expiring,
     Group(Vec<String>),
+    /// Entries without any group.
+    NoGroup,
 }
 
 pub struct GroupNode {
@@ -86,6 +88,7 @@ pub fn matches(e: &EntryVm, filter: &Filter, query: &str, now: u64) -> bool {
         Filter::All => true,
         Filter::Expiring => is_expiring(e, now),
         Filter::Group(p) => e.group.starts_with(p),
+        Filter::NoGroup => e.group.is_empty(),
     };
     f && (query.is_empty() || query.split_whitespace().all(|w| e.haystack.contains(w)))
 }

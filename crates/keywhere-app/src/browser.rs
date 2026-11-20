@@ -279,6 +279,11 @@ impl Browser {
     }
 
     #[cfg(feature = "devtools")]
+    pub fn dev_no_group(&mut self, cx: &mut Context<Self>) {
+        self.set_filter(Filter::NoGroup, cx);
+    }
+
+    #[cfg(feature = "devtools")]
     pub fn dev_fold(&mut self, groups: &str, cx: &mut Context<Self>) {
         for g in groups.split(',') {
             self.collapsed.insert(vec![g.to_string()]);
@@ -1001,6 +1006,20 @@ impl Browser {
                 .is_some_and(|n| n.path.len() > g.path.len() && n.path.starts_with(&g.path));
             col = col.child(self.group_row(i, g, has_children, cx));
         }
+        // Entries that aren't in any group (only shown when there are some).
+        let ungrouped = self.entries.iter().filter(|e| e.group.is_empty()).count();
+        if ungrouped > 0 {
+            col = col.child(self.nav_item(
+                "nogroup".into(),
+                Some("icons/file.svg"),
+                crate::i18n::t("No group").into(),
+                ungrouped,
+                1, // align with the folder icons of the group tree
+                Filter::NoGroup,
+                None,
+                cx,
+            ));
+        }
         col
     }
 
@@ -1089,6 +1108,7 @@ impl Browser {
         let title: SharedString = match &self.filter {
             Filter::All => crate::i18n::t("All entries").into(),
             Filter::Expiring => crate::i18n::t("Expiring").into(),
+            Filter::NoGroup => crate::i18n::t("No group").into(),
             Filter::Group(p) => p.join(" / ").into(),
         };
         let n = self.visible.len();
