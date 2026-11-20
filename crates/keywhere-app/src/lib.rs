@@ -161,16 +161,16 @@ impl Shell {
         }
     }
 
-    /// Window close button: always locks. With a tray the app keeps running
-    /// minimised (tray click / `keywhere --show` brings it back; tray → Quit
-    /// exits). GPUI 0.2.2 on Linux ends the event loop when the last window
-    /// is removed, so we minimise instead of truly hiding. Without a tray:
-    /// quit.
+    /// Window close button: always locks. With a tray the window is removed
+    /// entirely (no taskbar entry) and the app keeps running in the tray;
+    /// tray → Open / `keywhere --show` creates a fresh, locked window.
+    /// Without a tray: quit. (Relies on the vendored gpui keep-alive patch.)
     fn close_window(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let tray = cx.has_global::<AppState>() && cx.global::<AppState>().tray.available();
         self.lock(window, cx);
         if tray {
-            window.minimize_window();
+            cx.global_mut::<AppState>().window = None;
+            window.remove_window();
         } else {
             cx.quit();
         }
@@ -369,6 +369,21 @@ fn handle_sys_event(ev: sys::SysEvent, cx: &mut App) {
                     .clone()
                     .or_else(config::last_vault);
                 open_main_window(path, None, None, cx);
+                // Raise the new window with the token once it is mapped.
+                #[cfg(target_os = "linux")]
+                if let (Some(t), Some(w)) = (token, cx.global::<AppState>().window) {
+                    cx.spawn(async move |cx| {
+                        cx.background_executor()
+                            .timer(Duration::from_millis(150))
+                            .await;
+                        let _ = w.update(cx, |_, window, _| {
+                            if !sys::wayland::activate_with_token(window, &t) {
+                                window.activate_window();
+                            }
+                        });
+                    })
+                    .detach();
+                }
             }
         }
         sys::SysEvent::Lock => {

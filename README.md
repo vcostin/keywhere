@@ -34,8 +34,8 @@ cargo run --release -p keywhere -- path/to/vault.psafe3
 
 * **Tray icon** (Linux: KDE, GNOME with the AppIndicator extension, etc.): left‑click opens
   Keywhere; the menu has *Open*, *Lock* and *Quit*. It never shows entry titles.
-* **Closing the window locks the vault** and keeps Keywhere minimised with the tray icon (tray → *Quit*
-  exits). Without a tray, closing quits.
+* **Closing the window locks the vault and hides Keywhere completely** (no taskbar entry); the tray icon brings it back, tray → *Quit*
+  exits. Without a tray, closing quits.
 * **Global shortcut:** Keywhere is single‑instance. Bind any key to the command `keywhere --show`
   (KDE: *System Settings → Keyboard → Shortcuts → Add New → Command*; GNOME: *Settings → Keyboard →
   Custom Shortcuts*). It brings Keywhere to the front with search focused, or the unlock field if locked.
@@ -90,4 +90,4 @@ The UI bundles [Inter](https://rsms.me/inter/) (SIL Open Font License 1.1, `asse
 
 ## License
 
-MIT, see [LICENSE](LICENSE). `third_party/xattr` is a patched copy of the MIT/Apache‑2.0 `xattr` crate.
+MIT, see [LICENSE](LICENSE). `third_party/xattr` (MIT/Apache‑2.0) and `third_party/gpui` (Apache‑2.0, from Zed) are vendored copies with small, marked patches ("Keywhere patch").
