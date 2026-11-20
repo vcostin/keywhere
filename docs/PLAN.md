@@ -15,7 +15,7 @@ Syncthing).
 | Navigation | Single tree | Tree **or** list toggle | Sidebar (groups/tags/smart views) + list + detail | Sidebar + list + detail. Smart views: Favorites, Expiring, Weak/Reused |
 | Search | Basic find dialog | Find toolbar | Instant search | Instant fuzzy search and a Ctrl/⌘‑K command palette |
 | Quick access | none | System tray menu with entry tree | Menu‑bar quick search | Tray popover with search, ⏎ copies the password, then lock |
-| Security UX | Clipboard clear | Lock on idle/minimise, YubiKey | Auto‑lock, Touch ID | Auto‑lock on idle/sleep/screen‑lock, clipboard auto‑clear, OS keychain unlock later |
+| Security UX | Clipboard clear | Lock on idle/minimise, YubiKey | Auto‑lock, Touch ID | Auto‑lock on idle/sleep/screen‑lock, clipboard auto‑clear; no keychain unlock (decision 2026‑11‑20) |
 | Pain points | Unmaintained, ugly, HiDPI broken | Cluttered, dated dialogs | Nags for Pro, macOS only | Fast, calm, keyboard‑first, no nags |
 
 ## 2. Visual direction
@@ -35,7 +35,7 @@ crates/
                    #   password health, legacy v1/v2 import. 100 % unit/fuzz tested.
   keywhere-app/    # GPUI binary: windows, views, actions, keymap, theme
   keywhere-sys/    # OS glue behind traits: tray, clipboard, idle/lock events,
-                   #   global hotkey, keychain, file watching
+                   #   global hotkey, file watching
 ```
 
 * **UI:** `gpui` (crates.io 0.2.x) plus `gpui-component` for inputs, lists, tree, dialogs.
@@ -104,7 +104,7 @@ Next for the engine:
 | **M1 Read‑only viewer** | GPUI unlock screen, 3‑pane browse, search, copy with auto‑clear, auto‑lock |
 | **M2 Editor** | Add/edit/delete/move, groups drag & drop, generator, password history, expiry, safe save + conflict dialog |
 | **M3 Tray & quick access** | Tray popover, global hotkey, lock‑on‑sleep/screen‑lock, start minimised |
-| **M4 Polish** | Health report (weak/reused/expired), favicons (opt‑in, offline cache), light theme, i18n, keychain/biometric unlock (opt‑in) |
+| **M4 Polish (done)** | Settings page (auto‑lock, clipboard, close behaviour, theme, language), English/Romanian UI, dropdown + group combobox, group fold/new/delete, "No group" view, health views (weak/reused/expiring), favorites, light theme, Password Gorilla v2 read/write + upgrade. Favicons deferred. |
 | **M5 Ship** | Packages: AppImage/Flatpak, .dmg (notarised), MSI. Reproducible builds and signed releases |
 
 ## 6. Security posture (summary; full threat model in `docs/security-review-grok.md`)
@@ -113,4 +113,6 @@ Next for the engine:
   auto‑clear with history exclusion, auto‑lock, atomic save with a backup, no secrets in logs,
   argv or crash reports, no network by default.
 * SHOULD: mlock, no core dumps, conflict detection, `.plk` lock, fuzzing, dependency auditing.
-* COULD: OS keychain / biometric quick‑unlock (stores a wrapped key, never the password), YubiKey.
+* WON'T (for now, owner decision 2026‑11‑20): OS keychain / biometric quick‑unlock. The master password
+  stays the only way in; nothing derived from it is handed to KWallet/Secret Service/Keychain.
+* COULD: YubiKey challenge‑response (Password Safe compatible).
