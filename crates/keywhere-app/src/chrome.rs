@@ -16,7 +16,7 @@ use crate::theme::*;
 gpui::actions!(keywhere_chrome, [CloseWindow]);
 
 /// Invisible resize margin around a floating client-decorated window.
-pub const RESIZE_INSET: Pixels = px(10.);
+pub const RESIZE_INSET: Pixels = px(6.);
 const RADIUS: Pixels = px(10.);
 
 /// Corner radius content touching the window corners must use, so nothing
@@ -225,25 +225,17 @@ pub fn frame(window: &mut Window, content: impl IntoElement) -> Div {
                 .overflow_hidden()
                 .cursor(CursorStyle::Arrow)
                 .when(floating, |d| {
-                    // Visible on any wallpaper: a soft dark shadow for light
-                    // backgrounds plus a faint light rim for dark/black ones.
+                    // Clean edge on any wallpaper: crisp border plus a faint
+                    // 1px light rim (no soft drop shadow).
                     d.rounded(RADIUS)
                         .border_1()
                         .border_color(c(0x3D62AB))
-                        .shadow(vec![
-                            gpui::BoxShadow {
-                                color: gpui::hsla(0., 0., 0., 0.55),
-                                blur_radius: px(8.),
-                                spread_radius: px(0.),
-                                offset: point(px(0.), px(2.)),
-                            },
-                            gpui::BoxShadow {
-                                color: gpui::hsla(0.61, 0.6, 0.85, 0.12),
-                                blur_radius: px(0.),
-                                spread_radius: px(1.),
-                                offset: point(px(0.), px(0.)),
-                            },
-                        ])
+                        .shadow(vec![gpui::BoxShadow {
+                            color: gpui::hsla(0.61, 0.6, 0.85, 0.12),
+                            blur_radius: px(0.),
+                            spread_radius: px(1.),
+                            offset: point(px(0.), px(0.)),
+                        }])
                 })
                 // Keep resize-edge mouse handling out of the content.
                 .on_mouse_move(|_, _, cx| cx.stop_propagation())
