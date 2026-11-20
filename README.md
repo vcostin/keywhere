@@ -34,8 +34,9 @@ cargo run --release -p keywhere -- path/to/vault.psafe3
 
 * **Tray icon** (Linux: KDE, GNOME with the AppIndicator extension, etc.): left‑click opens
   Keywhere; the menu has *Open*, *Lock* and *Quit*. It never shows entry titles.
-* **Closing the window locks the vault and hides Keywhere completely** (no taskbar entry); the tray icon brings it back, tray → *Quit*
-  exits. Without a tray, closing quits.
+* **Closing the window hides Keywhere completely** (no taskbar entry) and keeps the vault unlocked in
+  the background; the tray icon brings it straight back. The hidden session still auto‑locks after
+  5 min, on screen lock / sleep, via tray → *Lock*, and on quit. Without a tray, closing quits.
 * **Global shortcut:** Keywhere is single‑instance. Bind any key to the command `keywhere --show`
   (KDE: *System Settings → Keyboard → Shortcuts → Add New → Command*; GNOME: *Settings → Keyboard →
   Custom Shortcuts*). It brings Keywhere to the front with search focused, or the unlock field if locked.

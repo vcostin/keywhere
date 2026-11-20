@@ -20,6 +20,8 @@ pub enum SysEvent {
     Show(Option<String>),
     /// Lock now (tray menu, screen locked, system going to sleep).
     Lock,
+    /// Same as the window's close button: lock and hide to the tray.
+    Hide,
     /// Quit the app (tray menu).
     Quit,
 }

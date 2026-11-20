@@ -158,6 +158,8 @@ pub fn listen(tx: EventTx) {
                         SysEvent::Show(token.filter(|t| valid_token(t)).map(str::to_string))
                     }
                     (Some("lock"), None) => SysEvent::Lock,
+                    (Some("hide"), None) => SysEvent::Hide,
+                    (Some("quit"), None) => SysEvent::Quit,
                     _ => continue,
                 };
                 if tx.unbounded_send(ev).is_err() {

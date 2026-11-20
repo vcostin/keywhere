@@ -20,6 +20,7 @@ use gpui::{
     div, prelude::*, px, size, App, Application, Bounds, Context, Entity, Focusable, Global,
     KeyBinding, Window, WindowBounds, WindowHandle, WindowOptions,
 };
+use keywhere_core::lock::VaultLock;
 use keywhere_core::Vault;
 
 use browser::{Browser, BrowserEvent};
@@ -34,6 +35,26 @@ struct AppState {
     path: Option<PathBuf>,
     tray: sys::Tray,
     window: Option<WindowHandle<Shell>>,
+    /// Unlocked vault kept while the window is hidden to the tray. Dropped
+    /// (zeroized) on lock, after `IDLE_LOCK`, on screen lock / sleep, on quit.
+    hidden: Option<HiddenSession>,
+}
+
+struct HiddenSession {
+    path: PathBuf,
+    vault: Vault,
+    lock: Option<VaultLock>,
+    since: Instant,
+}
+
+/// Type for handing an unlocked vault to a new window.
+type Preunlocked = Option<(Vault, Option<VaultLock>)>;
+
+fn drop_hidden_session(cx: &mut App) {
+    if cx.has_global::<AppState>() && cx.global_mut::<AppState>().hidden.take().is_some() {
+        secret_text::sweep();
+        set_tray(sys::TrayState::Locked, cx);
+    }
 }
 
 impl Global for AppState {}
@@ -59,7 +80,7 @@ struct Shell {
 impl Shell {
     fn new(
         path: Option<PathBuf>,
-        preunlocked: Option<Vault>,
+        preunlocked: Preunlocked,
         select: Option<String>,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -77,6 +98,12 @@ impl Shell {
                 break;
             }
         });
+        // Alt+F4 / taskbar "Close" go through the compositor, not our button:
+        // route them to the same lock-and-hide logic and veto GPUI's default.
+        window.on_window_should_close(cx, |window, cx| {
+            window.dispatch_action(Box::new(chrome::CloseWindow), cx);
+            false
+        });
         let mut this = Self {
             screen: Screen::Unlock(Self::unlock_view(path.clone(), window, cx)),
             last_input: Instant::now(),
@@ -87,8 +114,8 @@ impl Shell {
                 async {}
             }),
         };
-        if let (Some(v), Some(p)) = (preunlocked, path) {
-            this.show_vault(p, v, window, cx);
+        if let (Some((v, lock)), Some(p)) = (preunlocked, path) {
+            this.show_vault(p, v, lock, window, cx);
             // Dev screenshots: "Title", "edit:Title", "delete:Title", "copy:Title" or "new".
             if let (Some(t), Screen::Vault(b)) = (select, &this.screen) {
                 b.update(cx, |b, cx| match t.split_once(':') {
@@ -126,7 +153,7 @@ impl Shell {
                     if cx.has_global::<AppState>() {
                         cx.global_mut::<AppState>().path = Some(path.clone());
                     }
-                    this.show_vault(path, vault, window, cx);
+                    this.show_vault(path, vault, None, window, cx);
                 }
             }
         })
@@ -138,10 +165,11 @@ impl Shell {
         &mut self,
         path: PathBuf,
         vault: Vault,
+        lock: Option<VaultLock>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let b = cx.new(|cx| Browser::new(path, vault, window, cx));
+        let b = cx.new(|cx| Browser::new(path, vault, lock, window, cx));
         cx.subscribe_in(&b, window, |this, _, ev, window, cx| match ev {
             BrowserEvent::LockRequested => this.lock(window, cx),
         })
@@ -161,19 +189,31 @@ impl Shell {
         }
     }
 
-    /// Window close button: always locks. With a tray the window is removed
-    /// entirely (no taskbar entry) and the app keeps running in the tray;
-    /// tray → Open / `keywhere --show` creates a fresh, locked window.
-    /// Without a tray: quit. (Relies on the vendored gpui keep-alive patch.)
-    fn close_window(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    /// Window close button / Alt+F4. With a tray: the window is removed
+    /// entirely (no taskbar entry) and an unlocked session is kept in the
+    /// background (auto-locks after `IDLE_LOCK`, on screen lock / sleep, tray
+    /// → Lock, quit); tray → Open brings it back unlocked. Without a tray:
+    /// quit. (Relies on the vendored gpui keep-alive patch.)
+    pub(crate) fn close_window(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let tray = cx.has_global::<AppState>() && cx.global::<AppState>().tray.available();
-        self.lock(window, cx);
-        if tray {
-            cx.global_mut::<AppState>().window = None;
-            window.remove_window();
-        } else {
+        if !tray {
+            self.lock(window, cx);
             cx.quit();
+            return;
         }
+        if let Screen::Vault(b) = &self.screen {
+            let path = b.read(cx).path.clone();
+            if let Some((vault, lock)) = b.update(cx, |b, cx| b.take_session(cx)) {
+                cx.global_mut::<AppState>().hidden = Some(HiddenSession {
+                    path,
+                    vault,
+                    lock,
+                    since: Instant::now(),
+                });
+            }
+        }
+        cx.global_mut::<AppState>().window = None;
+        window.remove_window();
     }
 
     /// Drop the vault (zeroizing all decrypted fields) and return to unlock.
@@ -242,10 +282,10 @@ pub fn run(path: Option<PathBuf>) {
 /// screenshots can be automated. Not compiled into release builds by default.
 #[cfg(feature = "devtools")]
 pub fn run_preunlocked(path: PathBuf, vault: Vault, select: Option<String>) {
-    run_inner(Some(path), Some(vault), select)
+    run_inner(Some(path), Some((vault, None)), select)
 }
 
-fn run_inner(path: Option<PathBuf>, preunlocked: Option<Vault>, select: Option<String>) {
+fn run_inner(path: Option<PathBuf>, preunlocked: Preunlocked, select: Option<String>) {
     harden_process();
     Application::new()
         .with_assets(assets::Assets)
@@ -286,8 +326,10 @@ fn run_inner(path: Option<PathBuf>, preunlocked: Option<Vault>, select: Option<S
                 path: path.clone(),
                 tray,
                 window: None,
+                hidden: None,
             });
-            cx.on_app_quit(|_| {
+            cx.on_app_quit(|cx| {
+                drop_hidden_session(cx);
                 #[cfg(unix)]
                 sys::instance::cleanup();
                 async {}
@@ -295,6 +337,25 @@ fn run_inner(path: Option<PathBuf>, preunlocked: Option<Vault>, select: Option<S
             .detach();
 
             open_main_window(path, preunlocked, select, cx);
+
+            // A hidden (unlocked) session still auto-locks after IDLE_LOCK.
+            cx.spawn(async move |cx| loop {
+                cx.background_executor().timer(Duration::from_secs(5)).await;
+                let expired = cx.update(|cx| {
+                    let expired = cx
+                        .global::<AppState>()
+                        .hidden
+                        .as_ref()
+                        .is_some_and(|h| h.since.elapsed() >= IDLE_LOCK);
+                    if expired {
+                        drop_hidden_session(cx);
+                    }
+                });
+                if expired.is_err() {
+                    break;
+                }
+            })
+            .detach();
 
             cx.spawn(async move |cx| {
                 while let Some(ev) = rx.next().await {
@@ -310,7 +371,7 @@ fn run_inner(path: Option<PathBuf>, preunlocked: Option<Vault>, select: Option<S
 
 fn open_main_window(
     path: Option<PathBuf>,
-    preunlocked: Option<Vault>,
+    preunlocked: Preunlocked,
     select: Option<String>,
     cx: &mut App,
 ) {
@@ -362,13 +423,19 @@ fn handle_sys_event(ev: sys::SysEvent, cx: &mut App) {
                 .is_ok()
             });
             if !shown {
-                // Window was closed to the tray: open a fresh (locked) one.
-                let path = cx
-                    .global::<AppState>()
-                    .path
-                    .clone()
-                    .or_else(config::last_vault);
-                open_main_window(path, None, None, cx);
+                // Window was hidden to the tray: reopen it, still unlocked if
+                // the background session hasn't timed out, else locked.
+                match cx.global_mut::<AppState>().hidden.take() {
+                    Some(h) => open_main_window(Some(h.path), Some((h.vault, h.lock)), None, cx),
+                    None => {
+                        let path = cx
+                            .global::<AppState>()
+                            .path
+                            .clone()
+                            .or_else(config::last_vault);
+                        open_main_window(path, None, None, cx);
+                    }
+                }
                 // Raise the new window with the token once it is mapped.
                 #[cfg(target_os = "linux")]
                 if let (Some(t), Some(w)) = (token, cx.global::<AppState>().window) {
@@ -387,8 +454,14 @@ fn handle_sys_event(ev: sys::SysEvent, cx: &mut App) {
             }
         }
         sys::SysEvent::Lock => {
+            drop_hidden_session(cx);
             if let Some(w) = window {
                 let _ = w.update(cx, |shell, window, cx| shell.lock(window, cx));
+            }
+        }
+        sys::SysEvent::Hide => {
+            if let Some(w) = window {
+                let _ = w.update(cx, |shell, window, cx| shell.close_window(window, cx));
             }
         }
         sys::SysEvent::Quit => cx.quit(),

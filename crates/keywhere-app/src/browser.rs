@@ -44,7 +44,8 @@ pub enum BrowserEvent {
 
 pub struct Browser {
     pub path: PathBuf,
-    vault: Vault,
+    /// `None` only after `take_session` (the window is about to close).
+    vault: Option<Vault>,
     entries: Vec<EntryVm>,
     groups: Vec<GroupNode>,
     filter: Filter,
@@ -87,7 +88,13 @@ fn hash(s: &str) -> [u8; 32] {
 }
 
 impl Browser {
-    pub fn new(path: PathBuf, vault: Vault, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub fn new(
+        path: PathBuf,
+        vault: Vault,
+        existing_lock: Option<VaultLock>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let entries = model::build(&vault);
         let groups = model::groups(&entries);
         let search = cx.new(|cx| TextField::new(cx, "Search", false).with_icon("icons/search.svg"));
@@ -122,7 +129,10 @@ impl Browser {
         });
 
         // Password Safe compatible lock: someone else holding it => read-only.
-        let (vault_lock, locked_by) = match VaultLock::acquire(&path) {
+        let (vault_lock, locked_by) = match existing_lock
+            .map(|l| Ok((Some(l), LockState::Acquired)))
+            .unwrap_or_else(|| VaultLock::acquire(&path))
+        {
             Ok((lock, LockState::Acquired)) => (lock, None),
             // A lock left by a crashed/killed process on this machine is
             // safe to reclaim; anything else is the user's call.
@@ -143,7 +153,7 @@ impl Browser {
         window.focus(&focus);
         let mut this = Self {
             path,
-            vault,
+            vault: Some(vault),
             entries,
             groups,
             filter: Filter::All,
@@ -177,18 +187,38 @@ impl Browser {
         }
     }
 
+    fn vault(&self) -> &Vault {
+        self.vault.as_ref().expect("vault taken")
+    }
+
+    fn vault_mut(&mut self) -> &mut Vault {
+        self.vault.as_mut().expect("vault taken")
+    }
+
+    /// Hand the unlocked vault (and our `.plk` lock) to the app so the window
+    /// can close while the session stays unlocked in the background. Clears
+    /// the clipboard first if it still holds something we copied (this
+    /// view's 30 s timer goes away with it).
+    pub fn take_session(&mut self, cx: &mut Context<Self>) -> Option<(Vault, Option<VaultLock>)> {
+        self.clear_clipboard_if_ours(cx);
+        self.editor = None;
+        self.confirm_delete = None;
+        let v = self.vault.take()?;
+        Some((v, self.vault_lock.take()))
+    }
+
     pub fn read_only(&self) -> bool {
         self.vault_lock.is_none()
     }
 
     fn selected_record(&self) -> Option<&Record> {
         self.selected
-            .map(|s| &self.vault.records[self.entries[s].index])
+            .map(|s| &self.vault().records[self.entries[s].index])
     }
 
     /// Rebuild the view model after the vault changed and re-select `uuid`.
     fn rebuild(&mut self, select_uuid: Option<Vec<u8>>, cx: &mut Context<Self>) {
-        self.entries = model::build(&self.vault);
+        self.entries = model::build(self.vault());
         self.groups = model::groups(&self.entries);
         if let Filter::Group(p) = &self.filter {
             if !self.groups.iter().any(|g| &g.path == p) {
@@ -196,7 +226,7 @@ impl Browser {
             }
         }
         self.selected = select_uuid.and_then(|u| {
-            let idx = self.vault.find(&u)?;
+            let idx = self.vault().find(&u)?;
             self.entries.iter().position(|e| e.index == idx)
         });
         self.refilter(cx);
@@ -214,9 +244,15 @@ impl Browser {
     fn persist(&mut self, overwrite: bool, cx: &mut Context<Self>) -> bool {
         cx.notify();
         let res = if overwrite {
-            self.vault.save_overwrite(&self.path)
+            {
+                let path = self.path.clone();
+                self.vault_mut().save_overwrite(&path)
+            }
         } else {
-            self.vault.save(&self.path)
+            {
+                let path = self.path.clone();
+                self.vault_mut().save(&path)
+            }
         };
         match res {
             Ok(()) => {
@@ -294,16 +330,16 @@ impl Browser {
             }
         };
         let now = now_secs();
-        let uuid = match target.as_deref().and_then(|u| self.vault.find(u)) {
+        let uuid = match target.as_deref().and_then(|u| self.vault().find(u)) {
             Some(i) => {
-                form.apply(&mut self.vault.records[i], now);
+                form.apply(&mut self.vault_mut().records[i], now);
                 target.unwrap()
             }
             None => {
                 let Ok(mut r) = Record::new() else { return };
                 form.apply(&mut r, now);
                 let u = r.uuid().map(<[u8]>::to_vec).unwrap_or_default();
-                self.vault.records.push(r);
+                self.vault_mut().records.push(r);
                 u
             }
         };
@@ -332,7 +368,7 @@ impl Browser {
             }
         }
         r.set_text(rec::TITLE, &format!("{} (copy)", src.title()));
-        self.vault.records.push(r);
+        self.vault_mut().records.push(r);
         self.rebuild(Some(uuid), cx);
         self.persist(false, cx);
     }
@@ -367,9 +403,9 @@ impl Browser {
         if self.read_only() {
             return;
         }
-        if let Some(i) = self.vault.find(&uuid) {
+        if let Some(i) = self.vault().find(&uuid) {
             let pos = self.selected_pos().unwrap_or(0);
-            self.vault.records.remove(i); // fields zeroize on drop
+            self.vault_mut().records.remove(i); // fields zeroize on drop
             self.rebuild(None, cx);
             if !self.visible.is_empty() {
                 self.select_visible(pos.min(self.visible.len() - 1), cx);
@@ -584,7 +620,7 @@ impl Browser {
 
     fn copy(&mut self, kind: u8, label: &str, cx: &mut Context<Self>) {
         let Some(sel) = self.selected else { return };
-        let r = &self.vault.records[self.entries[sel].index];
+        let r = &self.vault().records[self.entries[sel].index];
         let Some(text) = r.text(kind).filter(|t| !t.is_empty()) else {
             return;
         };
@@ -625,7 +661,7 @@ impl Browser {
 
     fn open_url(&mut self, cx: &mut Context<Self>) {
         let Some(sel) = self.selected else { return };
-        if let Some(url) = self.vault.records[self.entries[sel].index].text(rec::URL) {
+        if let Some(url) = self.vault().records[self.entries[sel].index].text(rec::URL) {
             // Only hand web URLs to the OS opener.
             if url.starts_with("https://") || url.starts_with("http://") {
                 cx.open_url(url);
@@ -1021,7 +1057,7 @@ impl Browser {
                 .into_any_element();
         };
         let e = &self.entries[sel];
-        let r = &self.vault.records[e.index];
+        let r = &self.vault().records[e.index];
         let now = now_secs() as u64;
         let pw = r.text(rec::PASSWORD).unwrap_or("");
         let bits = model::strength_bits(pw);
@@ -1364,6 +1400,10 @@ impl Browser {
 
 impl Render for Browser {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if self.vault.is_none() {
+            // Session handed off (window closing): draw nothing.
+            return div().size_full().bg(c(BG)).into_any_element();
+        }
         let clip_left = self
             .clip_until
             .map(|t| t.saturating_duration_since(Instant::now()).as_secs());
@@ -1610,5 +1650,6 @@ impl Render for Browser {
                     }),
             )
             .children(self.render_confirm_delete(cx))
+            .into_any_element()
     }
 }
