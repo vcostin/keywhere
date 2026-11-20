@@ -63,6 +63,12 @@ impl UnlockView {
         }
     }
 
+    #[cfg(feature = "devtools")]
+    pub fn dev_type_and_unlock(&mut self, pw: &str, window: &mut Window, cx: &mut Context<Self>) {
+        self.password.update(cx, |f, cx| f.set_text(pw, cx));
+        self.unlock(window, cx);
+    }
+
     fn unlock(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.busy {
             return;

@@ -13,6 +13,10 @@ devtools = []
 name = "screenshot_demo"
 required-features = ["devtools"]
 
+[[example]]
+name = "memtest_unlock"
+required-features = ["devtools"]
+
 [dependencies]
 keywhere-core = { path = "../keywhere-core" }
 gpui = "=0.2.2"

@@ -1,6 +1,11 @@
 //! Keywhere desktop app (GPUI) as a library, so dev tools/examples can drive it.
 
+pub mod alloc;
 pub mod assets;
+
+/// Freed memory is zeroed process-wide (see alloc.rs).
+#[global_allocator]
+static ALLOC: alloc::ZeroizeOnFree = alloc::ZeroizeOnFree;
 pub mod browser;
 pub mod chrome;
 pub mod config;
@@ -141,6 +146,12 @@ impl Shell {
                 async {}
             }),
         };
+        #[cfg(feature = "devtools")]
+        if let Some(pw) = DEV_TYPED.lock().unwrap_or_else(|e| e.into_inner()).take() {
+            if let Screen::Unlock(u) = &this.screen {
+                u.update(cx, |u, cx| u.dev_type_and_unlock(&pw, window, cx));
+            }
+        }
         if let (Some((v, lock)), Some(p)) = (preunlocked, path) {
             this.show_vault(p, v, lock, window, cx);
             if matches!(select.as_deref(), Some("settings" | "settings-lang")) {
@@ -377,7 +388,24 @@ pub fn harden_process() {
         };
         libc::setrlimit(libc::RLIMIT_CORE, &zero);
         #[cfg(target_os = "linux")]
-        libc::prctl(libc::PR_SET_DUMPABLE, 0, 0, 0, 0);
+        if !dev_memory_test() {
+            libc::prctl(libc::PR_SET_DUMPABLE, 0, 0, 0, 0);
+        }
+    }
+}
+
+/// DEV ONLY: the RAM-residue test harness needs to read our memory, which
+/// PR_SET_DUMPABLE=0 forbids. Exists only with the `devtools` feature; the
+/// release binary always hardens.
+#[cfg(target_os = "linux")]
+fn dev_memory_test() -> bool {
+    #[cfg(feature = "devtools")]
+    {
+        std::env::var_os("KEYWHERE_DEV_MEMORY_TEST").is_some()
+    }
+    #[cfg(not(feature = "devtools"))]
+    {
+        false
     }
 }
 
@@ -390,6 +418,21 @@ pub fn run(path: Option<PathBuf>) {
         return;
     }
     run_inner(path, None, None)
+}
+
+/// DEV ONLY: master password to "type" into the real unlock field (RAM test).
+#[cfg(feature = "devtools")]
+static DEV_TYPED: std::sync::Mutex<Option<zeroize::Zeroizing<String>>> =
+    std::sync::Mutex::new(None);
+
+/// DEV ONLY (feature `devtools`): start locked and unlock through the real
+/// UI path (password field → Unlock), for the RAM-residue test.
+#[cfg(feature = "devtools")]
+pub fn run_unlock_via_ui(path: PathBuf, password: zeroize::Zeroizing<String>) {
+    *DEV_TYPED.lock().unwrap_or_else(|e| e.into_inner()) = Some(password);
+    #[cfg(unix)]
+    sys::instance::use_dev_socket();
+    run_inner(Some(path), None, None)
 }
 
 /// DEV ONLY (feature `devtools`): start with an already unlocked demo vault so
@@ -435,7 +478,9 @@ fn run_inner(path: Option<PathBuf>, preunlocked: Preunlocked, select: Option<Str
             let (tx, mut rx) = sys::channel();
             // Dev "copy:" runs still listen so tests can send `lock`.
             #[cfg(unix)]
-            if select.as_deref().is_none_or(|s| s.starts_with("copy:")) {
+            if select.as_deref().is_none_or(|s| s.starts_with("copy:"))
+                || cfg!(feature = "devtools")
+            {
                 sys::instance::listen(tx.clone());
             }
             sys::watch_session(tx.clone());
