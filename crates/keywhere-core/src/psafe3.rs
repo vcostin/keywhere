@@ -289,6 +289,9 @@ fn push_field(out: &mut Vec<u8>, mac: &mut Hmac<Sha256>, kind: u8, data: &[u8]) 
 /// changes whenever the key is re-derived (password change, iteration upgrade).
 pub fn encode(db: &RawDb, key: &KeyMaterial) -> Result<Vec<u8>, Error> {
     let iterations = key.iterations;
+    if !(MIN_ITERATIONS_ON_SAVE..=MAX_ITERATIONS).contains(&iterations) {
+        return Err(Error::BadIterations(iterations));
+    }
     let salt = key.salt;
     let k = Zeroizing::new(random::<32>()?);
     let l = Zeroizing::new(random::<32>()?);

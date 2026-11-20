@@ -156,7 +156,12 @@ impl Record {
         if old.as_str() == new {
             return;
         }
-        if !old.is_empty() {
+        // Keep history unless the user turned it off (status flag '0').
+        // Skip passwords Windows Password Safe would mis-count (non-BMP chars
+        // are 2 UTF-16 units there) or that don't fit the 4-hex-digit length.
+        let enabled = self.text(rec::PW_HISTORY).is_none_or(|h| h.starts_with('1'));
+        let storable = old.chars().all(|c| (c as u32) <= 0xFFFF) && old.chars().count() <= 0xFFFF;
+        if enabled && storable && !old.is_empty() {
             let mut hist = self.history();
             let max = self.history_max().unwrap_or(DEFAULT_HISTORY_MAX);
             let ptime = self.time(rec::PTIME).unwrap_or(now as u64);
@@ -340,36 +345,63 @@ impl Vault {
     /// disk since we read it; use [`Vault::save_overwrite`] after the user
     /// confirms.
     pub fn save(&mut self, path: &Path) -> Result<(), Error> {
-        if self.changed_on_disk(path)? {
-            return Err(Error::Conflict);
-        }
-        self.save_overwrite(path)
+        self.save_inner(path, true)
     }
 
-    /// Safe save for synced folders, without the conflict check:
+    /// Like [`Vault::save`] but replaces whatever is on disk (user confirmed).
+    pub fn save_overwrite(&mut self, path: &Path) -> Result<(), Error> {
+        self.save_inner(path, false)
+    }
+
+    /// Safe save for synced folders:
     /// 1. write `<file>.tmp.<random>` (mode 0600) in the same directory, fsync;
     /// 2. re-read the temp file from disk and decrypt-verify it;
-    /// 3. copy the current file to `<stem>.ibak` (Password Safe's name), fsync;
-    /// 4. atomically replace (`rename`; on Windows std uses MoveFileExW with
-    ///    MOVEFILE_REPLACE_EXISTING), then fsync the directory.
+    /// 3. read the live file once; if `check`, it must still match what we
+    ///    opened/last saved, else `Conflict` (nothing touched);
+    /// 4. write that exact content to `<stem>.ibak` (Password Safe's name);
+    /// 5. if `check`, re-read the live file right before replacing it and
+    ///    abort with `Conflict` if it moved under us;
+    /// 6. atomically replace (`rename`; on Windows std uses MoveFileExW with
+    ///    MOVEFILE_REPLACE_EXISTING), fsync the directory, and record the hash
+    ///    of what is actually on disk now.
     ///
-    /// The temp file is removed on any failure.
-    pub fn save_overwrite(&mut self, path: &Path) -> Result<(), Error> {
+    /// The temp file is removed on any failure. A residual window remains
+    /// between step 5 and the rename; the `.plk` lock covers local writers.
+    fn save_inner(&mut self, path: &Path, check: bool) -> Result<(), Error> {
         let bytes = self.encrypt()?;
         let tmp = temp_path(path)?;
         let result = (|| {
             write_new_file(&tmp, &bytes)?;
             let on_disk = Zeroizing::new(fs::read(&tmp)?);
             psafe3::decode_with_key(&on_disk, &self.key)?;
-            if path.exists() {
+
+            let prev = match fs::read(path) {
+                Ok(b) => Some(Zeroizing::new(b)),
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+                Err(e) => return Err(e.into()),
+            };
+            let prev_hash: Option<[u8; 32]> = prev.as_ref().map(|b| Sha256::digest(&b[..]).into());
+            if check && prev_hash != self.disk_hash {
+                return Err(Error::Conflict);
+            }
+            if let Some(prev) = &prev {
                 let bak = path.with_extension("ibak");
-                let prev = Zeroizing::new(fs::read(path)?);
                 let bak_tmp = temp_path(&bak)?;
-                let r = write_new_file(&bak_tmp, &prev).and_then(|()| Ok(fs::rename(&bak_tmp, &bak)?));
+                let r = write_new_file(&bak_tmp, prev).and_then(|()| Ok(fs::rename(&bak_tmp, &bak)?));
                 if r.is_err() {
                     let _ = fs::remove_file(&bak_tmp);
                 }
                 r?;
+            }
+            if check {
+                let now: Option<[u8; 32]> = match fs::read(path) {
+                    Ok(b) => Some(Sha256::digest(&b).into()),
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+                    Err(e) => return Err(e.into()),
+                };
+                if now != prev_hash {
+                    return Err(Error::Conflict);
+                }
             }
             fs::rename(&tmp, path)?;
             if let Some(dir) = path.parent() {
@@ -377,12 +409,12 @@ impl Vault {
                     let _ = d.sync_all();
                 }
             }
+            // Track what really landed (normally exactly `bytes`).
+            self.disk_hash = Some(Sha256::digest(fs::read(path)?).into());
             Ok(())
         })();
         if result.is_err() {
             let _ = fs::remove_file(&tmp);
-        } else {
-            self.disk_hash = Some(Sha256::digest(&bytes).into());
         }
         result
     }
@@ -591,6 +623,34 @@ mod tests {
             r.set_password(&format!("p{i}"), 5000 + i);
         }
         assert_eq!(r.history().len(), DEFAULT_HISTORY_MAX as usize);
+    }
+
+    #[test]
+    fn history_respects_disabled_flag_and_skips_non_bmp() {
+        let mut r = Record::new().unwrap();
+        r.set_password("a", 1);
+        r.set_text(rec::PW_HISTORY, "00500");
+        r.set_password("b", 2);
+        assert!(r.history().is_empty());
+        assert!(r.text(rec::PW_HISTORY).unwrap().starts_with('0'));
+
+        let mut r = Record::new().unwrap();
+        r.set_password("key🔑", 1);
+        r.set_password("plain", 2);
+        assert!(r.history().is_empty());
+    }
+
+    #[test]
+    fn conflict_detected_even_without_prior_check() {
+        let dir = tmpdir("conflict2");
+        let path = dir.join("v.psafe3");
+        fs::write(&path, FIXTURE).unwrap();
+        let mut a = Vault::open(&path, b"test123").unwrap();
+        fs::write(&path, b"someone else wrote this").unwrap();
+        assert!(matches!(a.save(&path), Err(Error::Conflict)));
+        assert_eq!(fs::read(&path).unwrap(), b"someone else wrote this");
+        assert!(!dir.join("v.ibak").exists(), "no backup written on conflict");
+        fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
