@@ -73,6 +73,8 @@ pub struct Browser {
     /// Folded groups in the sidebar tree. Kept in memory only: group names
     /// are vault content and must not be written to a plain config file.
     collapsed: std::collections::HashSet<Vec<String>>,
+    /// Right-click menu on a group: (group path, has subgroups, position).
+    group_menu: Option<(Vec<String>, bool, gpui::Point<gpui::Pixels>)>,
     /// Pending delete confirmation: (uuid, title).
     confirm_delete: Option<(Vec<u8>, SharedString)>,
     /// "Upgrade to v3" dialog: master-password field + error.
@@ -178,6 +180,7 @@ impl Browser {
             save_error: None,
             confirm_delete: None,
             collapsed: Default::default(),
+            group_menu: None,
             upgrade: None,
             dialog_focus: cx.focus_handle(),
             _ticker: ticker,
@@ -279,6 +282,17 @@ impl Browser {
     }
 
     #[cfg(feature = "devtools")]
+    pub fn dev_group_menu_open(&mut self, group: &str, cx: &mut Context<Self>) {
+        let path: Vec<String> = group.split('/').map(str::to_string).collect();
+        let has_children = self
+            .groups
+            .iter()
+            .any(|g| g.path.len() > path.len() && g.path.starts_with(&path));
+        self.group_menu = Some((path, has_children, gpui::point(px(150.), px(470.))));
+        cx.notify();
+    }
+
+    #[cfg(feature = "devtools")]
     pub fn dev_no_group(&mut self, cx: &mut Context<Self>) {
         self.set_filter(Filter::NoGroup, cx);
     }
@@ -306,6 +320,20 @@ impl Browser {
     }
 
     pub fn start_edit(&mut self, new: bool, window: &mut Window, cx: &mut Context<Self>) {
+        let group = match &self.filter {
+            Filter::Group(p) => p.clone(),
+            _ => vec![],
+        };
+        self.start_edit_in(new, group, window, cx);
+    }
+
+    fn start_edit_in(
+        &mut self,
+        new: bool,
+        default_group: Vec<String>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if self.read_only() {
             return;
         }
@@ -314,10 +342,6 @@ impl Browser {
             window.focus(&ed.focus_handle(cx));
             return;
         }
-        let default_group = match &self.filter {
-            Filter::Group(p) => p.clone(),
-            _ => vec![],
-        };
         let record = if new {
             None
         } else {
@@ -620,6 +644,93 @@ impl Browser {
                                 .child(btn("up-go", crate::i18n::t("Upgrade"), true).on_click(cx.listener(|t, _, w, cx| t.do_upgrade(w, cx)))),
                         ),
                 ),
+        )
+    }
+
+    fn render_group_menu(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
+        let (path, has_children, pos) = self.group_menu.clone()?;
+        let item = |id: &'static str, icon: &'static str, label: String| {
+            div()
+                .id(id)
+                .h(px(30.))
+                .px_2()
+                .flex()
+                .items_center()
+                .gap_2()
+                .rounded(px(6.))
+                .cursor_pointer()
+                .text_size(px(12.5))
+                .text_color(c(TEXT_SOFT))
+                .hover(|d| d.bg(c(SELECTION)).text_color(c(TEXT)))
+                .child(svg().path(icon).size(px(13.)).text_color(c(MUTED)))
+                .child(label)
+        };
+        let label = if path.is_empty() {
+            crate::i18n::t("New entry (no group)").to_string()
+        } else {
+            tf("New entry in “{group}”", &[("group", &path.join(" / "))])
+        };
+        let collapsed = self.collapsed.contains(&path);
+        let p_new = path.clone();
+        let p_fold = path.clone();
+        Some(
+            gpui::deferred(
+                gpui::anchored()
+                    .position(pos)
+                    .snap_to_window_with_margin(px(8.))
+                    .child(
+                        div()
+                            .id("group-menu")
+                            .occlude()
+                            .min_w(px(220.))
+                            .p_1()
+                            .rounded(px(9.))
+                            .bg(c(PANEL))
+                            .border_1()
+                            .border_color(c(0x2A4A85))
+                            .shadow_lg()
+                            .on_mouse_down_out(cx.listener(|this, _, _, cx| {
+                                this.group_menu = None;
+                                cx.notify();
+                            }))
+                            .when(!self.read_only(), |d| {
+                                d.child(item("gm-new", "icons/file.svg", label).on_click(
+                                    cx.listener(move |this, _, window, cx| {
+                                        this.group_menu = None;
+                                        this.start_edit_in(true, p_new.clone(), window, cx);
+                                    }),
+                                ))
+                            })
+                            .when(has_children, |d| {
+                                d.child(
+                                    item(
+                                        "gm-fold",
+                                        if collapsed {
+                                            "icons/chevron-down.svg"
+                                        } else {
+                                            "icons/chevron-right.svg"
+                                        },
+                                        crate::i18n::t(if collapsed {
+                                            "Expand"
+                                        } else {
+                                            "Collapse"
+                                        })
+                                        .to_string(),
+                                    )
+                                    .on_click(cx.listener(
+                                        move |this, _, _, cx| {
+                                            if !this.collapsed.remove(&p_fold) {
+                                                this.collapsed.insert(p_fold.clone());
+                                            }
+                                            this.group_menu = None;
+                                            cx.notify();
+                                        },
+                                    )),
+                                )
+                            }),
+                    ),
+            )
+            .with_priority(2),
         )
     }
 
@@ -1009,16 +1120,27 @@ impl Browser {
         // Entries that aren't in any group (only shown when there are some).
         let ungrouped = self.entries.iter().filter(|e| e.group.is_empty()).count();
         if ungrouped > 0 {
-            col = col.child(self.nav_item(
-                "nogroup".into(),
-                Some("icons/file.svg"),
-                crate::i18n::t("No group").into(),
-                ungrouped,
-                1, // align with the folder icons of the group tree
-                Filter::NoGroup,
-                None,
-                cx,
-            ));
+            col = col.child(
+                div()
+                    .on_mouse_down(
+                        gpui::MouseButton::Right,
+                        cx.listener(|this, ev: &gpui::MouseDownEvent, _, cx| {
+                            this.group_menu = Some((vec![], false, ev.position));
+                            cx.stop_propagation();
+                            cx.notify();
+                        }),
+                    )
+                    .child(self.nav_item(
+                        "nogroup".into(),
+                        Some("icons/file.svg"),
+                        crate::i18n::t("No group").into(),
+                        ungrouped,
+                        1, // align with the folder icons of the group tree
+                        Filter::NoGroup,
+                        None,
+                        cx,
+                    )),
+            );
         }
         col
     }
@@ -1050,6 +1172,14 @@ impl Browser {
             .when(on, |d| d.bg(c(SELECTION)))
             .when(!on, |d| d.hover(|d| d.bg(c(HOVER))))
             .on_click(cx.listener(move |this, _, _, cx| this.set_filter(filter.clone(), cx)))
+            .on_mouse_down(gpui::MouseButton::Right, {
+                let path = g.path.clone();
+                cx.listener(move |this, ev: &gpui::MouseDownEvent, _, cx| {
+                    this.group_menu = Some((path.clone(), has_children, ev.position));
+                    cx.stop_propagation();
+                    cx.notify();
+                })
+            })
             .child(
                 div()
                     .id(SharedString::from(format!("gt{i}")))
@@ -1737,6 +1867,13 @@ impl Render for Browser {
             .id("browser")
             .key_context("Browser")
             .track_focus(&self.focus)
+            .on_key_down(cx.listener(|this, ev: &gpui::KeyDownEvent, _, cx| {
+                if this.group_menu.is_some() && ev.keystroke.key == "escape" {
+                    this.group_menu = None;
+                    cx.stop_propagation();
+                    cx.notify();
+                }
+            }))
             .size_full()
             .relative()
             .rounded(corner)
@@ -2004,6 +2141,7 @@ impl Render for Browser {
             )
             .children(self.render_confirm_delete(corner, cx))
             .children(self.render_upgrade(corner, cx))
+            .children(self.render_group_menu(cx))
             .into_any_element()
     }
 }

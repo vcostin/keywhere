@@ -167,6 +167,8 @@ impl Shell {
                     #[cfg(feature = "devtools")]
                     _ if t == "nogroup" => b.dev_no_group(cx),
                     #[cfg(feature = "devtools")]
+                    _ if t.starts_with("menu:") => b.dev_group_menu_open(&t["menu:".len()..], cx),
+                    #[cfg(feature = "devtools")]
                     _ if t.starts_with("group:") => {
                         b.start_edit(true, window, cx);
                         b.dev_group_menu(&t["group:".len()..], cx);
