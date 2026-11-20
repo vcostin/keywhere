@@ -132,6 +132,11 @@ impl Shell {
                         b.start_edit(false, window, cx);
                     }
                     _ if t == "new" => b.start_edit(true, window, cx),
+                    #[cfg(feature = "devtools")]
+                    _ if t == "newpass" => {
+                        b.start_edit(true, window, cx);
+                        b.dev_long_passphrase(cx);
+                    }
                     _ => b.select_title(&t, cx),
                 });
             }

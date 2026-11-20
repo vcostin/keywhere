@@ -186,6 +186,20 @@ impl EntryEditor {
         this
     }
 
+    /// DEV: reproduce the "12-word passphrase" layout case for screenshots.
+    #[cfg(feature = "devtools")]
+    pub fn dev_long_passphrase(&mut self, cx: &mut Context<Self>) {
+        self.gen_opts.mode = Mode::Passphrase;
+        self.gen_opts.length = 12;
+        self.gen_open = true;
+        self.regenerate();
+        // Make it overlong on purpose so wrapping is exercised.
+        let mut long = self.gen_preview.to_string();
+        long.push_str("-cause-ranch-woven-humid-blimp-pest-yoga-icing");
+        self.gen_preview = Zeroizing::new(long);
+        cx.notify();
+    }
+
     fn regenerate(&mut self) {
         if let Ok(p) = generator::generate(&self.gen_opts) {
             self.gen_preview = p;
@@ -354,6 +368,9 @@ impl EntryEditor {
                     .bg(c(BG))
                     .border_1()
                     .border_color(c(BORDER))
+                    .min_w_0()
+                    .overflow_hidden()
+                    .whitespace_normal()
                     .font_family("monospace")
                     .text_size(px(14.))
                     .text_color(c(TEXT))
@@ -515,6 +532,8 @@ impl Render for EntryEditor {
             .key_context("Editor")
             .track_focus(&self.focus)
             .size_full()
+            .min_w_0()
+            .overflow_x_hidden()
             .overflow_y_scroll()
             .px_5()
             .py_4()

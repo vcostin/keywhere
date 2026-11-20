@@ -272,6 +272,13 @@ impl Browser {
         }
     }
 
+    #[cfg(feature = "devtools")]
+    pub fn dev_long_passphrase(&mut self, cx: &mut Context<Self>) {
+        if let Some((ed, _)) = &self.editor {
+            ed.update(cx, |e, cx| e.dev_long_passphrase(cx));
+        }
+    }
+
     pub fn start_edit(&mut self, new: bool, window: &mut Window, cx: &mut Context<Self>) {
         if self.read_only() {
             return;
@@ -1043,7 +1050,9 @@ impl Browser {
     }
 
     fn render_detail(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let base = div().flex_1().h_full().bg(c(PANEL));
+        // min_w_0: a flex child must be allowed to shrink below its content
+        // (e.g. a long unbroken passphrase), or the whole pane overflows.
+        let base = div().flex_1().min_w_0().h_full().bg(c(PANEL));
         if let Some((ed, _)) = &self.editor {
             return base.child(ed.clone()).into_any_element();
         }
