@@ -102,14 +102,27 @@ and which residuals were accepted; this file describes the current behaviour and
 
 ## Platform status
 
-Linux (Wayland and X11) is the reference platform. **The macOS and Windows
-builds are not ready to give to others** until these are in place:
+Linux (Wayland and X11) is the reference platform. macOS and Windows ship
+as **unsigned previews**. They have:
 
-* screen‑lock and sleep auto‑lock (`WTS_SESSION_LOCK` / `PBT_APMSUSPEND` on
-  Windows; screen‑locked / will‑sleep notifications on macOS);
-* process hardening equivalent to Linux (crash‑dump policy, no debugger
-  attach);
-* exclusion from screen capture.
+* auto-lock on screen lock, user switch and sleep, and on Windows also when
+  the display turns off (`WTS_SESSION_LOCK`, `PBT_APMSUSPEND`,
+  `GUID_CONSOLE_DISPLAY_STATE`; the macOS screen-locked, screens-did-sleep,
+  session-resign-active and will-sleep notifications);
+* process hardening:
+  * Windows: no error-report dumps, and a process access list that denies
+    other programs of the same user memory access, thread injection and
+    handle duplication;
+  * macOS: no core dumps and `PT_DENY_ATTACH`;
+* exclusion from screen capture (Windows display affinity; macOS sharing
+  type, which recent macOS doesn't apply to every capture API).
+
+Known gaps:
+
+* macOS's will-sleep notification is not a barrier: the Mac may sleep before
+  the lock has painted. IOKit power handling is to do.
+* The macOS build is untested on real hardware.
+* Neither build is code-signed.
 
 ## Defaults
 

@@ -1,0 +1,55 @@
+name: Preview packages
+
+# Build the unsigned macOS and Windows preview packages without releasing,
+# for testing on real machines or VMs. Runs on PRs that change the packaging
+# scripts or the platform glue (crates/keywhere-app/src/sys), and by hand
+# from the Actions tab for any branch. It also builds and runs the app's
+# tests there, so macOS/Windows-only code is compiled before merging.
+on:
+  pull_request:
+    paths:
+      - "packaging/macos/**"
+      - "packaging/windows/**"
+      - "crates/keywhere-app/examples/render_icon.rs"
+      # macOS/Windows glue that the Linux PR checks don't compile.
+      - "crates/keywhere-app/src/sys/**"
+      - "crates/keywhere-app/Cargo.toml"
+      - ".github/workflows/preview.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: preview-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  package:
+    name: preview (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@1.95.0
+      - uses: Swatinem/rust-cache@v2
+      - name: App tests
+        run: cargo test --locked --release -p keywhere
+      - name: Package (macOS)
+        if: runner.os == 'macOS'
+        run: packaging/macos/build-app.sh
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: packaging/windows/build-zip.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: preview-${{ runner.os }}
+          path: dist/*-preview.zip
+          if-no-files-found: error

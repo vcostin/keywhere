@@ -3,6 +3,7 @@
 //!
 //! Everything here reports into the app through one channel of [`SysEvent`]s.
 
+pub mod capture;
 pub mod clipboard;
 #[cfg(unix)]
 pub mod instance;
@@ -10,10 +11,14 @@ pub mod instance;
 pub mod integrate;
 #[cfg(target_os = "linux")]
 pub mod linux;
+#[cfg(target_os = "macos")]
+pub mod macos;
 #[cfg(target_os = "linux")]
 pub mod picker;
 #[cfg(target_os = "linux")]
 pub mod wayland;
+#[cfg(windows)]
+pub mod windows;
 
 use futures::channel::mpsc;
 
@@ -108,6 +113,10 @@ impl Tray {
 pub fn watch_session(tx: EventTx) {
     #[cfg(target_os = "linux")]
     linux::watch_session(tx);
-    #[cfg(not(target_os = "linux"))]
-    let _ = tx; // TODO: macOS NSWorkspace / Windows WTS notifications.
+    #[cfg(target_os = "macos")]
+    macos::watch_session(tx);
+    #[cfg(windows)]
+    windows::watch_session(tx);
+    #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
+    let _ = tx;
 }
