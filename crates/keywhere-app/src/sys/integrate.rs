@@ -48,7 +48,11 @@ fn data_home() -> Option<PathBuf> {
 
 fn system_entry_exists() -> bool {
     let dirs =
-        std::env::var("XDG_DATA_DIRS").unwrap_or_else(|_| "/usr/local/share:/usr/share".into());
+        // Unset or empty means the spec's default.
+        std::env::var("XDG_DATA_DIRS")
+            .ok()
+            .filter(|d| d.split(':').any(|p| !p.is_empty()))
+            .unwrap_or_else(|| "/usr/local/share:/usr/share".into());
     dirs.split(':')
         .filter(|d| !d.is_empty())
         .any(|d| Path::new(d).join("applications/keywhere.desktop").exists())
@@ -129,13 +133,35 @@ fn write_atomic(path: &Path, data: &[u8]) -> std::io::Result<()> {
     })
 }
 
-/// Create `path` only if nothing exists there (a hard link fails instead of
-/// replacing), so an entry that appeared meanwhile is never overwritten.
+/// Create `path` only if nothing exists there: an exclusive create that
+/// never follows a symlink, so an entry that appeared meanwhile (or a planted
+/// link) is never written through or replaced. Works on any filesystem.
 fn create_new(path: &Path, data: &[u8]) -> std::io::Result<()> {
-    let tmp = write_temp(path, data)?;
-    let r = fs::hard_link(&tmp, path);
-    let _ = fs::remove_file(&tmp);
-    r
+    use std::io::Write;
+    use std::os::unix::fs::OpenOptionsExt;
+    if let Some(dir) = path.parent() {
+        fs::create_dir_all(dir)?;
+    }
+    let mut f = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o644)
+        .custom_flags(libc::O_NOFOLLOW)
+        .open(path)?;
+    if let Err(e) = f.write_all(data).and_then(|()| f.sync_all()) {
+        drop(f);
+        let _ = fs::remove_file(path);
+        return Err(e);
+    }
+    Ok(())
+}
+
+/// Add `path` unless a file (ours or anyone's) is already there.
+fn add_if_missing(path: &Path, data: &[u8]) -> std::io::Result<()> {
+    match create_new(path, data) {
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Ok(()),
+        r => r,
+    }
 }
 
 fn refresh_caches(data_home: &Path) {
@@ -166,14 +192,18 @@ fn integrate_into(data_home: &Path, appimage: &Path) -> std::io::Result<Outcome>
             Ok(Outcome::Updated)
         }
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            write_atomic(&p.icon, ICON)?;
-            write_atomic(&p.mime, MIME.as_bytes())?;
+            // The entry first: if someone else's appeared meanwhile, write
+            // nothing at all. Icon and MIME type only where none exist yet.
             match create_new(&p.desktop, entry.as_bytes()) {
-                Ok(()) => Ok(Outcome::Created),
-                // Someone else's entry appeared meanwhile: leave it.
-                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Ok(Outcome::Unchanged),
-                Err(e) => Err(e),
+                Ok(()) => {}
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                    return Ok(Outcome::Unchanged);
+                }
+                Err(e) => return Err(e),
             }
+            add_if_missing(&p.icon, ICON)?;
+            add_if_missing(&p.mime, MIME.as_bytes())?;
+            Ok(Outcome::Created)
         }
         Err(e) => Err(e),
     }
@@ -297,6 +327,21 @@ mod tests {
             })
             .count();
         assert_eq!(leftovers, 0);
+        fs::remove_dir_all(&home).unwrap();
+    }
+
+    #[test]
+    fn keeps_existing_icon_and_writes_nothing_on_a_lost_race() {
+        let home = tmp("race");
+        let p = paths(&home);
+        // Someone else's icon stays as it is.
+        write_atomic(&p.icon, b"<svg>theirs</svg>").unwrap();
+        assert_eq!(
+            integrate_into(&home, Path::new("/a/Keywhere.AppImage")).unwrap(),
+            Outcome::Created
+        );
+        assert_eq!(fs::read(&p.icon).unwrap(), b"<svg>theirs</svg>");
+        assert!(p.mime.exists());
         fs::remove_dir_all(&home).unwrap();
     }
 
