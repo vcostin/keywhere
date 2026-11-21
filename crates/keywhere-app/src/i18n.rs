@@ -356,12 +356,18 @@ static TABLE: &[(&str, &str)] = &[
     ("Dec", "dec."),
 ];
 
+/// Tests that switch or depend on the global language hold this, so they
+/// don't race each other.
+#[cfg(test)]
+pub(crate) static TEST_LANG_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn lookup_and_fallback() {
+        let _g = TEST_LANG_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         set_current(Lang::Ro);
         assert_eq!(t("Search"), "Caută");
         assert_eq!(t("Not in the table"), "Not in the table");

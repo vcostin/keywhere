@@ -327,6 +327,10 @@ mod tests {
 
     #[test]
     fn civil_dates() {
+        let _g = crate::i18n::TEST_LANG_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        crate::i18n::set_current(crate::i18n::Lang::En);
         assert_eq!(civil(0), (1970, 1, 1));
         assert_eq!(civil(951_782_400), (2000, 2, 29));
         assert_eq!(fmt_date(1_795_132_800), "Nov 20, 2026");
