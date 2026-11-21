@@ -12,4 +12,7 @@
   var root = document.documentElement;
   root.setAttribute("data-theme", dark ? "dark" : "light");
   root.setAttribute("data-theme-pref", pref);
+  // This script is placed right after the theme-color metas, so they already exist.
+  var metas = document.querySelectorAll('meta[name="theme-color"]');
+  for (var i = 0; i < metas.length; i++) metas[i].content = dark ? "#0A1631" : "#F3F6FB";
 })();
