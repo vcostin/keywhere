@@ -15,7 +15,7 @@ env:
 
 jobs:
   # Full release-mode tests on the platforms PR checks skip. Nothing is
-  # published unless these pass.
+  # published unless these pass (publish job needs this and linux).
   platforms:
     name: tests (${{ matrix.os }})
     strategy:
@@ -65,17 +65,19 @@ jobs:
             dist/*.msi
           if-no-files-found: warn
 
+  # Runs in parallel with platforms. Publish waits for both, so macOS/
+  # Windows release-mode tests still gate the GitHub Release.
+  # No rust-cache here: tag runs can't restore a `release` key from main
+  # (cache-warm only saves the PR `ci` profile), and saving a cold
+  # release-profile target/ would slow this job and crowd out that cache.
   linux:
-    needs: platforms
     name: Linux (AppImage, .deb, .rpm)
     # Oldest supported glibc: build on the oldest maintained runner.
     runs-on: ubuntu-22.04
-    permissions:
-      contents: write
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
       - uses: dtolnay/rust-toolchain@1.95.0
         with:
           components: clippy
@@ -130,6 +132,34 @@ jobs:
           docker run --rm -v "$PWD/dist:/dist:ro" opensuse/tumbleweed sh -c \
             "zypper -n --quiet install --allow-unsigned-rpm $RPM && keywhere --version | grep '^Keywhere $V '"
 
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-packages
+          path: |
+            dist/Keywhere-*-x86_64.AppImage
+            dist/keywhere_*.deb
+            dist/keywhere-*.rpm
+          if-no-files-found: error
+
+  # Gates publication on every check above. Signing and the GitHub Release
+  # happen only after macOS/Windows tests and the Linux packages succeed.
+  publish:
+    needs: [platforms, linux]
+    name: Publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+      # Same toolchain as the build jobs; needed for cargo install --locked.
+      - uses: dtolnay/rust-toolchain@1.95.0
+
+      - name: Linux packages
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-packages
+          path: dist
+
       - name: macOS and Windows preview packages
         continue-on-error: true
         uses: actions/download-artifact@v4
@@ -139,8 +169,13 @@ jobs:
           merge-multiple: true
 
       - name: Update manifest
-        run: packaging/make-update-manifest.sh "${{ steps.version.outputs.version }}"
+        run: packaging/make-update-manifest.sh "${{ needs.linux.outputs.version }}"
 
+      # Build from crates.io with --locked (the Cargo.lock published with
+      # rsign2 0.6.7). Do not use taiki-e/install-action here: rsign2 isn't a
+      # supported tool, so it falls back to cargo-binstall/QuickInstall and
+      # would put a third-party binary next to KEYWHERE_UPDATE_KEY and the
+      # contents: write token.
       - name: Install rsign2
         run: cargo install --locked rsign2 --version 0.6.7
 
@@ -158,7 +193,7 @@ jobs:
           trap 'rm -f "$key"' EXIT
           printf '%s\n' "$KEYWHERE_UPDATE_KEY" > "$key"
           rsign sign -W -s "$key" -x dist/latest.json.minisig \
-            -t "keywhere ${{ steps.version.outputs.version }}" dist/latest.json
+            -t "keywhere ${{ needs.linux.outputs.version }}" dist/latest.json
           # The app only trusts the committed public key: prove this
           # signature verifies with it before anything is published.
           rsign verify -p packaging/keywhere-update.pub -x dist/latest.json.minisig dist/latest.json
@@ -182,6 +217,13 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
+          V=${{ needs.linux.outputs.version }}
+          # Fail before gh creates an empty release if an artifact vanished.
+          for f in "dist/Keywhere-$V-x86_64.AppImage" "dist/keywhere_${V}-1_amd64.deb" \
+                   "dist/keywhere-${V}-1.x86_64.rpm" dist/latest.json dist/latest.json.minisig \
+                   dist/SHA256SUMS; do
+            [ -f "$f" ] || { echo "::error::missing $f"; exit 1; }
+          done
           # Mark it latest only if it is the highest version released so
           # far: the updater reads releases/latest/download/latest.json, and
           # publishing an older patch must not hide a newer release.
@@ -190,7 +232,6 @@ jobs:
                      | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1)
           latest=false
           [ "$highest" = "$GITHUB_REF_NAME" ] && latest=true
-          V=${{ steps.version.outputs.version }}
           shopt -s nullglob
           previews=(dist/Keywhere-*.dmg dist/Keywhere-*.app.zip dist/Keywhere-*-portable.exe dist/Keywhere-*-setup.exe dist/Keywhere-*.msi)
           gh release create "$GITHUB_REF_NAME" \
