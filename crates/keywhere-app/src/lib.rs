@@ -96,6 +96,9 @@ enum Screen {
 
 struct Shell {
     screen: Screen,
+    /// A vault opened from the file manager while another one is unlocked:
+    /// ask before locking it.
+    pending_open: Option<PathBuf>,
     settings: Option<Entity<settings_view::SettingsView>>,
     last_input: Instant,
     _idle: gpui::Task<()>,
@@ -139,6 +142,7 @@ impl Shell {
         });
         let mut this = Self {
             screen: Screen::Unlock(Self::unlock_view(path.clone(), window, cx)),
+            pending_open: None,
             settings: None,
             last_input: Instant::now(),
             _idle: idle,
@@ -333,6 +337,124 @@ impl Shell {
     }
 
     /// Drop the vault (zeroizing all decrypted fields) and return to unlock.
+    /// Show `path` on the unlock screen. If a different vault is unlocked,
+    /// ask first (locking it is the user's call).
+    fn request_open(&mut self, path: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
+        match &self.screen {
+            Screen::Unlock(u) => {
+                self.pending_open = None;
+                u.update(cx, |u, cx| u.set_path(path, window, cx));
+            }
+            Screen::Vault(b) => {
+                // Same file only if both resolve to the same path (or, if
+                // either can't be resolved, the paths are identical).
+                let same = |a: &std::path::Path| match (
+                    std::fs::canonicalize(a),
+                    std::fs::canonicalize(&path),
+                ) {
+                    (Ok(x), Ok(y)) => x == y,
+                    _ => a == path.as_path(),
+                };
+                if !same(&b.read(cx).path) {
+                    self.pending_open = Some(path);
+                    cx.notify();
+                }
+            }
+        }
+    }
+
+    fn accept_open(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(path) = self.pending_open.take() else {
+            return;
+        };
+        self.lock(window, cx);
+        if let Screen::Unlock(u) = &self.screen {
+            u.update(cx, |u, cx| u.set_path(path, window, cx));
+        }
+    }
+
+    fn render_pending_open(&self, cx: &mut Context<Self>) -> Option<gpui::AnyElement> {
+        use theme::*;
+        let path = self.pending_open.as_ref()?;
+        let name = path
+            .file_name()
+            .map(|n| keywhere_core::display_safe(&n.to_string_lossy()).into_owned())
+            .unwrap_or_default();
+        let btn = |id: &'static str, label: &'static str, primary: bool| {
+            div()
+                .id(id)
+                .h(px(28.))
+                .px_3()
+                .flex()
+                .items_center()
+                .rounded(px(7.))
+                .cursor_pointer()
+                .text_size(px(12.))
+                .when(primary, |d| {
+                    d.bg(c(ACCENT))
+                        .text_color(c(ACCENT_INK))
+                        .font_weight(gpui::FontWeight::SEMIBOLD)
+                })
+                .when(!primary, |d| {
+                    d.border_1()
+                        .border_color(c(BORDER))
+                        .bg(c(RAISED))
+                        .text_color(c(TEXT_SOFT))
+                        .hover(|d| d.bg(c(HOVER)))
+                })
+                .child(i18n::t(label))
+        };
+        Some(
+            div()
+                .id("pending-open")
+                .absolute()
+                .top(px(56.))
+                .left_0()
+                .right_0()
+                .flex()
+                .justify_center()
+                .child(
+                    div()
+                        .w(px(420.))
+                        .max_w_full()
+                        .p_3()
+                        .rounded(px(10.))
+                        .bg(c(PANEL))
+                        .border_1()
+                        .border_color(ca(ACCENT, 0x88))
+                        .shadow_lg()
+                        .occlude()
+                        .flex()
+                        .flex_col()
+                        .gap_2()
+                        .child(
+                            div()
+                                .text_size(px(12.5))
+                                .text_color(c(TEXT))
+                                .child(i18n::tf(
+                                    "Open {name}? The vault that is open now will lock first.",
+                                    &[("name", &name)],
+                                )),
+                        )
+                        .child(
+                            div()
+                                .flex()
+                                .gap_2()
+                                .child(btn("pending-open-yes", "Lock and open", true).on_click(
+                                    cx.listener(|this, _, window, cx| this.accept_open(window, cx)),
+                                ))
+                                .child(btn("pending-open-no", "Cancel", false).on_click(
+                                    cx.listener(|this, _, _, cx| {
+                                        this.pending_open = None;
+                                        cx.notify();
+                                    }),
+                                )),
+                        ),
+                )
+                .into_any_element(),
+        )
+    }
+
     fn lock(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Screen::Vault(b) = &self.screen else {
             return;
@@ -393,6 +515,7 @@ impl Render for Shell {
                 Screen::Vault(b) => b.clone().into_any_element(),
             })
             .children(update_view::toast(cx))
+            .children(self.render_pending_open(cx))
             .when_some(self.settings.clone(), |d, v| {
                 d.child(
                     div()
@@ -448,23 +571,31 @@ fn dev_memory_test() -> bool {
 }
 
 /// Run the app.
-pub fn run(path: Option<PathBuf>) {
-    // Second start (e.g. a desktop shortcut running `keywhere --show`): hand
-    // over to the running instance and exit.
+/// `file`: a vault given on the command line (file manager, "Open with");
+/// without one, the last vault is used.
+pub fn run(file: Option<PathBuf>) {
+    // Second start (desktop shortcut `keywhere --show`, or a vault opened
+    // from the file manager): hand over to the running instance and exit.
     #[cfg(unix)]
-    if sys::instance::forward_to_running(&sys::instance::show_command()) {
-        if let Some(p) = &path {
-            // The running instance keeps its own vault; never silently
-            // pretend the requested file was opened.
-            eprintln!(
-                "Keywhere is already running; showed it instead of opening {}. \
-                 Lock it and use \"Open another vault\" to switch.",
-                p.display()
-            );
+    {
+        let cmd = match &file {
+            Some(p) => match sys::instance::open_command(p) {
+                Some(c) => c,
+                None => {
+                    eprintln!(
+                        "keywhere: can't hand {} to the running instance",
+                        p.display()
+                    );
+                    sys::instance::show_command()
+                }
+            },
+            None => sys::instance::show_command(),
+        };
+        if sys::instance::forward_to_running(&cmd) {
+            return;
         }
-        return;
     }
-    run_inner(path, None, None)
+    run_inner(file.or_else(config::last_vault), None, None)
 }
 
 /// Start after an in-app update. Never hand off to a running instance: if
@@ -640,6 +771,16 @@ fn open_main_window(
 fn handle_sys_event(ev: sys::SysEvent, cx: &mut App) {
     let window = cx.global::<AppState>().window;
     match ev {
+        sys::SysEvent::Open(path, token) => {
+            // Only regular files; anything else just shows the window.
+            let file = std::fs::metadata(&path).is_ok_and(|m| m.is_file());
+            handle_sys_event(sys::SysEvent::Show(token), cx);
+            if file {
+                if let Some(w) = cx.global::<AppState>().window {
+                    let _ = w.update(cx, |shell, window, cx| shell.request_open(path, window, cx));
+                }
+            }
+        }
         sys::SysEvent::Show(token) => {
             let shown = window.is_some_and(|w| {
                 w.update(cx, |shell, window, cx| {

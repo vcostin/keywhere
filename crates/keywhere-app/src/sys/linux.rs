@@ -168,16 +168,7 @@ fn watch_logind(tx: &EventTx) -> zbus::Result<()> {
         None,
     )?;
     // Our own session's object path, so another user's lock doesn't lock us.
-    // (Not every process is in a logind session; sleep still applies.)
-    let session: zbus::Result<zbus::zvariant::OwnedObjectPath> = conn
-        .call_method(
-            Some("org.freedesktop.login1"),
-            "/org/freedesktop/login1",
-            Some("org.freedesktop.login1.Manager"),
-            "GetSessionByPID",
-            &(std::process::id()),
-        )
-        .and_then(|m| m.body().deserialize());
+    let session = own_session(&conn);
     match session {
         Ok(session) => {
             let lock = MessageIterator::for_match_rule(
@@ -199,7 +190,9 @@ fn watch_logind(tx: &EventTx) -> zbus::Result<()> {
                 }
             });
         }
-        Err(e) => eprintln!("keywhere: no logind session ({e}); watching sleep only"),
+        Err(e) => {
+            eprintln!("keywhere: no logind session ({e}); watching sleep and the screen saver only")
+        }
     }
     // Delay inhibitor: logind waits (up to InhibitDelayMaxSec, default 5 s)
     // until we release it, so the vault is locked *before* RAM is frozen or
@@ -231,6 +224,62 @@ fn watch_logind(tx: &EventTx) -> zbus::Result<()> {
     }
     drop(inhibitor);
     Ok(())
+}
+
+/// The logind session we belong to. Desktops that start apps as their own
+/// systemd user service (KDE does) leave the process outside any session, so
+/// `GetSessionByPID` fails; then use `$XDG_SESSION_ID`, then the user's
+/// graphical ("display") session. With several graphical sessions of the
+/// same user (multi-seat), that may be a different one than ours; an extra
+/// lock is harmless, and sleep and the screen saver are still watched.
+fn own_session(conn: &zbus::blocking::Connection) -> zbus::Result<zbus::zvariant::OwnedObjectPath> {
+    use zbus::zvariant::OwnedObjectPath;
+    let by_pid = manager(conn, "GetSessionByPID", &std::process::id());
+    if by_pid.is_ok() {
+        return by_pid;
+    }
+    if let Ok(id) = std::env::var("XDG_SESSION_ID") {
+        if let Ok(p) = manager(conn, "GetSession", &id) {
+            return Ok(p);
+        }
+    }
+    // org.freedesktop.login1.User.Display: (session id, object path).
+    let user: OwnedObjectPath = manager(conn, "GetUser", &unsafe { libc::getuid() })?;
+    let display: zbus::zvariant::OwnedValue = conn
+        .call_method(
+            Some("org.freedesktop.login1"),
+            user.as_ref(),
+            Some("org.freedesktop.DBus.Properties"),
+            "Get",
+            &("org.freedesktop.login1.User", "Display"),
+        )?
+        .body()
+        .deserialize()?;
+    let (_, path): (String, OwnedObjectPath) = display.try_into()?;
+    if path.as_str() == "/" {
+        return by_pid; // no graphical session: report the original error
+    }
+    Ok(path)
+}
+
+/// Call a login1 Manager method that returns an object path.
+fn manager<B>(
+    conn: &zbus::blocking::Connection,
+    method: &str,
+    body: &B,
+) -> zbus::Result<zbus::zvariant::OwnedObjectPath>
+where
+    B: serde::Serialize + zbus::zvariant::DynamicType,
+{
+    conn.call_method(
+        Some("org.freedesktop.login1"),
+        "/org/freedesktop/login1",
+        Some("org.freedesktop.login1.Manager"),
+        method,
+        body,
+    )?
+    .body()
+    .deserialize()
 }
 
 /// logind `Inhibit("sleep", …, "delay")`; the returned fd holds the lock.
@@ -284,4 +333,26 @@ fn watch_screensaver(tx: &EventTx) -> zbus::Result<()> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    /// Outside a logind session (as when KDE starts us as a user service),
+    /// the user's graphical session is still found. Skipped where there is
+    /// no system bus or no graphical session (CI).
+    #[test]
+    fn finds_session_outside_session_scope() {
+        let Ok(conn) = zbus::blocking::Connection::system() else {
+            return;
+        };
+        let pid = super::manager(&conn, "GetSessionByPID", &std::process::id());
+        let user = super::manager(&conn, "GetUser", &unsafe { libc::getuid() });
+        let found = super::own_session(&conn);
+        eprintln!("by pid: {pid:?}\nuser: {user:?}\nfound: {found:?}");
+        if pid.is_ok() {
+            assert_eq!(found.ok(), pid.ok());
+        } else if user.is_ok() && std::env::var_os("WAYLAND_DISPLAY").is_some() {
+            assert!(found.is_ok(), "graphical session not found: {found:?}");
+        }
+    }
 }

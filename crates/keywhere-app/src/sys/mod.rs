@@ -9,6 +9,8 @@ pub mod instance;
 #[cfg(target_os = "linux")]
 pub mod linux;
 #[cfg(target_os = "linux")]
+pub mod picker;
+#[cfg(target_os = "linux")]
 pub mod wayland;
 
 use futures::channel::mpsc;
@@ -18,6 +20,9 @@ pub enum SysEvent {
     /// Bring the window to the front (tray click, `keywhere --show`), with
     /// the Wayland activation token from that user action if there is one.
     Show(Option<String>),
+    /// Open this vault file (a second start with a file argument), plus the
+    /// activation token as for `Show`.
+    Open(std::path::PathBuf, Option<String>),
     /// Lock now (tray menu, screen locked).
     Lock,
     /// System is about to sleep: lock, then confirm via [`ack_lock`] so the
