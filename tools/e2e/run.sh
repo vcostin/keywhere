@@ -13,8 +13,9 @@
 #   2. a wrong master password unlocks nothing;
 #   3. the right one does, and Ctrl+C copies the entry's password;
 #   4. the clipboard is emptied after the auto-clear time;
-#   5. after Ctrl+L, Ctrl+C copies nothing;
-#   6. a second `keywhere other.psafe3` hands the file to the running app;
+#   5. Ctrl+L clears the copied password, and then Ctrl+C copies nothing;
+#   6. a second `keywhere other.psafe3` hands the file to the running app,
+#      both while locked and while unlocked (Enter on "Lock and open");
 #   7. a new entry is saved: the core library reads it back, and the
 #      `.ibak` backup exists.
 set -euo pipefail
@@ -86,7 +87,19 @@ KEYWHERE_PASSWORD=$OTHER_PW E2E_TITLE=Other E2E_ENTRY_PASSWORD=$OTHER_SECRET \
     "$VAULT_TOOL" create "$OTHER"
 
 # ---- helpers ---------------------------------------------------------------
-clip() { xclip -o -selection clipboard 2>/dev/null || true; }
+clip() { timeout 3 xclip -o -selection clipboard 2>/dev/null || true; }
+
+# What the clipboard holds, without printing secrets into CI logs.
+clip_desc() {
+    local c
+    c=$(clip)
+    case "$c" in
+        "") echo "empty" ;;
+        "$MAIN_SECRET") echo "main.psafe3's entry password" ;;
+        "$OTHER_SECRET") echo "other.psafe3's entry password" ;;
+        *) echo "other text (${#c} characters)" ;;
+    esac
+}
 
 # Wait up to $1 seconds for the clipboard to equal $2 (empty: no text).
 # While waiting, run the rest of the arguments (if any) every half second.
@@ -141,12 +154,14 @@ focus_app
 
 # ---- 2. wrong password -----------------------------------------------------
 unlock_with "not-the-password"
-# Give the key derivation time to fail, while poking at Ctrl+C.
+# Give the key derivation time to fail, while poking at Ctrl+C. (Check 3
+# then proves that the same keys do copy once the vault is unlocked.)
 if wait_clip 8 "$MAIN_SECRET" copy_selected; then
     fail "a wrong master password unlocked the vault"
+elif [ -n "$(clip)" ]; then
+    fail "after a wrong password the clipboard holds $(clip_desc)"
 else
-    [ -z "$(clip)" ] && pass "wrong master password unlocks nothing" \
-        || fail "clipboard is not empty after a wrong password: $(clip)"
+    pass "wrong master password unlocks nothing"
 fi
 
 # ---- 3. unlock + copy ------------------------------------------------------
@@ -155,7 +170,7 @@ unlock_with "$MAIN_PW"
 if wait_clip 30 "$MAIN_SECRET" copy_selected; then
     pass "unlocks, and Ctrl+C copies the entry's password"
 else
-    die "Ctrl+C did not copy the password after unlocking (clipboard: '$(clip)')"
+    die "Ctrl+C did not copy the password after unlocking (clipboard: $(clip_desc))"
 fi
 
 # ---- 4. auto-clear ---------------------------------------------------------
@@ -163,37 +178,65 @@ fi
 if wait_clip 15 ""; then
     pass "clipboard is cleared after the auto-clear time"
 else
-    fail "clipboard still holds '$(clip)' 15 s after copying"
+    fail "15 s after copying the clipboard still holds $(clip_desc)"
 fi
 
 # ---- 5. lock ---------------------------------------------------------------
+# Copy again first, so this check can't pass just because copying broke.
 focus_app
+wait_clip 10 "$MAIN_SECRET" copy_selected || die "Ctrl+C stopped copying before the lock check"
 key ctrl+l
-sleep 1
+# 2 s: well inside the 5 s auto-clear, so only the lock can have cleared it.
+if wait_clip 2 ""; then
+    pass "Ctrl+L locks and clears the password it copied"
+else
+    fail "after Ctrl+L the clipboard still holds $(clip_desc)"
+fi
 copy_selected
 sleep 1
 copy_selected
+sleep 1
 if [ -z "$(clip)" ]; then
     pass "after Ctrl+L, Ctrl+C copies nothing"
 else
-    fail "Ctrl+C copied '$(clip)' while locked"
+    fail "Ctrl+C copied while locked: $(clip_desc)"
 fi
 
-# ---- 6. second launch opens another vault ----------------------------------
-"$APP" "$OTHER" >"$W/second.log" 2>&1 &
-second=$!
-for _ in $(seq 100); do kill -0 "$second" 2>/dev/null || break; sleep 0.1; done
-if kill -0 "$second" 2>/dev/null; then
-    kill "$second"
-    fail "the second launch did not hand over and exit"
-fi
-alive || die "the first instance exited when a second one started"
+# ---- 6. a second launch opens another vault --------------------------------
+# Start `keywhere <file>` again; it must hand the file over and exit.
+second_launch() {
+    local p
+    "$APP" "$1" >>"$W/second.log" 2>&1 &
+    p=$!
+    for _ in $(seq 100); do kill -0 "$p" 2>/dev/null || break; sleep 0.1; done
+    if kill -0 "$p" 2>/dev/null; then
+        kill "$p"
+        fail "the second launch did not hand $1 over and exit"
+    fi
+    alive || die "the first instance exited when a second one started"
+}
+
+# 6a. While locked: the unlock screen switches to the other file.
+second_launch "$OTHER"
 focus_app
 unlock_with "$OTHER_PW"
 if wait_clip 30 "$OTHER_SECRET" copy_selected; then
-    pass "a second launch opens the other vault in the running app"
+    pass "while locked, a second launch switches to the other vault"
 else
-    fail "the other vault did not open (clipboard: '$(clip)')"
+    fail "the other vault did not open (clipboard: $(clip_desc))"
+fi
+
+# 6b. While unlocked: the app asks first; Enter answers "Lock and open".
+second_launch "$MAIN"
+focus_app
+sleep 1
+key Return
+sleep 1
+unlock_with "$MAIN_PW"
+if wait_clip 30 "$MAIN_SECRET" copy_selected; then
+    pass "while unlocked, a second launch opens the other vault after asking"
+else
+    fail "the vault from the second launch did not open (clipboard: $(clip_desc))"
 fi
 
 # ---- 7. add an entry and save ----------------------------------------------
@@ -208,13 +251,13 @@ for _ in $(seq 100); do alive || break; sleep 0.1; done
 if alive; then
     fail "Ctrl+Q did not quit"
 fi
-titles=$(KEYWHERE_PASSWORD=$OTHER_PW "$VAULT_TOOL" titles "$OTHER" || true)
-if printf '%s\n' "$titles" | grep -qx "Added by e2e" && printf '%s\n' "$titles" | grep -qx "Other"; then
+titles=$(KEYWHERE_PASSWORD=$MAIN_PW "$VAULT_TOOL" titles "$MAIN" || true)
+if printf '%s\n' "$titles" | grep -qx "Added by e2e" && printf '%s\n' "$titles" | grep -qx "Main"; then
     pass "a new entry is saved, and the core library reads it back"
 else
     fail "saved vault does not contain the new entry (titles: $(echo "$titles" | tr '\n' ','))"
 fi
-if [ -s "$W/vaults/other.ibak" ]; then
+if [ -s "$W/vaults/main.ibak" ]; then
     pass "the save left an .ibak backup"
 else
     fail "no .ibak backup next to the vault"
