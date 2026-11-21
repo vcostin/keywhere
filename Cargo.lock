@@ -2931,7 +2931,7 @@ dependencies = [
 
 [[package]]
 name = "keywhere"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "arboard",
  "block2",
@@ -2964,7 +2964,7 @@ dependencies = [
 
 [[package]]
 name = "keywhere-core"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "blowfish",
  "byteorder",
