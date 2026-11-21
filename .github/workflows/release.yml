@@ -171,10 +171,11 @@ jobs:
       - name: Update manifest
         run: packaging/make-update-manifest.sh "${{ needs.linux.outputs.version }}"
 
-      # Build from crates.io with --locked (our Cargo.lock). Do not use
-      # taiki-e/install-action here: rsign2 isn't a supported tool, so it
-      # falls back to cargo-binstall/QuickInstall and would put a third-party
-      # binary next to KEYWHERE_UPDATE_KEY and the contents: write token.
+      # Build from crates.io with --locked (the Cargo.lock published with
+      # rsign2 0.6.7). Do not use taiki-e/install-action here: rsign2 isn't a
+      # supported tool, so it falls back to cargo-binstall/QuickInstall and
+      # would put a third-party binary next to KEYWHERE_UPDATE_KEY and the
+      # contents: write token.
       - name: Install rsign2
         run: cargo install --locked rsign2 --version 0.6.7
 
@@ -216,6 +217,13 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
+          V=${{ needs.linux.outputs.version }}
+          # Fail before gh creates an empty release if an artifact vanished.
+          for f in "dist/Keywhere-$V-x86_64.AppImage" "dist/keywhere_${V}-1_amd64.deb" \
+                   "dist/keywhere-${V}-1.x86_64.rpm" dist/latest.json dist/latest.json.minisig \
+                   dist/SHA256SUMS; do
+            [ -f "$f" ] || { echo "::error::missing $f"; exit 1; }
+          done
           # Mark it latest only if it is the highest version released so
           # far: the updater reads releases/latest/download/latest.json, and
           # publishing an older patch must not hide a newer release.
@@ -224,7 +232,6 @@ jobs:
                      | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1)
           latest=false
           [ "$highest" = "$GITHUB_REF_NAME" ] && latest=true
-          V=${{ needs.linux.outputs.version }}
           shopt -s nullglob
           previews=(dist/Keywhere-*.dmg dist/Keywhere-*.app.zip dist/Keywhere-*-portable.exe dist/Keywhere-*-setup.exe dist/Keywhere-*.msi)
           gh release create "$GITHUB_REF_NAME" \

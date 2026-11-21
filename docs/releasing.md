@@ -82,9 +82,9 @@ Built with [nfpm](https://nfpm.goreleaser.com) (pinned by SHA‑256 in
 `packaging/linux/build-packages.sh`) from `packaging/linux/nfpm.yaml`. They install the binary,
 desktop entry, icon and an `application/x-psafe3` MIME type. The `.rpm` requires library
 sonames rather than package names, so one file works on Fedora and openSUSE. Packages aren't
-GPG‑signed; `SHA256SUMS` on the release covers them. The release job installs the `.deb`
+GPG‑signed; `SHA256SUMS` on the release covers them. The Linux job installs the `.deb`
 on Ubuntu 22.04 and the `.rpm` in Fedora and openSUSE containers and runs `keywhere --version` before
-publishing. The package manager owns these installs, so the in‑app updater only shows a notice
+the Publish job creates the GitHub Release. The package manager owns these installs, so the in‑app updater only shows a notice
 and a download link for them.
 
 ## AppImage notes
@@ -126,8 +126,9 @@ The release's `platforms` jobs also build unsigned preview packages:
 
 `build-app.sh` also writes `Keywhere-<v>-macos-<arch>.app.zip` (the same bundle, zipped with
 `ditto`) for the in-app updater. The release gets seven macOS/Windows files (two `.dmg`, two
-`.app.zip`, the portable exe, setup exe and MSI). The Linux job adds them to `SHA256SUMS` and
-the release, and `make-update-manifest.sh` lists the `.app.zip` files and the portable exe in
+`.app.zip`, the portable exe, setup exe and MSI). The Publish job downloads them with the Linux
+packages, writes `SHA256SUMS`, and attaches everything to the GitHub Release.
+`make-update-manifest.sh` lists the `.app.zip` files and the portable exe in
 `latest.json` (`macos-aarch64`, `macos-x86_64`, `windows-x86_64`) next to the AppImage. To
 build them without a release, run the
 **Preview packages** workflow from the Actions tab. It also runs on PRs that change these
