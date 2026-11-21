@@ -1,0 +1,3 @@
+# Signed fixtures and keys must stay byte-exact (no CRLF conversion on Windows).
+crates/keywhere-app/testdata/** -text
+packaging/keywhere-update.pub -text
