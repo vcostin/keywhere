@@ -1,7 +1,7 @@
 name: Release
 
 # Push a tag `vX.Y.Z` matching the workspace version to publish a release:
-# the Linux AppImage, a signed `latest.json` for the in-app updater, and
+# the Linux AppImage, .deb and .rpm (one machine, one binary), a signed `latest.json` for the in-app updater, and
 # SHA256SUMS. See docs/releasing.md.
 on:
   push:
@@ -51,6 +51,18 @@ jobs:
       - name: Build AppImage
         run: packaging/linux/build-appimage.sh
 
+      - name: Build .deb and .rpm
+        run: packaging/linux/build-packages.sh
+
+      - name: Install test (.deb on Ubuntu 22.04, .rpm on Fedora)
+        run: |
+          set -euo pipefail
+          V=${{ steps.version.outputs.version }}
+          sudo apt-get install -y "./dist/keywhere_${V}-1_amd64.deb"
+          /usr/bin/keywhere --version | grep "^Keywhere $V "
+          docker run --rm -v "$PWD/dist:/dist:ro" fedora:41 sh -c \
+            "dnf install -y -q /dist/keywhere-${V}-1.x86_64.rpm && keywhere --version | grep '^Keywhere $V '"
+
       - name: Update manifest
         run: packaging/make-update-manifest.sh "${{ steps.version.outputs.version }}"
 
@@ -77,7 +89,7 @@ jobs:
           rsign verify -p packaging/keywhere-update.pub -x dist/latest.json.minisig dist/latest.json
 
       - name: Checksums
-        run: cd dist && sha256sum Keywhere-*.AppImage latest.json latest.json.minisig > SHA256SUMS && cat SHA256SUMS
+        run: cd dist && sha256sum Keywhere-*.AppImage keywhere_*.deb keywhere-*.rpm latest.json latest.json.minisig > SHA256SUMS && cat SHA256SUMS
 
       - name: Publish GitHub release
         env:
@@ -94,7 +106,8 @@ jobs:
           [ "$highest" = "$GITHUB_REF_NAME" ] && latest=true
           V=${{ steps.version.outputs.version }}
           gh release create "$GITHUB_REF_NAME" \
-            "dist/Keywhere-$V-x86_64.AppImage" dist/latest.json dist/latest.json.minisig dist/SHA256SUMS \
+            "dist/Keywhere-$V-x86_64.AppImage" "dist/keywhere_${V}-1_amd64.deb" \
+            "dist/keywhere-${V}-1.x86_64.rpm" dist/latest.json dist/latest.json.minisig dist/SHA256SUMS \
             --repo "$GITHUB_REPOSITORY" \
             --title "Keywhere $V" \
             --generate-notes \

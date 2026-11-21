@@ -13,9 +13,12 @@ Works with files from Password Safe and Password Gorilla. No cloud account, no s
 
 ## Using it
 
-**Linux:** download `Keywhere-<version>-x86_64.AppImage` from
-[Releases](https://github.com/vcostin/keywhere/releases/latest), make it executable and run it
-(`chmod +x Keywhere-*.AppImage`). `SHA256SUMS` on the release lists the checksums.
+**Linux:** from [Releases](https://github.com/vcostin/keywhere/releases/latest) take
+* the **AppImage** (any distribution; updates itself): `chmod +x Keywhere-*.AppImage` and run it, or
+* the **.deb** (Debian, Ubuntu 22.04+) / **.rpm** (Fedora, openSUSE): install with your package
+  manager (`sudo apt install ./keywhere_*.deb`, `sudo dnf install ./keywhere-*.rpm`).
+
+`SHA256SUMS` on the release lists the checksums.
 
 From source:
 

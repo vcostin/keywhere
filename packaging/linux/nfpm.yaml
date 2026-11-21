@@ -1,0 +1,36 @@
+# .deb and .rpm from the release binary (packaging/linux/build-packages.sh).
+name: keywhere
+arch: amd64
+platform: linux
+version: ${KEYWHERE_VERSION}
+release: 1
+section: utils
+priority: optional
+maintainer: Keywhere project <vcostin@users.noreply.github.com>
+homepage: https://github.com/vcostin/keywhere
+license: MIT
+description: |
+  Password Safe v3 compatible password manager.
+  Keywhere opens .psafe3 vaults from Password Safe and Password Gorilla,
+  with auto-lock, clipboard clearing and a tray icon.
+
+contents:
+  - src: target/release/keywhere
+    dst: /usr/bin/keywhere
+    file_info: { mode: 0755 }
+  - src: packaging/linux/keywhere.desktop
+    dst: /usr/share/applications/keywhere.desktop
+  - src: packaging/linux/keywhere-mime.xml
+    dst: /usr/share/mime/packages/keywhere.xml
+  - src: assets/keywhere-key.svg
+    dst: /usr/share/icons/hicolor/scalable/apps/keywhere.svg
+  - src: LICENSE
+    dst: /usr/share/doc/keywhere/LICENSE
+
+overrides:
+  deb:
+    depends: [libc6 (>= 2.35), libxcb1, libxkbcommon0, libxkbcommon-x11-0, libvulkan1]
+    recommends: [libwayland-client0]
+  rpm:
+    depends: [libxcb, libxkbcommon, libxkbcommon-x11, vulkan-loader]
+    recommends: [libwayland-client]

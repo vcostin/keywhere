@@ -1,7 +1,7 @@
 # Releasing Keywhere
 
 A release is a `vX.Y.Z` tag. The [release workflow](../.github/workflows/release.yml) builds
-the Linux AppImage, writes and signs `latest.json` for the in‑app updater, and publishes a
+the Linux AppImage, `.deb` and `.rpm` (all from one binary on one runner), writes and signs `latest.json` for the in‑app updater, and publishes a
 GitHub Release with `SHA256SUMS`. There is no update server besides GitHub Releases.
 
 ## Cut a release
@@ -10,6 +10,7 @@ GitHub Release with `SHA256SUMS`. There is no update server besides GitHub Relea
 
    ```sh
    packaging/linux/build-appimage.sh        # → dist/Keywhere-<version>-x86_64.AppImage
+   packaging/linux/build-packages.sh        # → dist/keywhere_<version>-1_amd64.deb, .rpm
    ./dist/Keywhere-*-x86_64.AppImage        # unlock, tray, Settings → Updates
    ```
 
@@ -64,6 +65,15 @@ rsign verify -p packaging/keywhere-update.pub -x dist/latest.json.minisig dist/l
 
 The app rejects a manifest whose URLs leave `github.com/vcostin/keywhere/releases/download/v<version>/`,
 whose release page isn't that version's tag page, or whose version isn't newer than its own.
+
+## .deb and .rpm
+
+Built with [nfpm](https://nfpm.goreleaser.com) (pinned by SHA‑256 in
+`packaging/linux/build-packages.sh`) from `packaging/linux/nfpm.yaml`. They install the binary,
+desktop entry, icon and a `application/x-psafe3` MIME type. The release job installs the `.deb`
+on Ubuntu 22.04 and the `.rpm` in a Fedora container and runs `keywhere --version` before
+publishing. The package manager owns these installs, so the in‑app updater only shows a notice
+and a download link for them.
 
 ## AppImage notes
 
