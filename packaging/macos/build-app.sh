@@ -30,7 +30,7 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 install -m755 "$BIN" "$APP/Contents/MacOS/keywhere"
 
 # .icns from the logo SVG.
-target/release/examples/render_icon "$WORK/png" >/dev/null
+target/release/examples/render_icon "$WORK/png" --macos-plate >/dev/null
 SET=$WORK/keywhere.iconset
 mkdir -p "$SET"
 for s in 16 32 128 256 512; do

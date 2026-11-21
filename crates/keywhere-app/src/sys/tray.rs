@@ -74,7 +74,13 @@ pub fn start_tray(tx: EventTx) -> Option<TrayHandle> {
         .with_menu(Box::new(menu))
         .with_menu_on_left_click(cfg!(target_os = "macos"))
         .with_tooltip(tooltip(TrayState::Locked))
-        .with_icon(icon()?)
+        .with_icon(match icon() {
+            Some(i) => i,
+            None => {
+                eprintln!("keywhere: no tray icon: could not render the tray image");
+                return None;
+            }
+        })
         .build();
     match icon {
         Ok(icon) => Some(TrayHandle { icon, lock }),
@@ -90,18 +96,29 @@ pub fn set_tray_state(h: &TrayHandle, state: TrayState) {
     let _ = h.icon.set_tooltip(Some(tooltip(state)));
 }
 
-/// The tray key, rendered from its SVG (32 px: Windows' largest small-icon
-/// size at 200 % scaling; macOS scales it to the menu-bar height).
+/// Canvas and key size in pixels.
+/// * macOS: tray-icon shows the image 22 pt tall, so 44 px is sharp on
+///   Retina; the key fills 36 px (18 pt) of it, the usual menu-bar glyph
+///   size, with the rest as padding.
+/// * Windows: 32 px, the small-icon size at 200 % scaling, edge to edge
+///   like other notification-area icons.
+#[cfg(target_os = "macos")]
+const ICON_PX: (u32, u32) = (44, 36);
+#[cfg(not(target_os = "macos"))]
+const ICON_PX: (u32, u32) = (32, 32);
+
+/// The tray key, rendered from its SVG.
 fn icon() -> Option<Icon> {
     use resvg::{tiny_skia, usvg};
-    const SIZE: u32 = 32;
+    let (size, key) = ICON_PX;
     let tree = usvg::Tree::from_data(TRAY_SVG, &usvg::Options::default()).ok()?;
-    let mut pixmap = tiny_skia::Pixmap::new(SIZE, SIZE)?;
+    let mut pixmap = tiny_skia::Pixmap::new(size, size)?;
     let view = tree.size();
-    let scale = SIZE as f32 / view.width().max(view.height());
+    let scale = key as f32 / view.width().max(view.height());
+    let inset = (size - key) as f32 / 2.0;
     resvg::render(
         &tree,
-        tiny_skia::Transform::from_scale(scale, scale),
+        tiny_skia::Transform::from_scale(scale, scale).post_translate(inset, inset),
         &mut pixmap.as_mut(),
     );
     let rgba = pixmap
@@ -112,7 +129,7 @@ fn icon() -> Option<Icon> {
             [c.red(), c.green(), c.blue(), c.alpha()]
         })
         .collect();
-    Icon::from_rgba(rgba, SIZE, SIZE).ok()
+    Icon::from_rgba(rgba, size, size).ok()
 }
 
 #[cfg(test)]
