@@ -282,6 +282,8 @@ impl Render for SettingsView {
             .on_click(|_, _, cx| cx.stop_propagation())
             .w(px(560.))
             .max_w_full()
+            .max_h_full()
+            .overflow_y_scroll()
             .p_5()
             .rounded(px(12.))
             .bg(c(PANEL))
@@ -316,6 +318,16 @@ impl Render for SettingsView {
             .child(Self::section("Appearance"))
             .child(Self::row("Theme", self.theme.clone()))
             .child(Self::row("Language", self.language.clone()))
+            .child(Self::section("Updates"))
+            .child(Self::row(
+                "Keywhere",
+                crate::update_view::settings_section(s.check_updates == Some(true), |window| {
+                    Self::change(
+                        |s| s.check_updates = Some(s.check_updates != Some(true)),
+                        window,
+                    )
+                }),
+            ))
             .child(
                 div()
                     .mt_4()

@@ -1,0 +1,20 @@
+[Desktop Entry]
+Type=Application
+Name=Keywhere
+GenericName=Password Manager
+GenericName[ro]=Manager de parole
+Comment=Password Safe compatible password manager
+Comment[ro]=Manager de parole compatibil cu Password Safe
+Exec=keywhere %f
+Icon=keywhere
+Terminal=false
+Categories=Utility;Security;
+Keywords=password;vault;psafe3;safe;
+MimeType=application/x-psafe3;
+StartupWMClass=keywhere
+Actions=Show;
+
+[Desktop Action Show]
+Name=Show Keywhere
+Name[ro]=Arată Keywhere
+Exec=keywhere --show

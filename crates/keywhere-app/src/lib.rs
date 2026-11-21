@@ -20,6 +20,8 @@ pub mod settings_view;
 pub mod sys;
 pub mod theme;
 pub mod unlock;
+pub mod update;
+pub mod update_view;
 
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
@@ -154,7 +156,10 @@ impl Shell {
         }
         if let (Some((v, lock)), Some(p)) = (preunlocked, path) {
             this.show_vault(p, v, lock, window, cx);
-            if matches!(select.as_deref(), Some("settings" | "settings-lang")) {
+            if matches!(
+                select.as_deref(),
+                Some("settings" | "settings-lang" | "settings-update")
+            ) {
                 this.open_settings(window, cx);
                 #[cfg(feature = "devtools")]
                 if select.as_deref() == Some("settings-lang") {
@@ -206,6 +211,8 @@ impl Shell {
                         b.dev_group_menu(&t["group:".len()..], cx);
                     }
                     _ if t == "settings" || t == "settings-lang" => {}
+                    #[cfg(feature = "devtools")]
+                    _ if t == "update" || t == "settings-update" => update::dev_fake_available(),
                     #[cfg(feature = "devtools")]
                     _ if t == "newpass" => {
                         b.start_edit(true, window, cx);
@@ -385,6 +392,7 @@ impl Render for Shell {
                 Screen::Unlock(v) => v.clone().into_any_element(),
                 Screen::Vault(b) => b.clone().into_any_element(),
             })
+            .children(update_view::toast(cx))
             .when_some(self.settings.clone(), |d, v| {
                 d.child(
                     div()
@@ -538,7 +546,15 @@ fn run_inner(path: Option<PathBuf>, preunlocked: Preunlocked, select: Option<Str
             })
             .detach();
 
+            // Dev/test runs (screenshots, RAM test) never touch the network.
+            let auto_update_check = select.is_none()
+                && preunlocked.is_none()
+                && !cfg!(feature = "devtools")
+                && settings::get().check_updates == Some(true);
             open_main_window(path, preunlocked, select, cx);
+            if auto_update_check {
+                update::start_check(false, cx);
+            }
 
             // A hidden (unlocked) session still auto-locks after IDLE_LOCK.
             cx.spawn(async move |cx| loop {
@@ -687,3 +703,21 @@ fn handle_sys_event(ev: sys::SysEvent, cx: &mut App) {
 }
 
 gpui::actions!(keywhere, [Quit, OpenSettings]);
+
+/// "Update and restart": download and verify the new AppImage, then lock,
+/// start the new version and quit.
+pub(crate) fn install_update(cx: &mut App) {
+    update::start_install(cx, |cx, target| {
+        if let Some(handle) = cx.global::<AppState>().window {
+            let _ = handle.update(cx, |shell, window, cx| shell.lock(window, cx));
+        }
+        drop_hidden_session(cx);
+        match update::relaunch(&target) {
+            Ok(()) => cx.quit(),
+            Err(e) => {
+                update::set_failed(update::UpdateError::Install(e.to_string()));
+                cx.refresh_windows();
+            }
+        }
+    });
+}

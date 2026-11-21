@@ -40,6 +40,24 @@ not as public issues.
   * Changes that fail to save are written, still encrypted, to
     `<name>.unsaved-<time>.psafe3` before the vault locks.
 
+## Updates
+
+* **No network by default.** Update checks start only after you say yes (first‑run question
+  or Settings → Updates). A check is two HTTPS requests to github.com for this repository's
+  latest release; nothing about your vaults is sent.
+* **Signed.** The release workflow signs `latest.json` with a minisign (Ed25519) key whose
+  public half is compiled into Keywhere (`packaging/keywhere-update.pub`). An unsigned or
+  differently signed manifest is rejected.
+* **Pinned.** The manifest's download URL must be a release file of this repository for that
+  exact version, and its size and SHA‑256 must match before the file is used.
+* **No downgrades.** Only a version newer than the running one is offered.
+* **Safe swap.** The AppImage is downloaded next to itself (mode 0600), verified, must report
+  the expected version, and only then replaces the old file by an atomic rename. The vault is
+  locked before the restart. Flatpak, distro packages and source builds are never modified.
+* **Limits.** Whoever holds the signing key or the GitHub account can ship an update. An
+  attacker who can block or replay GitHub responses can hide a new release (they can't
+  install an old or foreign one).
+
 ## What it cannot protect against
 
 * **Malware running as your user while the vault is unlocked.** Such malware

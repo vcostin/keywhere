@@ -6,6 +6,14 @@ fn main() {
         println!("Keywhere {}", keywhere::VERSION_LABEL);
         return;
     }
+    if arg.as_deref() == Some("--after-update") {
+        // Started by the updater: let the old process exit first.
+        if let Some(pid) = std::env::args().nth(2) {
+            keywhere::update::wait_for_exit(&pid);
+        }
+        keywhere::run(keywhere::config::last_vault());
+        return;
+    }
     let path = std::env::args_os()
         .nth(1)
         .filter(|a| a != "--show")

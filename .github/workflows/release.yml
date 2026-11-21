@@ -1,0 +1,93 @@
+name: Release
+
+# Push a tag `vX.Y.Z` matching the workspace version to publish a release:
+# the Linux AppImage, a signed `latest.json` for the in-app updater, and
+# SHA256SUMS. See docs/releasing.md.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  linux:
+    name: Linux AppImage
+    # Oldest supported glibc: build on the oldest maintained runner.
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@1.95.0
+
+      - name: Linux GPUI dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev \
+            libx11-xcb-dev libxcb1-dev libxcb-shape0-dev libxcb-xfixes0-dev libfontconfig-dev \
+            libfreetype-dev libvulkan-dev libzstd-dev libasound2-dev clang libfuse2
+
+      - name: Tag matches the workspace version
+        id: version
+        run: |
+          set -euo pipefail
+          V=$(cargo metadata --no-deps --format-version 1 \
+            | python3 -c 'import json,sys; print(next(p["version"] for p in json.load(sys.stdin)["packages"] if p["name"]=="keywhere"))')
+          if [ "v$V" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match the workspace version $V"
+            exit 1
+          fi
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+
+      - name: Tests
+        run: cargo test --locked --release --workspace
+
+      - name: Build AppImage
+        run: packaging/linux/build-appimage.sh
+
+      - name: Update manifest
+        run: packaging/make-update-manifest.sh "${{ steps.version.outputs.version }}"
+
+      - name: Install rsign2
+        run: cargo install --locked rsign2 --version 0.6.7
+
+      - name: Sign the update manifest
+        env:
+          KEYWHERE_UPDATE_KEY: ${{ secrets.KEYWHERE_UPDATE_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${KEYWHERE_UPDATE_KEY:-}" ]; then
+            echo "::error::Repository secret KEYWHERE_UPDATE_KEY (minisign secret key) is missing. See docs/releasing.md."
+            exit 1
+          fi
+          umask 077
+          key=$(mktemp)
+          trap 'rm -f "$key"' EXIT
+          printf '%s\n' "$KEYWHERE_UPDATE_KEY" > "$key"
+          rsign sign -W -s "$key" -x dist/latest.json.minisig \
+            -t "keywhere ${{ steps.version.outputs.version }}" dist/latest.json
+          # The app only trusts the committed public key: prove this
+          # signature verifies with it before anything is published.
+          rsign verify -p packaging/keywhere-update.pub -x dist/latest.json.minisig dist/latest.json
+
+      - name: Checksums
+        run: cd dist && sha256sum Keywhere-*.AppImage latest.json latest.json.minisig > SHA256SUMS && cat SHA256SUMS
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # Not a draft and marked latest: the updater reads
+          # releases/latest/download/latest.json.
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Keywhere ${{ steps.version.outputs.version }}" \
+            --generate-notes \
+            --latest

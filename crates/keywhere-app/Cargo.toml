@@ -25,6 +25,11 @@ zeroize = "1"
 sha2 = "0.10"
 futures = "0.3"
 url = "2.5"
+ureq = { version = "3", default-features = false, features = ["rustls", "gzip"] }
+minisign-verify = "0.3.0"
+semver = "1.0.28"
+serde_json = "1.0.154"
+serde = { version = "1.0.229", features = ["derive"] }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

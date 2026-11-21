@@ -15,6 +15,10 @@ allow = [
     "BSD-3-Clause", "ISC", "Zlib", "Unicode-3.0", "MPL-2.0", "BSL-1.0",
     "CC0-1.0", "0BSD", "Unlicense", "NCSA",
 ]
+# Mozilla's CA list (data, permissive), used by the updater's HTTPS client.
+exceptions = [
+    { allow = ["CDLA-Permissive-2.0"], crate = "webpki-roots" },
+]
 
 [bans]
 # gpui pulls many duplicate (non-secret) crates; only crypto crates are pinned to one version below.

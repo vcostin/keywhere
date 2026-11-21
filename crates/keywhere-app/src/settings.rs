@@ -24,6 +24,9 @@ pub struct Settings {
     /// `None` = follow the system language.
     pub language: Option<Lang>,
     pub theme: ThemeChoice,
+    /// Ask GitHub for a newer release at startup. `None` = not decided yet:
+    /// no network until the user answers the first-run question.
+    pub check_updates: Option<bool>,
 }
 
 impl Default for Settings {
@@ -37,6 +40,7 @@ impl Default for Settings {
             language: None,
             // Keywhere's identity is the navy dark look; System/Light are opt-in.
             theme: ThemeChoice::Dark,
+            check_updates: None,
         }
     }
 }
@@ -86,6 +90,13 @@ impl Settings {
                 }
                 "language" => s.language = Lang::from_code(v),
                 "theme" => s.theme = ThemeChoice::from_code(v),
+                "check_updates" => {
+                    s.check_updates = match v {
+                        "true" => Some(true),
+                        "false" => Some(false),
+                        _ => None,
+                    }
+                }
                 _ => {}
             }
         }
@@ -94,7 +105,7 @@ impl Settings {
 
     fn serialize(&self) -> String {
         format!(
-            "# Keywhere settings\nidle_lock_minutes = {}\nclipboard_clear_secs = {}\nclose_action = {}\nlanguage = {}\ntheme = {}\n",
+            "# Keywhere settings\nidle_lock_minutes = {}\nclipboard_clear_secs = {}\nclose_action = {}\nlanguage = {}\ntheme = {}\ncheck_updates = {}\n",
             self.idle_lock_minutes,
             self.clipboard_clear_secs,
             match self.close_action {
@@ -103,6 +114,11 @@ impl Settings {
             },
             self.language.map(Lang::code).unwrap_or("system"),
             self.theme.code(),
+            match self.check_updates {
+                Some(true) => "true",
+                Some(false) => "false",
+                None => "ask",
+            },
         )
     }
 }
@@ -140,6 +156,7 @@ mod tests {
             close_action: CloseAction::Lock,
             language: Some(Lang::Ro),
             theme: ThemeChoice::Light,
+            check_updates: Some(false),
         };
         assert_eq!(Settings::parse(&s.serialize()), s);
         let bad = Settings::parse("clipboard_clear_secs = 9999\nlanguage = xx\nnonsense\n");
@@ -152,7 +169,28 @@ mod tests {
     fn close_locks_unless_hide_is_chosen() {
         assert_eq!(Settings::default().close_action, CloseAction::Lock);
         assert_eq!(Settings::parse("").close_action, CloseAction::Lock);
-        assert_eq!(Settings::parse("close_action = bogus").close_action, CloseAction::Lock);
-        assert_eq!(Settings::parse("close_action = hide").close_action, CloseAction::Hide);
+        assert_eq!(
+            Settings::parse("close_action = bogus").close_action,
+            CloseAction::Lock
+        );
+        assert_eq!(
+            Settings::parse("close_action = hide").close_action,
+            CloseAction::Hide
+        );
+    }
+
+    #[test]
+    fn update_checks_are_off_until_chosen() {
+        assert_eq!(Settings::default().check_updates, None);
+        assert_eq!(Settings::parse("check_updates = maybe").check_updates, None);
+        assert_eq!(
+            Settings::parse("check_updates = true").check_updates,
+            Some(true)
+        );
+        let s = Settings {
+            check_updates: None,
+            ..Settings::default()
+        };
+        assert_eq!(Settings::parse(&s.serialize()).check_updates, None);
     }
 }

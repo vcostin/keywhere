@@ -13,6 +13,12 @@ Works with files from Password Safe and Password Gorilla. No cloud account, no s
 
 ## Using it
 
+**Linux:** download `Keywhere-<version>-x86_64.AppImage` from
+[Releases](https://github.com/vcostin/keywhere/releases/latest), make it executable and run it
+(`chmod +x Keywhere-*.AppImage`). `SHA256SUMS` on the release lists the checksums.
+
+From source:
+
 ```sh
 cargo run --release -p keywhere -- path/to/vault.psafe3
 ```
@@ -54,6 +60,16 @@ clipboard clear time (5–120 s), what closing the window does (lock and hide �
 hide and keep unlocked), and the **language** (System, English, Română). Settings apply immediately and are stored in
 `~/.config/keywhere/settings` (never secrets). Translations live in
 `crates/keywhere-app/src/i18n.rs`; adding a language is one column there.
+
+### Updates
+
+On first start Keywhere asks whether it may check GitHub for new versions at startup; nothing
+happens on the network until you answer. Settings → Updates has the same switch and a **Check
+now** button. When a new version is out, the AppImage offers **Update and restart**: it downloads
+the new AppImage, checks it against a manifest signed with Keywhere's release key (the public key
+is built into the app), swaps it in place, locks and restarts. Copies installed by a package
+manager or built from source only get a notice with a link. Details:
+[SECURITY.md](SECURITY.md#updates) and [docs/releasing.md](docs/releasing.md).
 
 ### Password Gorilla / Password Safe v2 files
 
