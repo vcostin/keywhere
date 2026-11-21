@@ -266,7 +266,11 @@ static TABLE: &[(&str, &str)] = &[
     ("Unlocking…", "Se deblochează…"),
     ("Choose vault…", "Alege seiful…"),
     ("Open another vault…", "Deschide alt seif…"),
+    ("Open {name}? The vault that is open now will lock first.", "Deschizi {name}? Seiful deschis acum se va bloca mai întâi."),
+    ("Lock and open", "Blochează și deschide"),
+    ("Couldn't open the file dialog: {e}", "Fereastra de alegere a fișierului nu s-a deschis: {e}"),
     ("Open vault", "Deschide seiful"),
+    ("Open", "Deschide"),
     ("Caps Lock is on", "Caps Lock este activat"),
     ("built", "compilat"),
     // settings

@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use gpui::{
     div, prelude::*, px, svg, App, Context, Entity, EventEmitter, FocusHandle, Focusable,
-    PathPromptOptions, SharedString, Window,
+    SharedString, Window,
 };
 use keywhere_core::{Error, Vault};
 use zeroize::Zeroizing;
@@ -132,27 +132,56 @@ impl UnlockView {
     }
 
     fn choose(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let rx = cx.prompt_for_paths(PathPromptOptions {
-            files: true,
-            directories: false,
-            multiple: false,
-            prompt: Some(crate::i18n::t("Open vault").into()),
-        });
-        cx.spawn_in(window, async move |this, cx| {
-            if let Ok(Ok(Some(mut paths))) = rx.await {
-                if let Some(p) = paths.pop() {
-                    this.update_in(cx, |this, window, cx| {
-                        config::remember_vault(&p);
-                        this.path = Some(p);
-                        this.error = None;
-                        window.focus(&this.password.focus_handle(cx));
-                        cx.notify();
-                    })
-                    .ok();
+        let title = crate::i18n::t("Open vault");
+        let accept = crate::i18n::t("Open");
+        // Linux: a helper process asks the portal (see sys/picker.rs).
+        #[cfg(target_os = "linux")]
+        let picked = cx
+            .background_executor()
+            .spawn(async move { crate::sys::picker::pick_vault(title, accept) });
+        #[cfg(not(target_os = "linux"))]
+        let picked = {
+            let _ = accept;
+            let rx = cx.prompt_for_paths(gpui::PathPromptOptions {
+                files: true,
+                directories: false,
+                multiple: false,
+                prompt: Some(title.into()),
+            });
+            async move {
+                match rx.await {
+                    Ok(Ok(paths)) => Ok(paths.and_then(|mut p| p.pop())),
+                    Ok(Err(e)) => Err(e.to_string()),
+                    Err(_) => Err("the file dialog closed unexpectedly".to_string()),
                 }
             }
+        };
+        cx.spawn_in(window, async move |this, cx| {
+            let picked = picked.await;
+            let _ = this.update_in(cx, |this, window, cx| match picked {
+                Ok(Some(p)) => this.set_path(p, window, cx),
+                Ok(None) => {} // cancelled
+                Err(e) => {
+                    // Never fail silently: say why no dialog appeared.
+                    eprintln!("keywhere: file dialog failed: {e}");
+                    this.error = Some(
+                        crate::i18n::tf("Couldn't open the file dialog: {e}", &[("e", &e)]).into(),
+                    );
+                    cx.notify();
+                }
+            });
         })
         .detach();
+    }
+
+    /// Point the unlock screen at another vault (file dialog, or a vault
+    /// opened from the file manager while Keywhere is running).
+    pub fn set_path(&mut self, p: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
+        config::remember_vault(&p);
+        self.path = Some(p);
+        self.error = None;
+        window.focus(&self.password.focus_handle(cx));
+        cx.notify();
     }
 }
 

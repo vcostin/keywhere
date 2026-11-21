@@ -6,6 +6,12 @@ fn main() {
         println!("Keywhere {}", keywhere::VERSION_LABEL);
         return;
     }
+    // File-dialog helper (see sys/picker.rs): no GUI, no vault, no hardening.
+    #[cfg(target_os = "linux")]
+    if arg.as_deref() == Some(keywhere::sys::picker::PICK_ARG) {
+        let rest: Vec<String> = std::env::args().skip(2).collect();
+        keywhere::sys::picker::run_child(&rest);
+    }
     if arg.as_deref() == Some("--after-update") {
         // Started by the updater: let the old process exit first.
         let exited = std::env::args()
@@ -18,10 +24,11 @@ fn main() {
         keywhere::run_after_update(keywhere::config::last_vault());
         return;
     }
-    let path = std::env::args_os()
+    // A file given on the command line (file manager, "Open with").
+    let file = std::env::args_os()
         .nth(1)
         .filter(|a| a != "--show")
         .map(std::path::PathBuf::from)
-        .or_else(keywhere::config::last_vault);
-    keywhere::run(path);
+        .map(|p| std::path::absolute(&p).unwrap_or(p));
+    keywhere::run(file);
 }

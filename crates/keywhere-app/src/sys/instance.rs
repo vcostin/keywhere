@@ -3,7 +3,8 @@
 //! The first instance listens on `$XDG_RUNTIME_DIR/keywhere.sock`, or, if that
 //! is unavailable or too long for a socket path, on `keywhere.sock` inside a
 //! per-uid directory in the temp dir. A second start connects, sends one
-//! command and exits. Only the fixed commands `show` / `lock` are understood.
+//! command and exits. Only the fixed commands `show`, `open`, `lock`, `hide` and
+//! `quit` are understood.
 //!
 //! Hardening against other local users:
 //! * the socket directory must be a real directory (not a symlink) owned by
@@ -31,6 +32,38 @@ pub fn show_command() -> String {
         Ok(t) if valid_token(&t) => format!("show {t}"),
         _ => "show".into(),
     }
+}
+
+/// `open` a vault file in the running instance (file manager, `keywhere
+/// file.psafe3`). Tab-separated so paths may contain spaces; `None` if the
+/// path can't be sent (not absolute, not UTF-8, contains a tab or newline).
+pub fn open_command(path: &Path) -> Option<String> {
+    let p = path.to_str()?;
+    if !path.is_absolute() || p.contains(['\t', '\n', '\r']) || p.len() > MAX_PATH {
+        return None;
+    }
+    let token = match std::env::var("XDG_ACTIVATION_TOKEN") {
+        Ok(t) if valid_token(&t) => t,
+        _ => "-".into(),
+    };
+    Some(format!("open\t{token}\t{p}"))
+}
+
+const MAX_PATH: usize = 4096;
+
+/// Parse an `open` line; the path must be absolute.
+fn parse_open(line: &str) -> Option<SysEvent> {
+    let mut parts = line.splitn(3, '\t');
+    if parts.next()? != "open" {
+        return None;
+    }
+    let token = parts.next()?;
+    let path = PathBuf::from(parts.next()?);
+    if !path.is_absolute() {
+        return None;
+    }
+    let token = (token != "-" && valid_token(token)).then(|| token.to_string());
+    Some(SysEvent::Open(path, token))
 }
 
 static DEV: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
@@ -175,10 +208,17 @@ pub fn listen(tx: EventTx) {
                 }
                 let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
                 let mut line = String::new();
-                if BufReader::new(stream.take(300))
+                if BufReader::new(stream.take(MAX_PATH as u64 + 300))
                     .read_line(&mut line)
                     .is_err()
                 {
+                    continue;
+                }
+                let line = line.trim_end_matches(['\n', '\r']);
+                if let Some(ev) = parse_open(line) {
+                    if tx.unbounded_send(ev).is_err() {
+                        break;
+                    }
                     continue;
                 }
                 let mut parts = line.trim().splitn(2, ' ');
