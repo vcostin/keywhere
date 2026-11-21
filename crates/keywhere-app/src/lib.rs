@@ -116,6 +116,7 @@ impl Shell {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
+        sys::capture::exclude(window);
         let idle = cx.spawn_in(window, async move |this, cx| loop {
             cx.background_executor().timer(Duration::from_secs(1)).await;
             secret_text::sweep();
@@ -655,7 +656,13 @@ pub fn harden_process() {
         if !dev_memory_test() {
             libc::prctl(libc::PR_SET_DUMPABLE, 0, 0, 0, 0);
         }
+        // No debugger may attach (release builds; it would also stop
+        // developers from debugging).
+        #[cfg(all(target_os = "macos", not(debug_assertions)))]
+        libc::ptrace(libc::PT_DENY_ATTACH, 0, std::ptr::null_mut(), 0);
     }
+    #[cfg(windows)]
+    sys::windows::harden();
 }
 
 /// DEV ONLY: the RAM-residue test harness needs to read our memory, which

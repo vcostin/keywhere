@@ -32,6 +32,7 @@ serde_json = "1.0.154"
 serde = { version = "1.0.229", features = ["derive"] }
 resvg = { version = "0.45", default-features = false }
 getrandom = "0.2"
+raw-window-handle = "0.6"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
@@ -44,7 +45,14 @@ zbus = { version = "5", default-features = false, features = ["async-io", "block
 wayland-client = "0.31"
 wayland-backend = { version = "0.3", features = ["client_system"] }
 wayland-protocols = { version = "0.31", features = ["client", "staging"] }
-raw-window-handle = "0.6"
 
 [target.'cfg(not(target_os = "linux"))'.dependencies]
 arboard = { version = "3.7", default-features = false }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+block2 = "0.6"
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSResponder", "NSView", "NSWindow", "NSWorkspace"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "block2", "NSDistributedNotificationCenter", "NSNotification", "NSOperation", "NSString"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_System_Diagnostics_Debug", "Win32_System_LibraryLoader", "Win32_System_RemoteDesktop", "Win32_System_Threading", "Win32_UI_WindowsAndMessaging"] }
