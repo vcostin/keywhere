@@ -186,7 +186,8 @@ function setCta(text, linkText, target) {
   if (!linkText) return ctaStatus.replaceChildren(text);
   const a = el("a", "", linkText);
   a.href = `#${target}`;
-  const howto = document.getElementById(target)?.querySelector(".howto");
+  const card = document.getElementById(target);
+  const howto = card?.classList.contains("platform") ? card.querySelector(".howto") : null;
   if (howto) a.addEventListener("click", () => (howto.open = true));
   ctaStatus.replaceChildren(text, a, ".");
 }
@@ -284,7 +285,7 @@ function renderPrimary(byType, version) {
     primaryLabel.textContent = `Download for ${name}`;
     primaryMeta.textContent = os === "macos" ? `Apple silicon or Intel · ${version}` : `Version ${version}`;
     if (os === "linux") setCta("", "All Linux downloads", "dl-linux");
-    else setCta("Unsigned preview: ", "how to start it", `dl-${os}`);
+    else setCta("Unsigned preview: ", `${name} files and first start`, `dl-${os}`);
   } else {
     primary.href = "#download";
     primaryLabel.textContent = "See all downloads";
