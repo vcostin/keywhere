@@ -6,15 +6,21 @@ const REPO = "vcostin/keywhere";
 const RELEASES = `https://github.com/${REPO}/releases/latest`;
 const API = `https://api.github.com/repos/${REPO}/releases/latest`;
 
-/** Release asset name patterns (see packaging/release-notes.sh). */
-const PATTERNS = {
-  appimage: /^Keywhere-.+-x86_64\.AppImage$/,
-  deb: /^keywhere_.+_amd64\.deb$/,
-  rpm: /^keywhere-.+\.x86_64\.rpm$/,
-  "mac-arm64": /^Keywhere-.+-macos-arm64\.dmg$/,
-  "mac-x64": /^Keywhere-.+-macos-x64\.dmg$/,
-  "win-x64": /^Keywhere-.+-windows-x64-portable\.exe$/,
-};
+/** Exact release asset names for version v (see packaging/release-notes.sh). */
+function assetNames(v) {
+  return {
+    appimage: `Keywhere-${v}-x86_64.AppImage`,
+    deb: `keywhere_${v}-1_amd64.deb`,
+    rpm: `keywhere-${v}-1.x86_64.rpm`,
+    "mac-arm64": `Keywhere-${v}-macos-arm64.dmg`,
+    "mac-x64": `Keywhere-${v}-macos-x64.dmg`,
+    "win-x64": `Keywhere-${v}-windows-x64-portable.exe`,
+  };
+}
+
+/** Only links into this repository are used; anything else keeps the static fallback. */
+const SAFE_URL = /^https:\/\/github\.com\/vcostin\/keywhere\//;
+const safeUrl = (u) => (typeof u === "string" && SAFE_URL.test(u) ? u : null);
 
 const OS_NAMES = { linux: "Linux", macos: "macOS", windows: "Windows" };
 /** The file the big button downloads directly, per OS. macOS needs a choice (chip), so it scrolls. */
@@ -99,11 +105,14 @@ async function main() {
   }
 
   const tag = String(release.tag_name ?? "").replace(/^v/, "");
-  const releaseUrl = typeof release.html_url === "string" ? release.html_url : RELEASES;
-  const assets = Array.isArray(release.assets) ? release.assets : [];
+  if (!/^\d+\.\d+\.\d+$/.test(tag)) return fallback("Couldn't read the latest release from GitHub.");
+  const releaseUrl = safeUrl(release.html_url) ?? RELEASES;
+  const assets = (Array.isArray(release.assets) ? release.assets : []).filter((a) =>
+    safeUrl(a?.browser_download_url),
+  );
   const found = {};
-  for (const [key, re] of Object.entries(PATTERNS)) {
-    found[key] = assets.find((a) => re.test(String(a.name)));
+  for (const [key, name] of Object.entries(assetNames(tag))) {
+    found[key] = assets.find((a) => a.name === name);
   }
 
   if (tag) dlVersion.textContent = ` ${tag}`;

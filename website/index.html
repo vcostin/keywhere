@@ -360,7 +360,7 @@
             <li><strong>Saves you can trust</strong> Every save is written atomically, read back and verified, with the previous file kept as <code>.ibak</code>.</li>
             <li><strong>Locks on its own</strong> When you're idle, when the screen locks, and before the system sleeps.</li>
             <li><strong>Clipboard care</strong> Copied secrets are excluded from clipboard history and cloud clipboards where the system allows it, and cleared automatically.</li>
-            <li><strong>Out of sight</strong> On macOS and Windows the window is kept out of screen captures.</li>
+            <li><strong>Out of sight</strong> The window is excluded from screen capture on Windows and macOS. On recent macOS this doesn't cover every capture API.</li>
             <li><strong>Process hardening</strong> Core dumps are off and other programs are kept from attaching: ptrace is blocked on Linux, PT_DENY_ATTACH is set on macOS, and on Windows an access list denies memory access and thread injection.</li>
             <li><strong>Verified updates</strong> The update manifest is signed with minisign (Ed25519) and checked against a public key built into the app. No downgrades.</li>
           </ul>

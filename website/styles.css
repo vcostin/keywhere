@@ -44,13 +44,15 @@
   --dim: #7b8baa;
   --accent: #e39a1f;
   --accent-ink: #2a1a00;
-  --accent-text: #9a5f00; /* amber dark enough for small text on light backgrounds */
+  --accent-text: #8f5800; /* amber dark enough for small text on light backgrounds */
   --accent-display: #c47a0a; /* large headings only */
   --focus: #2f6bea;
   --selection: #d3e0f8;
   --link: #2459c8;
   --ok: #1e9a60;
   --warn: #a86a12;
+  --warn-text: #8a5508; /* AA for small text */
+  --ok-text: #13774a;
   --danger: #c23a3a;
   --shadow: 0 1px 2px rgb(20 33 61 / 6%), 0 18px 50px -12px rgb(20 33 61 / 22%);
   --glow: rgb(227 154 31 / 22%);
@@ -83,6 +85,8 @@
     --link: #8fb2ff;
     --ok: #4fd69c;
     --warn: #f7c04a;
+    --warn-text: #f7c04a;
+    --ok-text: #4fd69c;
     --danger: #ff7a7a;
     --shadow: 0 1px 2px rgb(0 0 0 / 30%), 0 24px 60px -16px rgb(2 8 24 / 70%);
     --glow: rgb(242 178 76 / 18%);
@@ -110,6 +114,8 @@
   --link: #8fb2ff;
   --ok: #4fd69c;
   --warn: #f7c04a;
+  --warn-text: #f7c04a;
+  --ok-text: #4fd69c;
   --danger: #ff7a7a;
   --shadow: 0 1px 2px rgb(0 0 0 / 30%), 0 24px 60px -16px rgb(2 8 24 / 70%);
   --glow: rgb(242 178 76 / 18%);
@@ -145,7 +151,6 @@ body {
   font-size: 17px;
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
-  overflow-x: hidden;
 }
 
 img,
@@ -745,7 +750,7 @@ kbd {
   text-align: center;
   margin-top: 16px;
   font-size: 0.85rem;
-  color: var(--dim);
+  color: var(--muted);
 }
 
 /* Story */
@@ -1015,11 +1020,11 @@ kbd {
 }
 .tag-warn {
   background: color-mix(in srgb, var(--warn) 16%, transparent);
-  color: var(--warn);
+  color: var(--warn-text);
 }
 .tag-ok {
   background: color-mix(in srgb, var(--ok) 16%, transparent);
-  color: var(--ok);
+  color: var(--ok-text);
 }
 .files {
   list-style: none;
@@ -1074,7 +1079,7 @@ kbd {
 }
 .file-meta {
   font-size: 0.76rem;
-  color: var(--dim);
+  color: var(--muted);
 }
 .sums {
   margin: 0 0 12px;
@@ -1141,7 +1146,7 @@ kbd {
 }
 .platform-note {
   font-size: 0.86rem;
-  color: var(--warn);
+  color: var(--warn-text);
   margin: 0 0 12px;
 }
 
@@ -1231,7 +1236,7 @@ kbd {
   stroke-linejoin: round;
 }
 .copy-btn.is-done {
-  color: var(--ok);
+  color: var(--ok-text);
 }
 
 .verify {
@@ -1390,7 +1395,7 @@ kbd {
   padding-top: 22px;
   border-top: 1px solid var(--line);
   font-size: 0.82rem;
-  color: var(--dim);
+  color: var(--muted);
 }
 .footer-note a {
   color: var(--muted);

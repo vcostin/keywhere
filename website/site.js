@@ -12,6 +12,10 @@ function applyTheme(pref) {
   const dark = pref === "dark" || (pref === "system" && media.matches);
   root.setAttribute("data-theme", dark ? "dark" : "light");
   root.setAttribute("data-theme-pref", pref);
+  // Browser chrome colour follows the resolved theme, not just the system setting.
+  for (const meta of document.querySelectorAll('meta[name="theme-color"]')) {
+    meta.content = dark ? "#0A1631" : "#F3F6FB";
+  }
   for (const btn of document.querySelectorAll("[data-theme-choice]")) {
     btn.setAttribute("aria-pressed", String(btn.dataset.themeChoice === pref));
   }
