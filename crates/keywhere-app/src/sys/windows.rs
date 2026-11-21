@@ -260,6 +260,65 @@ unsafe fn restrict_process_access() -> Result<(), &'static str> {
     Ok(())
 }
 
+/// The per-user installer (NSIS) records the version under Settings → Apps.
+/// After an in-app update that entry would still show the old one, so a
+/// copy started from the recorded install folder refreshes it. Portable and
+/// MSI copies have no such entry (or another folder) and are left alone.
+pub fn refresh_installed_version() {
+    use windows_sys::Win32::Foundation::ERROR_SUCCESS;
+    use windows_sys::Win32::System::Registry::{
+        RegGetValueW, RegSetKeyValueW, HKEY_CURRENT_USER, REG_SZ, RRF_RT_REG_SZ,
+    };
+    let wide = |s: &str| s.encode_utf16().chain([0]).collect::<Vec<u16>>();
+    let key = wide("Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Keywhere");
+    let mut buf = [0u16; 1024];
+    let mut len = std::mem::size_of_val(&buf) as u32;
+    // SAFETY: valid NUL-terminated strings; `buf`/`len` describe a writable buffer.
+    let r = unsafe {
+        RegGetValueW(
+            HKEY_CURRENT_USER,
+            key.as_ptr(),
+            wide("InstallLocation").as_ptr(),
+            RRF_RT_REG_SZ,
+            std::ptr::null_mut(),
+            buf.as_mut_ptr().cast(),
+            &mut len,
+        )
+    };
+    if r != ERROR_SUCCESS {
+        return;
+    }
+    let n = (len as usize / 2).saturating_sub(1).min(buf.len());
+    let location = std::path::PathBuf::from(String::from_utf16_lossy(&buf[..n]));
+    let here = std::env::current_exe().ok();
+    let same = here
+        .as_deref()
+        .and_then(std::path::Path::parent)
+        .is_some_and(|d| same_dir(d, &location));
+    if !same {
+        return;
+    }
+    let version = wide(env!("CARGO_PKG_VERSION"));
+    // SAFETY: as above; the data is a NUL-terminated UTF-16 string.
+    unsafe {
+        RegSetKeyValueW(
+            HKEY_CURRENT_USER,
+            key.as_ptr(),
+            wide("DisplayVersion").as_ptr(),
+            REG_SZ,
+            version.as_ptr().cast(),
+            (version.len() * 2) as u32,
+        );
+    }
+}
+
+fn same_dir(a: &std::path::Path, b: &std::path::Path) -> bool {
+    match (std::fs::canonicalize(a), std::fs::canonicalize(b)) {
+        (Ok(x), Ok(y)) => x == y,
+        _ => false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

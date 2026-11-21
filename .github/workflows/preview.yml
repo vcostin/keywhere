@@ -51,11 +51,16 @@ jobs:
       - name: Package (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
-        run: packaging/windows/build-exe.ps1
+        run: |
+          packaging/windows/build-exe.ps1
+          packaging/windows/build-installers.ps1
       - uses: actions/upload-artifact@v4
         with:
           name: preview-${{ runner.os }}
           path: |
             dist/*.dmg
+            dist/*.app.zip
             dist/*-portable.exe
+            dist/*-setup.exe
+            dist/*.msi
           if-no-files-found: error

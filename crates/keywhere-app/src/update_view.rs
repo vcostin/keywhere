@@ -5,7 +5,7 @@ use gpui::{div, prelude::*, px, svg, AnyElement, App, FontWeight, SharedString};
 
 use crate::i18n::{t, tf};
 use crate::theme::*;
-use crate::update::{self, Install, Status, UpdateError};
+use crate::update::{self, Status, UpdateError};
 
 fn button(id: &'static str, label: SharedString, primary: bool) -> gpui::Stateful<gpui::Div> {
     div()
@@ -47,8 +47,7 @@ fn error_text(e: &UpdateError) -> SharedString {
 /// The action for an available release: install in place, or (for installs
 /// we don't own, or no build for this system) open the release page.
 fn primary_action(rel: &update::Release) -> gpui::Stateful<gpui::Div> {
-    let can_install =
-        rel.asset.is_some() && matches!(update::install_method(), Install::AppImage(_));
+    let can_install = rel.asset.is_some() && update::install_method().can_replace();
     if can_install {
         button("update-install", t("Update and restart").into(), true)
             .on_click(|_, _, cx| crate::install_update(cx))

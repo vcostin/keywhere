@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # PREVIEW: build dist/Keywhere-<version>-macos-<arch>.dmg (Keywhere.app plus
-# an Applications link to drag it onto) from a release build.
+# an Applications link to drag it onto) from a release build, and
+# dist/Keywhere-<version>-macos-<arch>.app.zip, the same bundle for the
+# in-app updater (listed in the signed latest.json).
 #
 #   packaging/macos/build-app.sh [aarch64-apple-darwin | x86_64-apple-darwin]
 #
@@ -74,11 +76,17 @@ if [ "$TARGET" = "$HOST" ]; then
     "$APP/Contents/MacOS/keywhere" --version | grep "^Keywhere $VERSION"
 fi
 
-ln -s /Applications "$WORK/dmg/Applications"
 mkdir -p dist
+# For the in-app updater, which unpacks it with ditto too.
+ZIP=dist/Keywhere-$VERSION-macos-$ARCH.app.zip
+rm -f "$ZIP"
+ditto -c -k --keepParent "$APP" "$ZIP"
+
+ln -s /Applications "$WORK/dmg/Applications"
 OUT=dist/Keywhere-$VERSION-macos-$ARCH.dmg
 rm -f "$OUT"
 hdiutil create -volname "Keywhere $VERSION" -srcfolder "$WORK/dmg" -fs HFS+ \
     -format UDZO -imagekey zlib-level=9 -ov "$OUT" >/dev/null
 hdiutil verify "$OUT" >/dev/null
 echo "$OUT"
+echo "$ZIP"

@@ -712,6 +712,7 @@ pub fn run(file: Option<PathBuf>) {
 /// one still answers, it is the old version and this start must not silently
 /// disappear into it.
 pub fn run_after_update(path: Option<PathBuf>) {
+    update::cleanup_leftovers();
     #[cfg(unix)]
     {
         let deadline = Instant::now() + Duration::from_secs(10);
@@ -791,6 +792,8 @@ fn run_inner(path: Option<PathBuf>, preunlocked: Preunlocked, select: Option<Str
             sys::instance::listen(tx.clone());
         }
         sys::watch_session(tx.clone());
+        #[cfg(windows)]
+        sys::windows::refresh_installed_version();
         let tray = sys::Tray::start(tx);
         cx.set_global(AppState {
             path: path.clone(),
@@ -992,7 +995,7 @@ gpui::actions!(keywhere, [Quit, OpenSettings]);
 /// The AppImage just added itself to the app menu: say so once, with Undo.
 static MENU_NOTICE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
-/// "Update and restart": download and verify the new AppImage, then lock,
+/// "Update and restart": download and verify the new version, then lock,
 /// start the new version and quit.
 pub(crate) fn install_update(cx: &mut App) {
     update::start_install(cx, |cx, target| {
