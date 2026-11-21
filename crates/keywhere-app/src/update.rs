@@ -10,8 +10,14 @@
 //! 3. The manifest names, per platform, a download URL that must be inside
 //!    this repository's release downloads, its exact size and its SHA-256.
 //! 4. The download is size-capped and hashed as it streams. Only a matching
-//!    file replaces the running AppImage (atomic rename in the same folder),
-//!    and only after the new file has reported the expected version.
+//!    file replaces the running copy, and only after the new binary has
+//!    reported the expected version:
+//!    * Linux AppImage: atomic rename over the AppImage, in the same folder;
+//!    * Windows portable exe: the running exe is renamed aside (Windows
+//!      allows that, not overwriting) and the new one takes its name; the
+//!      old file is deleted at the next start;
+//!    * macOS: a zipped `Keywhere.app`, unpacked with `ditto` next to the
+//!      installed bundle, which is then swapped by two renames.
 //! 5. Only a version strictly newer than the running one is offered, so an
 //!    old (validly signed) manifest can't downgrade anyone.
 //!
@@ -19,7 +25,9 @@
 //! `Keywhere/<version>` user agent. Nothing about vaults is sent.
 //!
 //! Installs that a package manager owns (Flatpak, distro packages, `cargo`
-//! builds) are never modified: they get a notice and a link instead.
+//! builds), copies in folders we can't write (Program Files, a mounted
+//! disk image, a translocated quarantined app) are never modified: they get
+//! a notice and a link instead.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -93,9 +101,36 @@ pub struct Release {
 pub enum Install {
     /// A writable AppImage: download, verify and swap it in place.
     AppImage(PathBuf),
-    /// Owned by something else (Flatpak, package manager, source build):
-    /// only point to the release page.
+    /// Windows: the running portable exe, in a folder we can write.
+    Exe(PathBuf),
+    /// macOS: the running `….app` bundle, in a folder we can write.
+    AppBundle(PathBuf),
+    /// Owned by something else (Flatpak, package manager, source build) or
+    /// not writable: only point to the release page.
     Manual,
+}
+
+impl Install {
+    pub fn can_replace(&self) -> bool {
+        !matches!(self, Install::Manual)
+    }
+
+    /// What gets replaced.
+    fn target(&self) -> Option<&Path> {
+        match self {
+            Install::AppImage(p) | Install::Exe(p) | Install::AppBundle(p) => Some(p),
+            Install::Manual => None,
+        }
+    }
+
+    /// The program to start after the swap.
+    pub fn launch_path(&self) -> Option<PathBuf> {
+        match self {
+            Install::AppImage(p) | Install::Exe(p) => Some(p.clone()),
+            Install::AppBundle(b) => Some(b.join("Contents/MacOS/keywhere")),
+            Install::Manual => None,
+        }
+    }
 }
 
 pub fn current_version() -> semver::Version {
@@ -120,7 +155,103 @@ pub fn install_method() -> Install {
             }
         }
     }
+    #[cfg(windows)]
+    if let Some(p) = portable_exe() {
+        return Install::Exe(p);
+    }
+    #[cfg(target_os = "macos")]
+    if let Some(b) = app_bundle() {
+        return Install::AppBundle(b);
+    }
     Install::Manual
+}
+
+/// Can this process create (and remove) a file in `dir`? Anyone else who
+/// can write there could already replace Keywhere, so the swap adds no risk.
+#[cfg(any(windows, target_os = "macos", test))]
+fn dir_writable(dir: &Path) -> bool {
+    let probe = dir.join(format!(".keywhere-write-test-{}", std::process::id()));
+    match fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&probe)
+    {
+        Ok(f) => {
+            drop(f);
+            fs::remove_file(&probe).is_ok()
+        }
+        Err(_) => false,
+    }
+}
+
+/// Windows: the running `.exe`, if its folder is ours to write (not
+/// Program Files).
+#[cfg(windows)]
+fn portable_exe() -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    if !exe
+        .extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case("exe"))
+    {
+        return None;
+    }
+    dir_writable(exe.parent()?).then_some(exe)
+}
+
+/// macOS: the running bundle, if its folder is ours to write. A disk image
+/// is read-only, and so is the random copy macOS runs a quarantined app
+/// from (App Translocation).
+#[cfg(target_os = "macos")]
+fn app_bundle() -> Option<PathBuf> {
+    let exe = fs::canonicalize(std::env::current_exe().ok()?).ok()?;
+    bundle_of(&exe).filter(|b| b.parent().is_some_and(dir_writable))
+}
+
+/// `…/X.app/Contents/MacOS/<exe>` → `…/X.app`; `None` for anything else or
+/// a translocated copy.
+#[cfg(any(target_os = "macos", test))]
+fn bundle_of(exe: &Path) -> Option<PathBuf> {
+    let macos = exe.parent()?;
+    let contents = macos.parent()?;
+    let bundle = contents.parent()?;
+    if macos.file_name()? != "MacOS"
+        || contents.file_name()? != "Contents"
+        || bundle.extension()? != "app"
+        || bundle
+            .components()
+            .any(|c| c.as_os_str() == "AppTranslocation")
+    {
+        return None;
+    }
+    Some(bundle.to_path_buf())
+}
+
+/// Leftovers of a finished update that couldn't be removed while the old
+/// version ran (Windows keeps a running exe's file). Best effort.
+pub fn cleanup_leftovers() {
+    if let Some(target) = install_method().target() {
+        cleanup_next_to(target);
+    }
+}
+
+fn cleanup_next_to(target: &Path) {
+    let (Some(dir), Some(name)) = (target.parent(), target.file_name()) else {
+        return;
+    };
+    let prefix = format!(".{}.old-", name.to_string_lossy());
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+    for e in entries.flatten() {
+        if e.file_name().to_string_lossy().starts_with(&prefix) {
+            let p = e.path();
+            let _ = if p.is_dir() {
+                fs::remove_dir_all(&p)
+            } else {
+                fs::remove_file(&p)
+            };
+        }
+    }
 }
 
 /// `$APPIMAGE` is only an environment variable, so prove it before
@@ -293,11 +424,11 @@ pub fn check() -> Result<Option<Release>, UpdateError> {
     verify(&json, &sig, PUBLIC_KEY, &current_version(), &platform_key())
 }
 
-/// Blocking: download `asset`, verify it, and atomically replace `target`
+/// Blocking: download `asset`, verify it, and replace the installed copy
 /// with it. `progress(done, total)` is called as bytes arrive.
 pub fn download_and_replace(
     release: &Release,
-    target: &Path,
+    install: &Install,
     progress: impl Fn(u64, u64),
 ) -> Result<(), UpdateError> {
     let asset = release
@@ -309,31 +440,41 @@ pub fn download_and_replace(
         .call()
         .map_err(|e| UpdateError::Network(e.to_string()))?;
     let reader = resp.body_mut().with_config().limit(asset.size + 1).reader();
-    replace_from(reader, release, target, progress)
+    replace_from(reader, release, install, progress)
 }
 
-/// Stream `reader` into a private temp file next to `target`, checking size
-/// and SHA-256 against the signed manifest, check the new file reports the
-/// release's version, then rename it over `target`. On any failure `target`
-/// is untouched and the temp file is removed.
+/// Stream `reader` into a private temp file next to the installed copy,
+/// checking size and SHA-256 against the signed manifest, check the new
+/// binary reports the release's version, then put it in place (see the
+/// module docs per platform). On any failure the installed copy is
+/// untouched and the temp files are removed.
 fn replace_from(
     mut reader: impl Read,
     release: &Release,
-    target: &Path,
+    install: &Install,
     progress: impl Fn(u64, u64),
 ) -> Result<(), UpdateError> {
     let asset = release
         .asset
         .as_ref()
         .ok_or_else(|| UpdateError::Install("No build for this system.".into()))?;
+    let target = install
+        .target()
+        .ok_or_else(|| UpdateError::Install("This copy of Keywhere can't update itself.".into()))?;
     let dir = target
         .parent()
-        .ok_or_else(|| UpdateError::Install("The AppImage has no folder.".into()))?;
+        .ok_or_else(|| UpdateError::Install("Keywhere's folder is unknown.".into()))?;
     let name = target
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_else(|| "Keywhere.AppImage".into());
-    let tmp = dir.join(format!(".{name}.update-{}", std::process::id()));
+        .unwrap_or_else(|| "Keywhere".into());
+    // Windows only runs files ending in .exe; the macOS download is a zip.
+    let ext = match install {
+        Install::Exe(_) => ".exe",
+        Install::AppBundle(_) => ".zip",
+        _ => "",
+    };
+    let tmp = dir.join(format!(".{name}.update-{}{ext}", std::process::id()));
     let result = (|| {
         let mut file = create_private(&tmp).map_err(|e| UpdateError::Install(e.to_string()))?;
         let mut hasher = Sha256::new();
@@ -365,14 +506,82 @@ fn replace_from(
         file.sync_all()
             .map_err(|e| UpdateError::Install(e.to_string()))?;
         drop(file);
-        make_executable(&tmp).map_err(|e| UpdateError::Install(e.to_string()))?;
-        check_reports_version(&tmp, &release.version)?;
-        fs::rename(&tmp, target).map_err(|e| UpdateError::Install(e.to_string()))?;
-        Ok(())
+        let io = |e: std::io::Error| UpdateError::Install(e.to_string());
+        match install {
+            Install::AppBundle(_) => install_bundle(&tmp, target, &release.version),
+            Install::Exe(_) => {
+                make_executable(&tmp).map_err(io)?;
+                check_reports_version(&tmp, &release.version)?;
+                let old = swap_into(target, &tmp).map_err(io)?;
+                // Still in use by this process; cleanup_leftovers() takes it.
+                let _ = fs::remove_file(old);
+                Ok(())
+            }
+            _ => {
+                make_executable(&tmp).map_err(io)?;
+                check_reports_version(&tmp, &release.version)?;
+                fs::rename(&tmp, target).map_err(io)
+            }
+        }
     })();
     if result.is_err() {
         let _ = fs::remove_file(&tmp);
     }
+    result
+}
+
+/// Put `new` at `target` by moving `target` aside first (a running exe or
+/// app bundle can be renamed, not overwritten). Restores `target` if the
+/// second rename fails. Returns where the old copy went.
+fn swap_into(target: &Path, new: &Path) -> std::io::Result<PathBuf> {
+    let name = target
+        .file_name()
+        .ok_or_else(|| std::io::Error::other("no file name"))?
+        .to_string_lossy()
+        .into_owned();
+    let old = target.with_file_name(format!(".{name}.old-{}", std::process::id()));
+    fs::rename(target, &old)?;
+    if let Err(e) = fs::rename(new, target) {
+        let _ = fs::rename(&old, target);
+        return Err(e);
+    }
+    Ok(old)
+}
+
+/// macOS: unpack the verified zip next to the installed bundle (`ditto`
+/// keeps the bundle's metadata and signature), check the new binary's
+/// version, then swap the bundles and delete the old one.
+fn install_bundle(zip: &Path, bundle: &Path, version: &semver::Version) -> Result<(), UpdateError> {
+    let err = |e: String| UpdateError::Install(e);
+    let dir = bundle
+        .parent()
+        .ok_or_else(|| err("Keywhere's folder is unknown.".into()))?;
+    let staging = dir.join(format!(".Keywhere-update-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&staging);
+    fs::create_dir(&staging).map_err(|e| err(e.to_string()))?;
+    let result = (|| {
+        let ok = std::process::Command::new("/usr/bin/ditto")
+            .args(["-x", "-k"])
+            .arg(zip)
+            .arg(&staging)
+            .stdin(std::process::Stdio::null())
+            .status()
+            .map_err(|e| err(e.to_string()))?
+            .success();
+        if !ok {
+            return Err(err("Couldn't unpack the update.".into()));
+        }
+        let new_app = staging.join("Keywhere.app");
+        let new_bin = new_app.join("Contents/MacOS/keywhere");
+        if !new_bin.is_file() {
+            return Err(UpdateError::Verify("The update has no Keywhere.app."));
+        }
+        check_reports_version(&new_bin, version)?;
+        let old = swap_into(bundle, &new_app).map_err(|e| err(e.to_string()))?;
+        let _ = fs::remove_dir_all(old);
+        Ok(())
+    })();
+    let _ = fs::remove_dir_all(&staging);
     result
 }
 
@@ -463,9 +672,32 @@ pub fn relaunch(target: &Path) -> std::io::Result<()> {
 }
 
 /// `keywhere --after-update <pid>`: wait (up to 30 s) for the old process to
-/// exit so the new one can become the single instance. Only waits on a
-/// process of ours (same uid); returns false if it is still running.
-#[cfg(not(unix))]
+/// exit so the new one can become the single instance and take the vault
+/// lock. Only waits on a process of ours; returns false if it is still
+/// running.
+#[cfg(windows)]
+pub fn wait_for_exit(pid: &str) -> bool {
+    use windows_sys::Win32::Foundation::{CloseHandle, WAIT_OBJECT_0};
+    use windows_sys::Win32::System::Threading::{
+        OpenProcess, WaitForSingleObject, PROCESS_SYNCHRONIZE,
+    };
+    let Ok(pid) = pid.parse::<u32>() else {
+        return true;
+    };
+    // SAFETY: plain handle query; a null handle means gone (or not ours).
+    let h = unsafe { OpenProcess(PROCESS_SYNCHRONIZE, 0, pid) };
+    if h.is_null() {
+        return true;
+    }
+    // SAFETY: `h` is a valid process handle owned here.
+    let r = unsafe { WaitForSingleObject(h, 30_000) };
+    // SAFETY: as above.
+    unsafe { CloseHandle(h) };
+    r == WAIT_OBJECT_0
+}
+
+/// See the Windows variant.
+#[cfg(not(any(unix, windows)))]
 pub fn wait_for_exit(_pid: &str) -> bool {
     true
 }
@@ -473,14 +705,24 @@ pub fn wait_for_exit(_pid: &str) -> bool {
 /// See the non-unix variant.
 #[cfg(unix)]
 pub fn wait_for_exit(pid: &str) -> bool {
-    use std::os::unix::fs::MetadataExt;
     let Ok(pid) = pid.parse::<u32>() else {
         return true;
     };
-    let proc = PathBuf::from(format!("/proc/{pid}"));
-    let ours = |p: &Path| fs::metadata(p).is_ok_and(|m| m.uid() == unsafe { libc::getuid() });
+    // Linux: /proc/<pid> owned by us. macOS (no /proc): kill(pid, 0)
+    // succeeds only for a live process we may signal, i.e. our own.
+    #[cfg(target_os = "linux")]
+    let alive = || {
+        use std::os::unix::fs::MetadataExt;
+        let proc = PathBuf::from(format!("/proc/{pid}"));
+        fs::metadata(&proc).is_ok_and(|m| m.uid() == unsafe { libc::getuid() })
+    };
+    #[cfg(not(target_os = "linux"))]
+    let alive = || {
+        // SAFETY: signal 0 only checks existence and permission.
+        i32::try_from(pid).is_ok_and(|p| unsafe { libc::kill(p, 0) } == 0)
+    };
     let deadline = Instant::now() + Duration::from_secs(30);
-    while ours(&proc) {
+    while alive() {
         if Instant::now() >= deadline {
             return false;
         }
@@ -575,7 +817,8 @@ pub fn start_check(manual: bool, cx: &mut gpui::App) {
 /// Download and swap in the available release, then call `on_ready` (which
 /// locks and relaunches) on the main thread.
 pub fn start_install(cx: &mut gpui::App, on_ready: impl FnOnce(&mut gpui::App, PathBuf) + 'static) {
-    let (Status::Available(rel), Install::AppImage(target)) = (status(), install_method()) else {
+    let install = install_method();
+    let (Status::Available(rel), Some(launch)) = (status(), install.launch_path()) else {
         return;
     };
     set_status(Status::Downloading {
@@ -583,9 +826,8 @@ pub fn start_install(cx: &mut gpui::App, on_ready: impl FnOnce(&mut gpui::App, P
         percent: 0,
     });
     cx.refresh_windows();
-    let target2 = target.clone();
     let task = cx.background_executor().spawn(async move {
-        download_and_replace(&rel, &target2, |done, total| {
+        download_and_replace(&rel, &install, |done, total| {
             let percent = (done.saturating_mul(100) / total.max(1)).min(100) as u8;
             let mut s = STATUS.lock().unwrap_or_else(|e| e.into_inner());
             if let Status::Downloading { percent: p, .. } = &mut *s {
@@ -610,7 +852,7 @@ pub fn start_install(cx: &mut gpui::App, on_ready: impl FnOnce(&mut gpui::App, P
     cx.spawn(async move |cx| {
         let r = task.await;
         let _ = cx.update(|cx| match r {
-            Ok(_) => on_ready(cx, target),
+            Ok(_) => on_ready(cx, launch),
             Err(e) => {
                 set_status(Status::Failed(e));
                 cx.refresh_windows();
@@ -724,6 +966,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("kw-repl-{}", std::process::id()));
         fs::create_dir_all(&dir).unwrap();
         let target = dir.join("Keywhere.AppImage");
+        let install = Install::AppImage(target.clone());
         fs::write(&target, "old").unwrap();
         let new = b"#!/bin/sh\necho 'Keywhere 2.0.0 \xc2\xb7 abc'\n".to_vec();
         let rel = |sha: String, size: u64| Release {
@@ -758,7 +1001,7 @@ mod tests {
             ),
         ] {
             assert!(matches!(
-                replace_from(&data[..], &r, &target, |_, _| {}),
+                replace_from(&data[..], &r, &install, |_, _| {}),
                 Err(UpdateError::Verify(_))
             ));
             assert_eq!(fs::read(&target).unwrap(), b"old");
@@ -770,15 +1013,110 @@ mod tests {
             ..rel(good.clone(), new.len() as u64)
         };
         assert!(matches!(
-            replace_from(&new[..], &wrong, &target, |_, _| {}),
+            replace_from(&new[..], &wrong, &install, |_, _| {}),
             Err(UpdateError::Install(_))
         ));
         assert_eq!(fs::read(&target).unwrap(), b"old");
         // The real thing.
-        replace_from(&new[..], &rel(good, new.len() as u64), &target, |_, _| {}).unwrap();
+        replace_from(&new[..], &rel(good, new.len() as u64), &install, |_, _| {}).unwrap();
         assert_eq!(fs::read(&target).unwrap(), new);
         assert_eq!(leftovers(), 0);
         fs::remove_dir_all(&dir).unwrap();
+    }
+
+    // The Windows path (exe renamed aside, new one in its place), run with a
+    // shell script so it works on any Unix CI.
+    #[cfg(unix)]
+    #[test]
+    fn exe_is_swapped_and_old_copy_cleaned() {
+        let dir = std::env::temp_dir().join(format!("kw-exe-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let target = dir.join("Keywhere.exe");
+        fs::write(&target, "old").unwrap();
+        let new = b"#!/bin/sh\necho 'Keywhere 2.0.0 \xc2\xb7 abc'\n".to_vec();
+        let r = Release {
+            version: v("2.0.0"),
+            notes_url: String::new(),
+            asset: Some(Asset {
+                url: String::new(),
+                sha256: hex(&Sha256::digest(&new)),
+                size: new.len() as u64,
+            }),
+        };
+        replace_from(&new[..], &r, &Install::Exe(target.clone()), |_, _| {}).unwrap();
+        assert_eq!(fs::read(&target).unwrap(), new);
+        // Only the new exe is left (Unix can delete the old one at once).
+        let names: Vec<String> = fs::read_dir(&dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(names, vec!["Keywhere.exe".to_string()]);
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn swap_restores_target_when_new_is_missing() {
+        let dir = std::env::temp_dir().join(format!("kw-swap-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let target = dir.join("Keywhere.exe");
+        fs::write(&target, "old").unwrap();
+        assert!(swap_into(&target, &dir.join("missing")).is_err());
+        assert_eq!(fs::read(&target).unwrap(), b"old");
+        // Directories (app bundles) swap the same way.
+        let app = dir.join("Keywhere.app");
+        let new_app = dir.join("staging").join("Keywhere.app");
+        fs::create_dir_all(app.join("Contents")).unwrap();
+        fs::write(app.join("Contents/v"), "1").unwrap();
+        fs::create_dir_all(new_app.join("Contents")).unwrap();
+        fs::write(new_app.join("Contents/v"), "2").unwrap();
+        let old = swap_into(&app, &new_app).unwrap();
+        assert_eq!(fs::read(app.join("Contents/v")).unwrap(), b"2");
+        assert_eq!(fs::read(old.join("Contents/v")).unwrap(), b"1");
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn leftovers_next_to_target_are_removed() {
+        let dir = std::env::temp_dir().join(format!("kw-left-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let target = dir.join("Keywhere.exe");
+        fs::write(&target, "new").unwrap();
+        fs::write(dir.join(".Keywhere.exe.old-123"), "old").unwrap();
+        fs::create_dir_all(dir.join(".Keywhere.exe.old-456/Contents")).unwrap();
+        fs::write(dir.join("vault.psafe3"), "keep").unwrap();
+        cleanup_next_to(&target);
+        let mut names: Vec<String> = fs::read_dir(&dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        assert_eq!(names, vec!["Keywhere.exe", "vault.psafe3"]);
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn app_bundle_from_exe_path() {
+        let b = |p: &str| bundle_of(Path::new(p));
+        assert_eq!(
+            b("/Applications/Keywhere.app/Contents/MacOS/keywhere"),
+            Some(PathBuf::from("/Applications/Keywhere.app"))
+        );
+        assert_eq!(b("/usr/local/bin/keywhere"), None);
+        assert_eq!(b("/x/Keywhere.app/Contents/Resources/keywhere"), None);
+        assert_eq!(
+            b("/private/var/folders/x/AppTranslocation/ABC/d/Keywhere.app/Contents/MacOS/keywhere"),
+            None
+        );
+    }
+
+    #[test]
+    fn writable_dir_probe() {
+        let dir = std::env::temp_dir();
+        assert!(dir_writable(&dir));
+        assert!(!dir_writable(&dir.join("does-not-exist-kw")));
     }
 
     #[test]

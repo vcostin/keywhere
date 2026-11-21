@@ -111,11 +111,13 @@ The release's `platforms` jobs also build unsigned preview packages:
   The script fails if the exe imports VCRUNTIME140.dll or its version resource is wrong. The
   exe isn't code-signed, so SmartScreen warns.
 
-The Linux job adds all three to `SHA256SUMS` and the release. They aren't in `latest.json`: the
-in-app updater only replaces AppImages. To build them without a release, run the
+`build-app.sh` also writes `Keywhere-<v>-macos-<arch>.app.zip` (the same bundle, zipped with
+`ditto`) for the in-app updater. The Linux job adds all five files to `SHA256SUMS` and the
+release, and `make-update-manifest.sh` lists the `.app.zip` files and the portable exe in
+`latest.json` (`macos-aarch64`, `macos-x86_64`, `windows-x86_64`) next to the AppImage. To build them without a release, run the
 **Preview packages** workflow from the Actions tab. It also runs on PRs that change these
 scripts.
 
 They stay "preview" until they are code-signed (Apple Developer ID plus notarization, and
 Windows code signing), have been tested on real machines, and have single-instance handling on
-Windows and in-app updates like Linux.
+Windows like Linux.
