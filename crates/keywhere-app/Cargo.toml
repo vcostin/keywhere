@@ -30,6 +30,7 @@ minisign-verify = "0.3.0"
 semver = "1.0.28"
 serde_json = "1.0.154"
 serde = { version = "1.0.229", features = ["derive"] }
+resvg = { version = "0.45", default-features = false }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

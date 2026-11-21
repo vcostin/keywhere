@@ -27,6 +27,9 @@ pub struct Settings {
     /// Ask GitHub for a newer release at startup. `None` = not decided yet:
     /// no network until the user answers the first-run question.
     pub check_updates: Option<bool>,
+    /// AppImage: keep a menu entry (icon, pinning, "Open with") in the
+    /// user's data dir. Turned off by "Undo".
+    pub menu_entry: bool,
 }
 
 impl Default for Settings {
@@ -41,6 +44,7 @@ impl Default for Settings {
             // Keywhere's identity is the navy dark look; System/Light are opt-in.
             theme: ThemeChoice::Dark,
             check_updates: None,
+            menu_entry: true,
         }
     }
 }
@@ -88,6 +92,7 @@ impl Settings {
                         CloseAction::Lock
                     }
                 }
+                "menu_entry" => s.menu_entry = v != "off",
                 "language" => s.language = Lang::from_code(v),
                 "theme" => s.theme = ThemeChoice::from_code(v),
                 "check_updates" => {
@@ -105,7 +110,7 @@ impl Settings {
 
     fn serialize(&self) -> String {
         format!(
-            "# Keywhere settings\nidle_lock_minutes = {}\nclipboard_clear_secs = {}\nclose_action = {}\nlanguage = {}\ntheme = {}\ncheck_updates = {}\n",
+            "# Keywhere settings\nidle_lock_minutes = {}\nclipboard_clear_secs = {}\nclose_action = {}\nlanguage = {}\ntheme = {}\ncheck_updates = {}\nmenu_entry = {}\n",
             self.idle_lock_minutes,
             self.clipboard_clear_secs,
             match self.close_action {
@@ -119,6 +124,7 @@ impl Settings {
                 Some(false) => "false",
                 None => "ask",
             },
+            if self.menu_entry { "auto" } else { "off" },
         )
     }
 }
@@ -157,6 +163,7 @@ mod tests {
             language: Some(Lang::Ro),
             theme: ThemeChoice::Light,
             check_updates: Some(false),
+            menu_entry: false,
         };
         assert_eq!(Settings::parse(&s.serialize()), s);
         let bad = Settings::parse("clipboard_clear_secs = 9999\nlanguage = xx\nnonsense\n");

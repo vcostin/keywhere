@@ -167,6 +167,14 @@ fn is_type2_appimage(p: &Path) -> bool {
         && &head[8..11] == b"AI\x02"
 }
 
+/// The AppImage this process runs from, if it is one (no write checks;
+/// see [`install_method`] for replacing it).
+#[cfg(target_os = "linux")]
+pub fn running_appimage() -> Option<PathBuf> {
+    let p = PathBuf::from(std::env::var_os("APPIMAGE")?);
+    (p.is_absolute() && is_type2_appimage(&p) && running_from_appimage()).then_some(p)
+}
+
 /// Our executable lives inside the AppImage runtime's FUSE mount
 /// (`/tmp/.mount_*`) or its extract-and-run folder, i.e. under `$APPDIR`.
 #[cfg(target_os = "linux")]
