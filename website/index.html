@@ -1,0 +1,607 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Keywhere — your passwords, right where you left them</title>
+    <meta
+      name="description"
+      content="Keywhere is a modern desktop password manager for Password Safe v3 (.psafe3) vaults, written in Rust with GPUI. One encrypted file, no cloud account, no subscription, no nags."
+    />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' data:; connect-src https://api.github.com; base-uri 'none'; form-action 'none'"
+    />
+    <meta name="referrer" content="no-referrer" />
+    <meta name="color-scheme" content="dark light" />
+    <meta name="theme-color" content="#0A1631" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#F3F6FB" media="(prefers-color-scheme: light)" />
+    <script src="./theme.js"></script>
+    <link rel="canonical" href="https://vcostin.github.io/keywhere/" />
+    <link rel="icon" type="image/svg+xml" href="./icon.svg" />
+    <link rel="icon" type="image/png" sizes="32x32" href="./favicon-32.png" />
+    <link rel="apple-touch-icon" href="./apple-touch-icon.png" />
+    <link rel="preload" href="./fonts/Inter-Regular.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="./fonts/Inter-Bold.woff2" as="font" type="font/woff2" crossorigin />
+    <meta property="og:title" content="Keywhere — your passwords, right where you left them" />
+    <meta
+      property="og:description"
+      content="A modern desktop password manager for Password Safe v3 vaults. One encrypted file, no account, no subscription."
+    />
+    <meta property="og:url" content="https://vcostin.github.io/keywhere/" />
+    <meta property="og:image" content="https://vcostin.github.io/keywhere/og.png" />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="stylesheet" href="./styles.css" />
+    <script type="module" src="./site.js"></script>
+    <script type="module" src="./download.js"></script>
+  </head>
+  <body>
+    <a class="skip" href="#download">Skip to downloads</a>
+
+    <header class="topbar">
+      <nav class="nav wrap" aria-label="Site">
+        <a class="brand" href="#top" aria-label="Keywhere, back to top">
+          <img src="./icon.svg" width="30" height="30" alt="" />
+          <span class="wordmark">Key<span>where</span></span>
+        </a>
+        <div class="nav-links">
+          <a href="#features">Features</a>
+          <a href="#story">Story</a>
+          <a href="#gpui">Why GPUI</a>
+          <a href="#security">Security</a>
+          <a href="#faq">FAQ</a>
+        </div>
+        <div class="nav-tools">
+          <div class="theme-switch" role="group" aria-label="Colour theme">
+            <button type="button" data-theme-choice="system" aria-pressed="false" title="Follow system">
+              <svg viewBox="0 0 20 20" aria-hidden="true"><rect x="2.5" y="3.5" width="15" height="10" rx="1.8" /><path d="M7 17h6M10 13.5V17" /></svg>
+              <span class="visually-hidden">System</span>
+            </button>
+            <button type="button" data-theme-choice="dark" aria-pressed="false" title="Dark">
+              <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M16 12.4A6.5 6.5 0 0 1 7.6 4a6.5 6.5 0 1 0 8.4 8.4Z" /></svg>
+              <span class="visually-hidden">Dark</span>
+            </button>
+            <button type="button" data-theme-choice="light" aria-pressed="false" title="Light">
+              <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="3.4" /><path d="M10 2v2M10 16v2M2 10h2M16 10h2M4.3 4.3l1.4 1.4M14.3 14.3l1.4 1.4M4.3 15.7l1.4-1.4M14.3 5.7l1.4-1.4" /></svg>
+              <span class="visually-hidden">Light</span>
+            </button>
+          </div>
+          <a class="nav-gh" href="https://github.com/vcostin/keywhere" aria-label="Keywhere on GitHub">
+            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38v-1.33c-2.23.48-2.7-1.07-2.7-1.07-.36-.92-.89-1.17-.89-1.17-.73-.5.05-.49.05-.49.8.06 1.23.83 1.23.83.72 1.22 1.87.87 2.33.66.07-.52.28-.87.5-1.07-1.78-.2-3.65-.89-3.65-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.6 7.6 0 0 1 4 0c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48v2.2c0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z" /></svg>
+            <span>GitHub</span>
+          </a>
+        </div>
+      </nav>
+    </header>
+
+    <main id="top">
+      <!-- ───────────────────────── Hero ───────────────────────── -->
+      <section class="hero">
+        <div class="hero-map" aria-hidden="true"></div>
+        <div class="wrap hero-inner">
+          <p class="eyebrow">
+            <span class="pin" aria-hidden="true"></span>
+            Password manager for Password Safe v3 vaults
+          </p>
+          <h1>Your passwords, <em>right where you left&nbsp;them.</em></h1>
+          <p class="lede">
+            Keywhere opens the <code>.psafe3</code> files that Password Safe and Password Gorilla use,
+            and gives them a calm, keyboard‑first home. Your vault is one encrypted file you keep
+            wherever you like. No cloud account, no subscription, no nags.
+          </p>
+
+          <div class="cta-row">
+            <a class="btn btn-primary" id="primary-download" href="#download">
+              <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3v10M5.5 9 10 13.5 14.5 9M4 16.5h12" /></svg>
+              <span class="btn-text">
+                <span id="primary-label">Download Keywhere</span>
+                <span class="btn-meta" id="primary-meta">Linux · macOS &amp; Windows preview</span>
+              </span>
+            </a>
+            <a class="btn btn-ghost" href="https://github.com/vcostin/keywhere">
+              <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M7 6 3 10l4 4M13 6l4 4-4 4" /></svg>
+              <span class="btn-text"><span>Source on GitHub</span><span class="btn-meta">MIT licence</span></span>
+            </a>
+          </div>
+          <p class="cta-status" id="cta-status" aria-live="polite"></p>
+
+          <ul class="facts" aria-label="At a glance">
+            <li>Works with Password Safe &amp; Password Gorilla files</li>
+            <li>Written in Rust, drawn by the GPU</li>
+            <li>Linux · macOS &amp; Windows preview</li>
+          </ul>
+        </div>
+
+        <div class="wrap hero-shot">
+          <figure class="window-frame">
+            <img class="for-dark" src="./shots/browser-dark.webp" width="1108" height="708" alt="Keywhere's three-pane vault browser: smart views and groups on the left, the entry list in the middle, and the Company SSO entry with an expiry warning on the right." fetchpriority="high" />
+            <img class="for-light" src="./shots/browser-light.webp" width="1108" height="708" alt="Keywhere's three-pane vault browser in the light theme." loading="lazy" />
+          </figure>
+        </div>
+      </section>
+
+      <aside class="wrap status-note" aria-label="Project status">
+        <span class="status-dot" aria-hidden="true"></span>
+        <p>
+          <strong>Early development, used daily by its author.</strong>
+          The vault engine is tested against Password Safe, and every save keeps the previous file as
+          <code>.ibak</code>. Keep backups anyway.
+        </p>
+      </aside>
+
+      <!-- ───────────────────────── Pillars ───────────────────────── -->
+      <section class="section wrap" aria-labelledby="what-heading">
+        <header class="section-head">
+          <p class="kicker">What it is</p>
+          <h2 id="what-heading">A password manager that owns nothing of yours.</h2>
+        </header>
+        <div class="pillars">
+          <article class="pillar">
+            <div class="pillar-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6z" /><path d="M14 3v4h4" /><rect x="9" y="12" width="6" height="5" rx="1" /><path d="M10.5 12v-1.5a1.5 1.5 0 0 1 3 0V12" /></svg>
+            </div>
+            <h3>One file, yours</h3>
+            <p>
+              The vault is a standard Password Safe v3 file. It opens unchanged in Password Safe and
+              Password Gorilla, so you can switch apps whenever you like. Keep it on your disk, a USB stick,
+              or a folder Google Drive, Dropbox or Syncthing already syncs.
+            </p>
+          </article>
+          <article class="pillar">
+            <div class="pillar-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5" /><path d="M6 6l12 12" /></svg>
+            </div>
+            <h3>Nothing to sign up for</h3>
+            <p>
+              No account, no subscription, no “Pro” upsell. Keywhere doesn't touch the network until you
+              say yes to update checks, and even then it only asks GitHub about new releases.
+            </p>
+          </article>
+          <article class="pillar">
+            <div class="pillar-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><rect x="2.5" y="6" width="19" height="12" rx="2" /><path d="M6 10h1M9.5 10h1M13 10h1M16.5 10h1M7 14h10" /></svg>
+            </div>
+            <h3>Calm and keyboard‑first</h3>
+            <p>
+              Three panes, instant search, and shortcuts for everything you do daily: find an entry, press
+              <kbd>Enter</kbd>, and the password is on the clipboard, which clears itself again.
+            </p>
+          </article>
+        </div>
+      </section>
+
+      <!-- ───────────────────────── Features ───────────────────────── -->
+      <section class="section section-tint" id="features" aria-labelledby="features-heading">
+        <div class="wrap">
+          <header class="section-head">
+            <p class="kicker">Features</p>
+            <h2 id="features-heading">Everything a vault needs, nothing it doesn't.</h2>
+          </header>
+
+          <div class="features">
+            <article class="feature">
+              <h3><span class="ficon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M9 4v16M14 4v16" /></svg></span>Three‑pane browser</h3>
+              <p>Smart views for favorites, expiring, weak and reused passwords, a group tree, instant search, and a detail card with each entry's password history.</p>
+            </article>
+            <article class="feature">
+              <h3><span class="ficon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="7" y="3" width="10" height="4" rx="1" /><path d="M7 5H5v16h14V5h-2" /><path d="M9 14l2 2 4-4" /></svg></span>Copy that cleans up</h3>
+              <p>Copied secrets are marked “exclude from history” for clipboard managers and cleared after 30 s (5–120 s), on lock and on quit.</p>
+            </article>
+            <article class="feature">
+              <h3><span class="ficon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="10" rx="2" /><path d="M8 10V7a4 4 0 0 1 8 0v3" /></svg></span>Locks itself</h3>
+              <p>After 5 minutes idle (1–60 min or never), when the screen locks and before the system sleeps. <kbd>Ctrl</kbd>+<kbd>L</kbd> any time.</p>
+            </article>
+            <article class="feature">
+              <h3><span class="ficon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h10M4 17h7" /><path d="M17 14l1.2 2.6L21 17l-2 2 .5 2.8L17 20.5l-2.5 1.3L15 19l-2-2 2.8-.4z" /></svg></span>Password generator</h3>
+              <p>Random passwords, passphrases or PINs, with a strength estimate in bits before you use one.</p>
+            </article>
+            <article class="feature">
+              <h3><span class="ficon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M7 18a4.5 4.5 0 0 1-.5-9A6 6 0 0 1 18 8.5 4.75 4.75 0 0 1 17.5 18z" /><path d="M9.5 13.5l2 2 3.5-3.5" /></svg></span>Safe in a synced folder</h3>
+              <p>Atomic, verified saves with an <code>.ibak</code> backup. Keywhere refuses to overwrite a vault that changed elsewhere and asks you what to do.</p>
+            </article>
+            <article class="feature">
+              <h3><span class="ficon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="15" width="18" height="5" rx="1.5" /><circle cx="17" cy="17.5" r="1" /><path d="M12 4v7M9 8l3 3 3-3" /></svg></span>Tray and global shortcut</h3>
+              <p>A tray icon with Open, Lock and Quit that never shows entry titles. Bind any key to <code>keywhere --show</code> to jump straight to search.</p>
+            </article>
+            <article class="feature">
+              <h3><span class="ficon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 0 1 13.7-5.6L20 9" /><path d="M20 4v5h-5" /><path d="M20 12a8 8 0 0 1-13.7 5.6L4 15" /><path d="M4 20v-5h5" /></svg></span>Password Gorilla v2 files</h3>
+              <p>Opens legacy <code>.dat</code> files and saves them back as v2, so older apps keep working. One click upgrades a copy to v3.</p>
+            </article>
+            <article class="feature">
+              <h3><span class="ficon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3l7 3v5c0 4.5-3 8.3-7 10-4-1.7-7-5.5-7-10V6z" /><path d="M9 12l2 2 4-4" /></svg></span>Signed updates</h3>
+              <p>Opt‑in update checks. The AppImage updates itself, and only after the download matches a manifest signed with Keywhere's release key.</p>
+            </article>
+            <article class="feature">
+              <h3><span class="ficon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5" /><path d="M3.5 12h17M12 3.5c2.5 2.6 3.5 5.4 3.5 8.5s-1 5.9-3.5 8.5c-2.5-2.6-3.5-5.4-3.5-8.5s1-5.9 3.5-8.5z" /></svg></span>English and Română</h3>
+              <p>Pick the language and a dark or light theme in Settings, along with auto‑lock and clipboard times. Changes apply immediately.</p>
+            </article>
+          </div>
+
+          <!-- Screenshot gallery -->
+          <div class="gallery" id="gallery">
+            <div class="gallery-tabs" role="tablist" aria-label="Screenshots">
+              <button type="button" role="tab" id="tab-generator" aria-controls="panel-generator" aria-selected="true">Generator</button>
+              <button type="button" role="tab" id="tab-editor" aria-controls="panel-editor" aria-selected="false" tabindex="-1">Editor</button>
+              <button type="button" role="tab" id="tab-unlock" aria-controls="panel-unlock" aria-selected="false" tabindex="-1">Unlock</button>
+            </div>
+            <div class="gallery-panel" role="tabpanel" id="panel-generator" aria-labelledby="tab-generator">
+              <figure class="window-frame">
+                <img class="for-dark" src="./shots/generator-dark.webp" width="1108" height="708" alt="New entry form with the password generator open on a twelve-word passphrase." loading="lazy" />
+                <img class="for-light" src="./shots/generator-light.webp" width="1108" height="708" alt="Password generator in the light theme." loading="lazy" />
+                <figcaption>A new entry with the generator: random, passphrase or PIN, and a strength estimate.</figcaption>
+              </figure>
+            </div>
+            <div class="gallery-panel" role="tabpanel" id="panel-editor" aria-labelledby="tab-editor" hidden>
+              <figure class="window-frame">
+                <img class="for-dark" src="./shots/editor-dark.webp" width="1108" height="708" alt="Entry editor with title, group, username, password, website, e-mail, expiry and notes." loading="lazy" />
+                <img class="for-light" src="./shots/editor-light.webp" width="1108" height="708" alt="Entry editor in the light theme." loading="lazy" />
+                <figcaption>Editing an entry. <kbd>Ctrl</kbd>+<kbd>Enter</kbd> saves, <kbd>Esc</kbd> cancels.</figcaption>
+              </figure>
+            </div>
+            <div class="gallery-panel" role="tabpanel" id="panel-unlock" aria-labelledby="tab-unlock" hidden>
+              <figure class="window-frame">
+                <img class="for-dark" src="./shots/unlock-dark.webp" width="1108" height="708" alt="Unlock screen with the Keywhere key and a master password field." loading="lazy" />
+                <img class="for-light" src="./shots/unlock-light.webp" width="1108" height="708" alt="Unlock screen in the light theme." loading="lazy" />
+                <figcaption>The unlock screen. The master password is the only way in.</figcaption>
+              </figure>
+            </div>
+            <p class="gallery-note">Screenshots use a demo vault. They follow the theme you pick at the top of the page.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ───────────────────────── Story ───────────────────────── -->
+      <section class="section wrap story" id="story" aria-labelledby="story-heading">
+        <header class="section-head">
+          <p class="kicker">The story</p>
+          <h2 id="story-heading">Built because I needed it.</h2>
+        </header>
+        <div class="story-grid">
+          <div class="story-text">
+            <p class="story-lead">
+              I wanted two things from a password manager that rarely come together:
+              <strong>freedom</strong> and <strong>aesthetics</strong>.
+            </p>
+            <p>
+              Freedom meant no vendor lock‑in, no subscription and no account. My answer to
+              password‑manager services has long been simple: keep the vault file in a cloud‑synced folder
+              that's mounted locally. Keywhere is built around exactly that. The vault is one encrypted file,
+              every save is atomic and keeps an <code>.ibak</code> backup, and Keywhere notices when the file
+              was changed on another device instead of overwriting it.
+            </p>
+            <p>
+              Aesthetics meant a vault I actually enjoy opening many times a day. The apps that read this
+              format didn't get there: Password Gorilla is discontinued and its Tcl/Tk interface shows its
+              age, Password Safe is solid but cluttered, and Strongbox looks great but is macOS‑only and
+              keeps pushing Pro.
+            </p>
+            <p>
+              The plan was a Tauri app. Then I got hyped by GPUI, the Rust UI framework behind the Zed editor,
+              tried it, and stayed. It's still a great experiment, and the UI is vibrant. I like it.
+            </p>
+            <p>
+              Keywhere is desktop only for now: Linux first, macOS and Windows as previews. A mobile version
+              was considered and set aside.
+            </p>
+            <p class="story-sign">— vcostin</p>
+          </div>
+          <aside class="story-side">
+            <h3>Built in the open</h3>
+            <p>
+              Keywhere is written with AI coding agents, and they keep each other honest: Claude and Cursor
+              review each other's changes.
+            </p>
+            <ul class="ticks">
+              <li>Security audits and a measured RAM‑residue test are published in <a href="https://github.com/vcostin/keywhere/tree/main/docs/security">docs/security</a>.</li>
+              <li>Changes land through pull requests that must pass tests, lints and a supply‑chain audit.</li>
+              <li>Releases are built by CI, run end‑to‑end tests, and ship a signed update manifest.</li>
+            </ul>
+          </aside>
+        </div>
+      </section>
+
+      <!-- ───────────────────────── Why GPUI ───────────────────────── -->
+      <section class="section section-tint" id="gpui" aria-labelledby="gpui-heading">
+        <div class="wrap">
+          <header class="section-head">
+            <p class="kicker">Why GPUI</p>
+            <h2 id="gpui-heading">Why GPUI, not Electron or Tauri.</h2>
+            <p class="section-lede">
+              <a href="https://gpui.rs">GPUI</a> is the GPU‑accelerated UI framework the Zed editor is built on.
+              For an app that holds secrets, it has some real advantages, and a few honest costs.
+            </p>
+          </header>
+
+          <div class="gpui-grid">
+            <article class="gpui-card">
+              <span class="gpui-num" aria-hidden="true">01</span>
+              <h3>No web view, no browser engine</h3>
+              <p>Keywhere is a single native binary, about 17 MB on Windows. There is no HTML renderer or JavaScript runtime inside, which keeps the attack surface small.</p>
+            </article>
+            <article class="gpui-card">
+              <span class="gpui-num" aria-hidden="true">02</span>
+              <h3>Drawn by the GPU, in Rust</h3>
+              <p>The interface is rendered with Vulkan on Linux, Metal on macOS and DirectX on Windows. It's fast, and the colours are vibrant.</p>
+            </article>
+            <article class="gpui-card">
+              <span class="gpui-num" aria-hidden="true">03</span>
+              <h3>One language, full control of memory</h3>
+              <p>Rust end to end, so secrets can be zeroized. Small patches to GPUI make sure its text‑layout caches don't keep revealed passwords around, and a <a href="https://github.com/vcostin/keywhere/blob/main/docs/security/ram-test.md">RAM‑residue test</a> checks it.</p>
+            </article>
+          </div>
+
+          <div class="tradeoffs">
+            <h3>The trade‑offs</h3>
+            <ul>
+              <li><strong>GPUI is young</strong> (version 0.2). Keywhere carries a patched copy for the window icon, keeping the tray alive when the window closes, and clearing caches; each patch is listed in the root <code>Cargo.toml</code>.</li>
+              <li><strong>Longer builds</strong> than a web stack.</li>
+              <li><strong>No mobile target.</strong></li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <!-- ───────────────────────── Security ───────────────────────── -->
+      <section class="section wrap" id="security" aria-labelledby="security-heading">
+        <header class="section-head">
+          <p class="kicker">Security</p>
+          <h2 id="security-heading">Careful by default, honest about limits.</h2>
+          <p class="section-lede">
+            Keywhere is built against a written <a href="https://github.com/vcostin/keywhere/blob/main/docs/security/threat-model.md">threat model</a>.
+            The short version:
+          </p>
+        </header>
+
+        <div class="sec-grid">
+          <ul class="sec-list">
+            <li><strong>Proven crypto, nothing home‑made</strong> The RustCrypto crates (Twofish, CBC, SHA‑256, HMAC) and constant‑time checks. Nothing in the file is parsed before its HMAC verifies.</li>
+            <li><strong>Secrets don't linger</strong> Only the stretched key is kept while unlocked, never the master password. Decrypted fields are zeroized on lock, and freed memory is wiped.</li>
+            <li><strong>Saves you can trust</strong> Every save is written atomically, read back and verified, with the previous file kept as <code>.ibak</code>.</li>
+            <li><strong>Locks on its own</strong> When you're idle, when the screen locks, and before the system sleeps.</li>
+            <li><strong>Clipboard care</strong> Copied secrets are excluded from clipboard history and cloud clipboards where the system allows it, and cleared automatically.</li>
+            <li><strong>Out of sight</strong> On macOS and Windows the window is kept out of screen captures.</li>
+            <li><strong>Process hardening</strong> Core dumps are off and other programs are kept from attaching: ptrace is blocked on Linux, PT_DENY_ATTACH is set on macOS, and on Windows an access list denies memory access and thread injection.</li>
+            <li><strong>Verified updates</strong> The update manifest is signed with minisign (Ed25519) and checked against a public key built into the app. No downgrades.</li>
+          </ul>
+
+          <aside class="sec-limits">
+            <h3>What it can't protect against</h3>
+            <ul>
+              <li>Malware running as your user while the vault is unlocked.</li>
+              <li>A weak master password. Key stretching slows guessing; it doesn't stop it.</li>
+              <li>Swap and hibernation without disk encryption.</li>
+              <li>Old copies your sync provider keeps. A new master password doesn't re‑encrypt them.</li>
+            </ul>
+            <p class="sec-links">
+              Read <a href="https://github.com/vcostin/keywhere/blob/main/SECURITY.md">SECURITY.md</a> for the full picture.
+              Found a vulnerability? Please report it privately through
+              <a href="https://github.com/vcostin/keywhere/security/advisories/new">GitHub security advisories</a>.
+            </p>
+          </aside>
+        </div>
+      </section>
+
+      <!-- ───────────────────────── Download ───────────────────────── -->
+      <section class="section section-tint" id="download" aria-labelledby="download-heading">
+        <div class="wrap">
+          <header class="section-head">
+            <p class="kicker">Download</p>
+            <h2 id="download-heading">Get Keywhere<span class="dl-version" id="dl-version"></span></h2>
+            <p class="section-lede" id="dl-status">
+              All files come from <a href="https://github.com/vcostin/keywhere/releases/latest">GitHub Releases</a>.
+            </p>
+          </header>
+
+          <div class="platforms">
+            <!-- Linux -->
+            <article class="platform" id="dl-linux" data-os="linux">
+              <header class="platform-head">
+                <svg class="os-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.5c-2.2 0-3.4 1.9-3.4 4.4 0 1.5.3 2.4-.6 3.9-1.2 2-3 4-3 6.5 0 1 .4 1.7 1.3 2.1.9.4 1.4 1.3 2.6 1.8 1 .4 2 .1 2.6-.6.3-.3.4-.3.5-.3s.2 0 .5.3c.6.7 1.6 1 2.6.6 1.2-.5 1.7-1.4 2.6-1.8.9-.4 1.3-1.1 1.3-2.1 0-2.5-1.8-4.5-3-6.5-.9-1.5-.6-2.4-.6-3.9 0-2.5-1.2-4.4-3.4-4.4Z" /><circle cx="10.4" cy="7" r=".9" /><circle cx="13.6" cy="7" r=".9" /><path d="M10.6 9.3c.8.6 2 .6 2.8 0" /></svg>
+                <div>
+                  <h3>Linux</h3>
+                  <p class="platform-sub">Reference platform · Wayland and X11</p>
+                </div>
+              </header>
+              <ul class="files">
+                <li class="file" data-asset="appimage">
+                  <a class="file-link" href="https://github.com/vcostin/keywhere/releases/latest">
+                    <span class="file-kind">AppImage <span class="tag tag-accent">recommended</span></span>
+                    <span class="file-desc">Any distribution. Updates itself from the app.</span>
+                    <span class="file-name" data-name>Keywhere-&lt;version&gt;-x86_64.AppImage</span>
+                  </a>
+                </li>
+                <li class="file" data-asset="deb">
+                  <a class="file-link" href="https://github.com/vcostin/keywhere/releases/latest">
+                    <span class="file-kind">.deb</span>
+                    <span class="file-desc">Debian, Ubuntu 22.04+.</span>
+                    <span class="file-name" data-name>keywhere_&lt;version&gt;-1_amd64.deb</span>
+                  </a>
+                </li>
+                <li class="file" data-asset="rpm">
+                  <a class="file-link" href="https://github.com/vcostin/keywhere/releases/latest">
+                    <span class="file-kind">.rpm</span>
+                    <span class="file-desc">Fedora, openSUSE.</span>
+                    <span class="file-name" data-name>keywhere-&lt;version&gt;-1.x86_64.rpm</span>
+                  </a>
+                </li>
+              </ul>
+              <details class="howto">
+                <summary>How to install</summary>
+                <p>AppImage: make it executable, then run it.</p>
+                <pre class="cmd"><code>chmod +x Keywhere-*.AppImage
+./Keywhere-*.AppImage</code></pre>
+                <p>Or install a package with your package manager:</p>
+                <pre class="cmd"><code>sudo apt install ./keywhere_*.deb</code></pre>
+                <pre class="cmd"><code>sudo dnf install ./keywhere-*.rpm</code></pre>
+                <pre class="cmd"><code>sudo zypper install --allow-unsigned-rpm ./keywhere-*.rpm</code></pre>
+                <p>The tray icon works on KDE, and on GNOME with the AppIndicator extension.</p>
+              </details>
+            </article>
+
+            <!-- macOS -->
+            <article class="platform" id="dl-macos" data-os="macos">
+              <header class="platform-head">
+                <svg class="os-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="4" width="19" height="12.5" rx="1.8" /><path d="M8 20h8M12 16.5V20" /></svg>
+                <div>
+                  <h3>macOS</h3>
+                  <p class="platform-sub"><span class="tag tag-warn">preview</span> Not code‑signed yet</p>
+                </div>
+              </header>
+              <ul class="files">
+                <li class="file" data-asset="mac-arm64">
+                  <a class="file-link" href="https://github.com/vcostin/keywhere/releases/latest">
+                    <span class="file-kind">Apple silicon</span>
+                    <span class="file-desc">M1 and newer.</span>
+                    <span class="file-name" data-name>Keywhere-&lt;version&gt;-macos-arm64.dmg</span>
+                  </a>
+                </li>
+                <li class="file" data-asset="mac-x64">
+                  <a class="file-link" href="https://github.com/vcostin/keywhere/releases/latest">
+                    <span class="file-kind">Intel</span>
+                    <span class="file-desc">Older Intel Macs.</span>
+                    <span class="file-name" data-name>Keywhere-&lt;version&gt;-macos-x64.dmg</span>
+                  </a>
+                </li>
+              </ul>
+              <details class="howto">
+                <summary>First start</summary>
+                <p>Open the .dmg and drag <strong>Keywhere</strong> to Applications. macOS blocks unsigned downloads until the quarantine mark is removed, so run this once in Terminal:</p>
+                <pre class="cmd"><code>xattr -dr com.apple.quarantine /Applications/Keywhere.app</code></pre>
+                <p>Or open it once, then choose System Settings → Privacy &amp; Security → <strong>Open Anyway</strong>.</p>
+              </details>
+            </article>
+
+            <!-- Windows -->
+            <article class="platform" id="dl-windows" data-os="windows">
+              <header class="platform-head">
+                <svg class="os-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5.5l7.5-1v7H3zM12.5 4.2 21 3v8.5h-8.5zM3 12.5h7.5v7L3 18.5zM12.5 12.5H21V21l-8.5-1.2z" /></svg>
+                <div>
+                  <h3>Windows</h3>
+                  <p class="platform-sub"><span class="tag tag-warn">preview</span> Not code‑signed yet</p>
+                </div>
+              </header>
+              <ul class="files">
+                <li class="file" data-asset="win-x64">
+                  <a class="file-link" href="https://github.com/vcostin/keywhere/releases/latest">
+                    <span class="file-kind">Portable .exe</span>
+                    <span class="file-desc">Windows 10/11. One file, nothing to install.</span>
+                    <span class="file-name" data-name>Keywhere-&lt;version&gt;-windows-x64-portable.exe</span>
+                  </a>
+                </li>
+              </ul>
+              <details class="howto">
+                <summary>First start</summary>
+                <p>Put the file anywhere, even on a USB stick, and run it. Settings go to <code>%APPDATA%\keywhere</code>.</p>
+                <p>SmartScreen warns on the first start: choose <strong>More info</strong> → <strong>Run anyway</strong>. Or unblock it in PowerShell first:</p>
+                <pre class="cmd"><code>Unblock-File .\Keywhere-*-windows-x64-portable.exe</code></pre>
+              </details>
+            </article>
+          </div>
+
+          <div class="verify">
+            <div class="verify-text">
+              <h3>Check before you run</h3>
+              <p>
+                Every release lists the SHA‑256 of each file in <code>SHA256SUMS</code>. Check a download
+                against it before you allow it to run, especially the unsigned previews.
+              </p>
+              <pre class="cmd"><code>sha256sum -c SHA256SUMS --ignore-missing</code></pre>
+            </div>
+            <ul class="verify-links">
+              <li><a id="sums-link" href="https://github.com/vcostin/keywhere/releases/latest">SHA256SUMS</a></li>
+              <li><a href="https://github.com/vcostin/keywhere/releases">All releases and notes</a></li>
+              <li><a href="https://github.com/vcostin/keywhere#build">Build from source</a></li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <!-- ───────────────────────── Shortcuts ───────────────────────── -->
+      <section class="section wrap" id="shortcuts" aria-labelledby="shortcuts-heading">
+        <header class="section-head">
+          <p class="kicker">Shortcuts</p>
+          <h2 id="shortcuts-heading">Hands stay on the keyboard.</h2>
+          <p class="section-lede">On macOS, <kbd>Ctrl</kbd> is <kbd>⌘</kbd>.</p>
+        </header>
+        <dl class="keys">
+          <div><dt><kbd>Ctrl</kbd>+<kbd>F</kbd> / <kbd>Ctrl</kbd>+<kbd>K</kbd></dt><dd>Search</dd></div>
+          <div><dt><kbd>↑</kbd> <kbd>↓</kbd></dt><dd>Move selection</dd></div>
+          <div><dt><kbd>Enter</kbd> in search</dt><dd>Copy password</dd></div>
+          <div><dt><kbd>Ctrl</kbd>+<kbd>C</kbd> / <kbd>Ctrl</kbd>+<kbd>B</kbd></dt><dd>Copy password / username</dd></div>
+          <div><dt><kbd>Ctrl</kbd>+<kbd>R</kbd></dt><dd>Reveal password for 15 s</dd></div>
+          <div><dt><kbd>Ctrl</kbd>+<kbd>U</kbd></dt><dd>Open website</dd></div>
+          <div><dt><kbd>Ctrl</kbd>+<kbd>N</kbd> / <kbd>E</kbd> / <kbd>D</kbd></dt><dd>New / edit / duplicate entry</dd></div>
+          <div><dt><kbd>Ctrl</kbd>+<kbd>,</kbd></dt><dd>Settings</dd></div>
+          <div><dt><kbd>Ctrl</kbd>+<kbd>L</kbd></dt><dd>Lock</dd></div>
+        </dl>
+      </section>
+
+      <!-- ───────────────────────── FAQ ───────────────────────── -->
+      <section class="section section-tint" id="faq" aria-labelledby="faq-heading">
+        <div class="wrap faq-wrap">
+          <header class="section-head">
+            <p class="kicker">FAQ</p>
+            <h2 id="faq-heading">Questions, answered.</h2>
+          </header>
+          <div class="faq">
+            <details>
+              <summary>Is Keywhere free?</summary>
+              <p>Yes. It's open source under the MIT licence. There is no account, no subscription and no paid tier.</p>
+            </details>
+            <details>
+              <summary>Will it open my Password Safe or Password Gorilla vault?</summary>
+              <p>Yes. Keywhere reads and writes Password Safe v3 (<code>.psafe3</code>) files and keeps fields it doesn't know about, so the file stays usable in Password Safe and Password Gorilla. Legacy v2 files (Password Gorilla's <code>.dat</code>) open and are saved back as v2. A banner explains v2's weaknesses and offers <strong>Upgrade to v3…</strong>, which writes a new <code>.psafe3</code> next to the original and leaves the v2 file untouched.</p>
+            </details>
+            <details>
+              <summary>How do I use one vault on several computers?</summary>
+              <p>Keep the file in a folder you already sync (Google Drive, Dropbox, Syncthing…). Keywhere saves atomically, refuses to overwrite a vault that changed on disk since you opened it, and honours Password Safe's <code>.plk</code> lock file: while another app has the vault, Keywhere opens it read‑only.</p>
+            </details>
+            <details>
+              <summary>Does Keywhere connect to the internet?</summary>
+              <p>Not until you say so. On first start it asks whether it may check GitHub for new versions. A check is two HTTPS requests to github.com for this repository's latest release; nothing about your vaults is sent. This website, likewise, only asks GitHub for the latest release to show the download links. It has no analytics, no cookies and no third‑party fonts or scripts.</p>
+            </details>
+            <details>
+              <summary>Why do macOS and Windows warn me before the first start?</summary>
+              <p>The macOS and Windows builds are previews and aren't code‑signed yet, so the system asks before running them. The Download section shows how to start them. Check the file against <code>SHA256SUMS</code> first.</p>
+            </details>
+            <details>
+              <summary>Can I unlock with my fingerprint or the system keychain?</summary>
+              <p>No, by design for now: the master password stays the only way in, and nothing derived from it is handed to the system keychain.</p>
+            </details>
+            <details>
+              <summary>Is there a mobile app?</summary>
+              <p>No. Keywhere is a desktop app for Linux, macOS and Windows. Mobile was considered and set aside for now.</p>
+            </details>
+            <details>
+              <summary>Is it ready for my real passwords?</summary>
+              <p>Keywhere is in early development and used daily by its author. The vault engine is tested against Password Safe, and every save keeps the previous file as <code>.ibak</code>. Keep your own backups anyway.</p>
+            </details>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <div class="wrap footer-inner">
+        <div class="footer-brand">
+          <img src="./icon.svg" width="26" height="26" alt="" />
+          <div>
+            <p class="wordmark">Key<span>where</span></p>
+            <p class="footer-sub">Made by <a href="https://github.com/vcostin">vcostin</a>. MIT licence.</p>
+          </div>
+        </div>
+        <ul class="footer-links">
+          <li><a href="https://github.com/vcostin/keywhere">Source</a></li>
+          <li><a href="https://github.com/vcostin/keywhere/releases">Releases</a></li>
+          <li><a href="https://github.com/vcostin/keywhere/blob/main/SECURITY.md">Security</a></li>
+          <li><a href="https://github.com/vcostin/keywhere/issues">Issues</a></li>
+        </ul>
+        <p class="footer-note">
+          This site has no analytics, no cookies and no third‑party requests besides GitHub's release API.
+          Inter is used under the <a href="./fonts/Inter-LICENSE.txt">SIL Open Font License</a>.
+        </p>
+      </div>
+    </footer>
+  </body>
+</html>
