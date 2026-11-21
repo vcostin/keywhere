@@ -1,6 +1,6 @@
 # Memory and endpoint audit (Keywhere)
 
-Status: code read of the tree as of this review. No GUI run. Threat model: `docs/security-review-grok.md`. Question: can vault secrets be fished from RAM, hardware, or other software on the machine?
+Status: code read of the tree as of this review. No GUI run. Threat model: `docs/security/threat-model.md`. Question: can vault secrets be fished from RAM, hardware, or other software on the machine?
 
 Verdict: after `harden_process`, a later same-user process on Linux cannot `ptrace`, `process_vm_readv`, or read `/proc/<pid>/mem`. That does not cover launch-time injection, the input method, the clipboard, or anything that was painted. Lock zeroizes `Field` and `KeyMaterial::p_prime`. It does not zeroize GPUI’s line-layout copy, cosmic-text’s shape buffer, arboard’s offer, or KWin’s clipboard. Sleep locking is signal-only and can lose the race. `mlock` is still absent. macOS and Windows do not lock on sleep or screen lock.
 

@@ -107,7 +107,7 @@ Next for the engine:
 | **M4 Polish (done)** | Settings page (auto‑lock, clipboard, close behaviour, theme, language), English/Romanian UI, dropdown + group combobox, group fold/new/delete, "No group" view, health views (weak/reused/expiring), favorites, light theme, Password Gorilla v2 read/write + upgrade. Favicons deferred. |
 | **M5 Ship** | Packages: AppImage (done), Flatpak, .dmg (notarised), MSI. Signed releases with in‑app updates (AppImage done: minisign‑signed manifest, opt‑in checks). Reproducible builds |
 
-## 6. Security posture (summary; full threat model in `docs/security-review-grok.md`)
+## 6. Security posture (summary; full threat model in `docs/security/threat-model.md`)
 
 * MUST: constant‑time comparisons, authenticate before parsing, zeroize secrets, clipboard
   auto‑clear with history exclusion, auto‑lock, atomic save with a backup, no secrets in logs,
