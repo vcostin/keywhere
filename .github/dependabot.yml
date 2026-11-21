@@ -1,0 +1,31 @@
+# Weekly dependency updates, one grouped PR per ecosystem. Security updates
+# (Dependabot alerts) arrive as their own PRs whenever an advisory lands.
+# Every PR goes through the normal CI: tests, clippy, cargo-audit, cargo-deny.
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "Dependencies:"
+    groups:
+      cargo:
+        patterns: ["*"]
+        update-types: [minor, patch]
+    ignore:
+      # Vendored with Keywhere patches (third_party/gpui); bumped by hand.
+      - dependency-name: gpui
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    commit-message:
+      prefix: "CI:"
+    groups:
+      actions:
+        patterns: ["*"]
