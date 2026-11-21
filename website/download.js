@@ -178,9 +178,23 @@ function renderGeneric() {
   }
 }
 
+/**
+ * The line under the big button: text plus an in-page link. A link to a platform card also opens
+ * that card's install / first-start notes, so the answer is right there after the scroll.
+ */
+function setCta(text, linkText, target) {
+  if (!linkText) return ctaStatus.replaceChildren(text);
+  const a = el("a", "", linkText);
+  a.href = `#${target}`;
+  const card = document.getElementById(target);
+  const howto = card?.classList.contains("platform") ? card.querySelector(".howto") : null;
+  if (howto) a.addEventListener("click", () => (howto.open = true));
+  ctaStatus.replaceChildren(text, a, ".");
+}
+
 function fallback(message) {
   renderGeneric();
-  ctaStatus.textContent = message;
+  setCta(`${message} `, "See all downloads", "download");
   setStatus(message + " All files are on ", { text: "GitHub Releases", href: LATEST });
 }
 
@@ -252,10 +266,8 @@ function renderOther(other) {
 
 function renderPrimary(byType, version) {
   if (os === "mobile" || os === "unknown") {
-    ctaStatus.textContent =
-      os === "mobile"
-        ? `Keywhere is a desktop app for Linux, macOS and Windows. Latest: ${version}.`
-        : `Latest: ${version}. Pick your platform below.`;
+    if (os === "mobile") setCta(`Keywhere is a desktop app for Linux, macOS and Windows. Latest: ${version}.`);
+    else setCta(`Latest: ${version}. `, "Pick your platform", "download");
     return;
   }
   const name = OS_NAMES[os];
@@ -266,18 +278,19 @@ function renderPrimary(byType, version) {
     primary.href = safeUrl(asset.browser_download_url) ?? LATEST;
     primaryLabel.textContent = `Download for ${name}`;
     primaryMeta.textContent = [type.kind, version, formatBytes(asset.size)].filter(Boolean).join(" · ");
-    ctaStatus.textContent =
-      os === "linux" ? "Prefer a .deb or .rpm? See all downloads below." : "Unsigned preview: see First start below.";
+    if (os === "linux") setCta("Prefer a .deb or .rpm? ", "All Linux downloads", "dl-linux");
+    else setCta("Unsigned preview: ", "other Windows files and first start", "dl-windows");
   } else if (hasAny) {
     primary.href = `#dl-${os}`;
     primaryLabel.textContent = `Download for ${name}`;
     primaryMeta.textContent = os === "macos" ? `Apple silicon or Intel · ${version}` : `Version ${version}`;
-    ctaStatus.textContent = os === "linux" ? "" : "Unsigned preview: see First start below.";
+    if (os === "linux") setCta("", "All Linux downloads", "dl-linux");
+    else setCta("Unsigned preview: ", `${name} files and first start`, `dl-${os}`);
   } else {
     primary.href = "#download";
     primaryLabel.textContent = "See all downloads";
     primaryMeta.textContent = `Version ${version}`;
-    ctaStatus.textContent = `Version ${version} has no ${name} build.`;
+    setCta(`Version ${version} has no ${name} build. `, "See all downloads", "download");
   }
 }
 
