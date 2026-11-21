@@ -1,7 +1,7 @@
 # Security fixes review — Keywhere (Cursor)
 
 Review of commits `0838a4b` and `69b2cbf` against baseline `9718fc9`.
-Diff reviewed: `git diff 9718fc9..69b2cbf`. Audits: [security-audit-cursor.md](security-audit-cursor.md), [security-audit-deepseek.md](security-audit-deepseek.md), [security-audit-memory-grok.md](security-audit-memory-grok.md).
+Diff reviewed: `git diff 9718fc9..69b2cbf`. Audits: [audit-cursor.md](audit-cursor.md), [audit-deepseek.md](audit-deepseek.md), [audit-memory-grok.md](audit-memory-grok.md).
 
 Checks: `cargo test --workspace --release` (51 passed: 35 core + 16 app), `cargo clippy --workspace --all-targets --features keywhere/devtools --release -- -D warnings` (clean), `cargo deny check` (advisories/bans/licenses/sources ok). GUI not run. **No source edits** in this pass.
 

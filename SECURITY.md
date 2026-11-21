@@ -76,19 +76,29 @@ not as public issues.
 * **Copies outside the process**: the compositor or X server holding the
   clipboard selection, GPU memory, and screenshots or screen recorders.
 
-## Audits
+## Security documents
 
 All in [docs/security](docs/security):
 
 * [Threat model](docs/security/threat-model.md): the requirements the app is built against.
-* Independent audits of the code: [Cursor](docs/security/audit-cursor.md),
+* [RAM residue test](docs/security/ram-test.md): measured, repeatable.
+* Independent code audits: [Cursor](docs/security/audit-cursor.md),
   [DeepSeek](docs/security/audit-deepseek.md), and a memory and hardware focused one by
   [Grok](docs/security/audit-memory-grok.md).
 * [Review of the fixes](docs/security/audit-fixes-review-cursor.md) for those audits.
-* [RAM residue test](docs/security/ram-test.md): measured, repeatable.
 
-The audits describe the code at the commit they name; their findings were fixed afterwards
-unless SECURITY.md says otherwise.
+Each audit describes the code at the commit it names. The fixes review records what was fixed
+and which residuals were accepted; this file describes the current behaviour and limits.
+
+### Accepted residuals
+
+* If `mlock` fails (for example a low `RLIMIT_MEMLOCK`), the key page is not locked and no
+  warning is shown. Decrypted fields are never `mlock`ed, so they can reach swap (use encrypted
+  swap).
+* A stale `.plk` lock from a crashed Keywhere is reclaimed without asking.
+* Another program running as you can still send `show`, `hide`, `lock` or `quit` to the running
+  instance over its private socket.
+* A planted v2 file opens editable if this machine never opened the v3 vault at that path.
 
 ## Platform status
 
