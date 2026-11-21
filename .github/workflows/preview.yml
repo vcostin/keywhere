@@ -57,5 +57,6 @@ jobs:
           name: preview-${{ runner.os }}
           path: |
             dist/*.dmg
+            dist/*.app.zip
             dist/*-portable.exe
           if-no-files-found: error

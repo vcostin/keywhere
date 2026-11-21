@@ -15,7 +15,14 @@ entry() { # platform file
     "$1" "$BASE" "$(basename "$f")" "$(sha256sum "$f" | cut -d' ' -f1)" "$(stat -c %s "$f")"
 }
 platforms=()
-[ -f "dist/Keywhere-$V-x86_64.AppImage" ] && platforms+=("$(entry linux-x86_64 "dist/Keywhere-$V-x86_64.AppImage")")
+# Keys are `<std::env::consts::OS>-<ARCH>` (update::platform_key).
+add() { # platform file
+  if [ -f "$2" ]; then platforms+=("$(entry "$1" "$2")"); fi
+}
+add linux-x86_64 "dist/Keywhere-$V-x86_64.AppImage"
+add macos-aarch64 "dist/Keywhere-$V-macos-arm64.app.zip"
+add macos-x86_64 "dist/Keywhere-$V-macos-x64.app.zip"
+add windows-x86_64 "dist/Keywhere-$V-windows-x64-portable.exe"
 [ ${#platforms[@]} -gt 0 ] || { echo "no artifacts for $V in dist/" >&2; exit 1; }
 IFS=,
 printf '{"version":"%s","pub_date":"%s","notes_url":"https://github.com/vcostin/keywhere/releases/tag/v%s","platforms":{%s}}\n' \

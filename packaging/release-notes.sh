@@ -15,9 +15,9 @@ cat <<NOTES
 * **keywhere_$V-1_amd64.deb**: Debian, Ubuntu 22.04+.
 * **keywhere-$V-1.x86_64.rpm**: Fedora, openSUSE.
 
-**Preview, unsigned** (not code-signed or notarized yet; no in-app updates
-yet). Like the Linux build they have a tray icon (menu bar / notification
-area) and lock with the screen lock and before sleep:
+**Preview, unsigned** (not code-signed or notarized yet). Like the Linux
+build they update themselves from the app, have a tray icon (menu bar /
+notification area) and lock with the screen lock and before sleep:
 
 * **Keywhere-$V-macos-arm64.dmg** (Apple silicon) /
   **Keywhere-$V-macos-x64.dmg** (Intel): open the .dmg and drag Keywhere to
@@ -34,6 +34,8 @@ area) and lock with the screen lock and before sleep:
   \`%APPDATA%\\keywhere\`). SmartScreen warns on first start: "More info" →
   "Run anyway" (or run \`Unblock-File\` on it in PowerShell first).
 
-Checksums are in \`SHA256SUMS\`: check a preview file against it before you
-allow it to run. The in-app updater checks the signed \`latest.json\`.
+The \`*.app.zip\` files are for the in-app updater on macOS; download the
+.dmg instead. Checksums are in \`SHA256SUMS\`: check a preview file against
+it before you allow it to run. The in-app updater checks the signed
+\`latest.json\`.
 NOTES

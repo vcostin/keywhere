@@ -51,9 +51,17 @@ not as public issues.
 * **Pinned.** The manifest's download URL must be a release file of this repository for that
   exact version, and its size and SHA‑256 must match before the file is used.
 * **No downgrades.** Only a version newer than the running one is offered.
-* **Safe swap.** The AppImage is downloaded next to itself (mode 0600), verified, must report
-  the expected version, and only then replaces the old file by an atomic rename. The vault is
-  locked before the restart. Flatpak, distro packages and source builds are never modified.
+* **Safe swap.** The update is downloaded next to the running copy (mode 0600 on Unix),
+  verified, must report the expected version, and only then goes in place:
+  * the Linux AppImage by an atomic rename;
+  * the Windows portable exe by renaming the running exe aside and the new one into its name
+    (the old file is deleted at the next start);
+  * the macOS `Keywhere.app` by unpacking the verified zip with `ditto` next to it and
+    swapping the two bundles by rename.
+
+  The vault is locked before the restart. Flatpak, distro packages, source builds and copies in
+  folders Keywhere can't write (Program Files, a mounted disk image, a quarantined app that
+  macOS runs from a translocated copy) are never modified.
 * **Limits.** Whoever holds the signing key or the GitHub account can ship an update. An
   attacker who can block or replay GitHub responses can hide a new release (they can't
   install an old or foreign one).
