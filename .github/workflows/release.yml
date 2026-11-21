@@ -14,7 +14,32 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  # Full release-mode tests on the platforms PR checks skip. Nothing is
+  # published unless these pass.
+  platforms:
+    name: tests (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@1.95.0
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Core tests
+        run: cargo test --locked --release -p keywhere-core
+      - name: Core lints
+        run: cargo clippy --locked --release -p keywhere-core --all-targets -- -D warnings
+      - name: App tests
+        run: cargo test --locked --release -p keywhere
+      - name: App lints
+        run: cargo clippy --locked --release -p keywhere --all-targets --features devtools -- -D warnings
+
   linux:
+    needs: platforms
     name: Linux (AppImage, .deb, .rpm)
     # Oldest supported glibc: build on the oldest maintained runner.
     runs-on: ubuntu-22.04
@@ -25,6 +50,8 @@ jobs:
         with:
           fetch-depth: 0
       - uses: dtolnay/rust-toolchain@1.95.0
+        with:
+          components: clippy
 
       - name: Linux GPUI dependencies
         run: |
@@ -47,6 +74,8 @@ jobs:
 
       - name: Tests
         run: cargo test --locked --release --workspace
+      - name: Lints
+        run: cargo clippy --locked --release --workspace --all-targets --features keywhere/devtools -- -D warnings
 
       - name: Build AppImage
         run: packaging/linux/build-appimage.sh

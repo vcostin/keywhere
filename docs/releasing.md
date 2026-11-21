@@ -7,7 +7,7 @@ the previous tag, after a download section from `packaging/release-notes.sh`.
 
 ## Changes go through pull requests
 
-`main` is protected: changes land through pull requests that pass all CI checks, merged with
+`main` is protected: changes land through pull requests that pass the CI checks, merged with
 **squash**. The PR title becomes the commit subject and the release‑notes entry, so write it as
 a sentence a user would understand. Admins can bypass in an emergency. There is no update server besides GitHub Releases.
 
@@ -30,7 +30,9 @@ a sentence a user would understand. Admins can bypass in an emergency. There is 
    git push origin main v0.2.0
    ```
 
-The workflow refuses a tag that doesn't match the workspace version, runs the tests, builds,
+The workflow first runs the full release‑mode tests and lints on macOS and Windows (pull
+requests only check Linux, with a lighter build profile). It then refuses a tag that doesn't match
+the workspace version, runs the Linux tests, builds,
 signs, verifies the signature against the committed public key, and only then publishes. The
 release is marked *latest*; the updater reads
 `https://github.com/vcostin/keywhere/releases/latest/download/latest.json`.
