@@ -95,6 +95,9 @@ jobs:
       - name: Checksums
         run: cd dist && sha256sum Keywhere-*.AppImage keywhere_*.deb keywhere-*.rpm latest.json latest.json.minisig > SHA256SUMS && cat SHA256SUMS
 
+      - name: Release notes
+        run: packaging/release-notes.sh "$GITHUB_REF_NAME" | tee dist/NOTES.md
+
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -114,5 +117,5 @@ jobs:
             "dist/keywhere-${V}-1.x86_64.rpm" dist/latest.json dist/latest.json.minisig dist/SHA256SUMS \
             --repo "$GITHUB_REPOSITORY" \
             --title "Keywhere $V" \
-            --generate-notes \
+            --notes-file dist/NOTES.md \
             --latest=$latest

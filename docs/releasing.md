@@ -2,7 +2,8 @@
 
 A release is a `vX.Y.Z` tag. The [release workflow](../.github/workflows/release.yml) builds
 the Linux AppImage, `.deb` and `.rpm` (all from one binary on one runner), writes and signs `latest.json` for the in‑app updater, and publishes a
-GitHub Release with `SHA256SUMS`. There is no update server besides GitHub Releases.
+GitHub Release with `SHA256SUMS`. The release notes list every commit since the previous tag
+(`packaging/release-notes.sh`; review-log and version-bump commits are left out). There is no update server besides GitHub Releases.
 
 ## Cut a release
 
