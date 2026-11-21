@@ -1,9 +1,15 @@
 name: CI
 
+# Checks for pull requests (main only changes through PRs, so a second run
+# after merging adds nothing). Release builds run from release.yml on tags.
 on:
-  push:
-    branches: [main]
   pull_request:
+  workflow_dispatch:
+
+# A new push to the same PR cancels its run in progress.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -13,9 +19,9 @@ env:
 
 jobs:
   # One machine per OS. Steps run in order and stop at the first failure,
-  # so the app is never built when the core engine's tests or lints fail.
-  build:
-    name: build (${{ matrix.os }})
+  # so the app is never checked when the core engine's tests or lints fail.
+  checks:
+    name: checks (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
