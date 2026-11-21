@@ -91,13 +91,51 @@ fn entry_for(appimage: &Path) -> Option<String> {
     Some(out)
 }
 
-fn write_atomic(path: &Path, data: &[u8]) -> std::io::Result<()> {
-    if let Some(dir) = path.parent() {
-        fs::create_dir_all(dir)?;
+/// A new private temp file next to `path`: random name, never follows a
+/// symlink or reuses an existing file.
+fn write_temp(path: &Path, data: &[u8]) -> std::io::Result<PathBuf> {
+    use std::io::Write;
+    use std::os::unix::fs::OpenOptionsExt;
+    let dir = path.parent().ok_or(std::io::ErrorKind::InvalidInput)?;
+    fs::create_dir_all(dir)?;
+    let mut rnd = [0u8; 8];
+    getrandom::getrandom(&mut rnd).map_err(std::io::Error::other)?;
+    let name = format!(
+        ".{}.{}.tmp",
+        path.file_name()
+            .map(|n| n.to_string_lossy())
+            .unwrap_or_default(),
+        u64::from_le_bytes(rnd)
+    );
+    let tmp = dir.join(name);
+    let mut f = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o644)
+        .custom_flags(libc::O_NOFOLLOW)
+        .open(&tmp)?;
+    if let Err(e) = f.write_all(data) {
+        let _ = fs::remove_file(&tmp);
+        return Err(e);
     }
-    let tmp = path.with_extension("keywhere-tmp");
-    fs::write(&tmp, data)?;
-    fs::rename(&tmp, path)
+    Ok(tmp)
+}
+
+/// Replace `path` (a rename never writes through a symlink at `path`).
+fn write_atomic(path: &Path, data: &[u8]) -> std::io::Result<()> {
+    let tmp = write_temp(path, data)?;
+    fs::rename(&tmp, path).inspect_err(|_| {
+        let _ = fs::remove_file(&tmp);
+    })
+}
+
+/// Create `path` only if nothing exists there (a hard link fails instead of
+/// replacing), so an entry that appeared meanwhile is never overwritten.
+fn create_new(path: &Path, data: &[u8]) -> std::io::Result<()> {
+    let tmp = write_temp(path, data)?;
+    let r = fs::hard_link(&tmp, path);
+    let _ = fs::remove_file(&tmp);
+    r
 }
 
 fn refresh_caches(data_home: &Path) {
@@ -130,8 +168,12 @@ fn integrate_into(data_home: &Path, appimage: &Path) -> std::io::Result<Outcome>
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
             write_atomic(&p.icon, ICON)?;
             write_atomic(&p.mime, MIME.as_bytes())?;
-            write_atomic(&p.desktop, entry.as_bytes())?;
-            Ok(Outcome::Created)
+            match create_new(&p.desktop, entry.as_bytes()) {
+                Ok(()) => Ok(Outcome::Created),
+                // Someone else's entry appeared meanwhile: leave it.
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Ok(Outcome::Unchanged),
+                Err(e) => Err(e),
+            }
         }
         Err(e) => Err(e),
     }
@@ -168,8 +210,13 @@ pub fn remove() {
     let ours = fs::read_to_string(&p.desktop).is_ok_and(|e| e.lines().any(|l| l == MARKER));
     if ours {
         let _ = fs::remove_file(&p.desktop);
-        let _ = fs::remove_file(&p.icon);
-        let _ = fs::remove_file(&p.mime);
+        // The icon and MIME type only if they are still exactly ours.
+        if fs::read(&p.icon).is_ok_and(|b| b == ICON) {
+            let _ = fs::remove_file(&p.icon);
+        }
+        if fs::read(&p.mime).is_ok_and(|b| b == MIME.as_bytes()) {
+            let _ = fs::remove_file(&p.mime);
+        }
         refresh_caches(&home);
     }
 }
@@ -218,6 +265,38 @@ mod tests {
             fs::read_to_string(&p.desktop).unwrap(),
             "[Desktop Entry]\nExec=/somewhere/else\n"
         );
+        fs::remove_dir_all(&home).unwrap();
+    }
+
+    #[test]
+    fn temp_files_never_follow_symlinks() {
+        let home = tmp("symlink");
+        let p = paths(&home);
+        let victim = home.join("victim");
+        fs::write(&victim, "keep").unwrap();
+        fs::create_dir_all(p.desktop.parent().unwrap()).unwrap();
+        // A symlink at the final path is replaced, not written through.
+        std::os::unix::fs::symlink(&victim, &p.desktop).unwrap();
+        write_atomic(&p.desktop, b"new").unwrap();
+        assert_eq!(fs::read_to_string(&victim).unwrap(), "keep");
+        assert_eq!(fs::read_to_string(&p.desktop).unwrap(), "new");
+        // create_new refuses to replace anything.
+        assert_eq!(
+            create_new(&p.desktop, b"other").unwrap_err().kind(),
+            std::io::ErrorKind::AlreadyExists
+        );
+        assert_eq!(fs::read_to_string(&p.desktop).unwrap(), "new");
+        let leftovers = fs::read_dir(p.desktop.parent().unwrap())
+            .unwrap()
+            .filter(|e| {
+                e.as_ref()
+                    .unwrap()
+                    .file_name()
+                    .to_string_lossy()
+                    .ends_with(".tmp")
+            })
+            .count();
+        assert_eq!(leftovers, 0);
         fs::remove_dir_all(&home).unwrap();
     }
 
