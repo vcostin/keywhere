@@ -401,13 +401,25 @@ fn make_executable(p: &Path) -> std::io::Result<()> {
 /// one.
 fn check_reports_version(p: &Path, version: &semver::Version) -> Result<(), UpdateError> {
     let fail = |e: String| UpdateError::Install(format!("The new version didn't start: {e}"));
-    let mut child = std::process::Command::new(p)
-        .arg("--version")
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-        .map_err(|e| fail(e.to_string()))?;
+    // ETXTBSY: a process forked elsewhere in this program while the file was
+    // still open for writing briefly holds that fd; retry for a moment.
+    let mut tries = 0;
+    let mut child = loop {
+        match std::process::Command::new(p)
+            .arg("--version")
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+        {
+            Ok(c) => break c,
+            Err(e) if e.raw_os_error() == Some(26) && tries < 50 => {
+                tries += 1;
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            Err(e) => return Err(fail(e.to_string())),
+        }
+    };
     let deadline = Instant::now() + Duration::from_secs(30);
     loop {
         match child.try_wait() {

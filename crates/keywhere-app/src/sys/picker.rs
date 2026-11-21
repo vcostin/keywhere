@@ -82,7 +82,6 @@ fn open_file(title: &str, accept: &str) -> Result<Option<PathBuf>, String> {
         .ok_or("no D-Bus name")?
         .trim_start_matches(':')
         .replace('.', "_");
-    let request_path = format!("/org/freedesktop/portal/desktop/request/{sender}/{token}");
     // Subscribe to every Response for our requests *before* calling, so a
     // fast reply isn't missed even if an old portal picks its own path.
     let responses = zbus::blocking::MessageIterator::for_match_rule(
@@ -123,7 +122,6 @@ fn open_file(title: &str, accept: &str) -> Result<Option<PathBuf>, String> {
         )
         .map_err(err)?;
     let handle: OwnedObjectPath = reply.body().deserialize().map_err(err)?;
-    let _ = request_path; // normally equal to `handle`; old portals differ
     for msg in responses {
         let msg = msg.map_err(err)?;
         if msg.header().path().map(|p| p.as_str()) == Some(handle.as_str()) {
