@@ -76,6 +76,20 @@ not as public issues.
 * **Copies outside the process**: the compositor or X server holding the
   clipboard selection, GPU memory, and screenshots or screen recorders.
 
+## Audits
+
+All in [docs/security](docs/security):
+
+* [Threat model](docs/security/threat-model.md): the requirements the app is built against.
+* Independent audits of the code: [Cursor](docs/security/audit-cursor.md),
+  [DeepSeek](docs/security/audit-deepseek.md), and a memory and hardware focused one by
+  [Grok](docs/security/audit-memory-grok.md).
+* [Review of the fixes](docs/security/audit-fixes-review-cursor.md) for those audits.
+* [RAM residue test](docs/security/ram-test.md): measured, repeatable.
+
+The audits describe the code at the commit they name; their findings were fixed afterwards
+unless SECURITY.md says otherwise.
+
 ## Platform status
 
 Linux (Wayland and X11) is the reference platform. **The macOS and Windows

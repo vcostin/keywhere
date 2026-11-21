@@ -110,7 +110,7 @@ Mockups: [docs/mockups/keywhere-mockups.html](docs/mockups/keywhere-mockups.html
 
 ## Security
 
-Threat model: [docs/security-review-grok.md](docs/security-review-grok.md). The engine uses the
+Threat model: [docs/security/threat-model.md](docs/security/threat-model.md). The engine uses the
 RustCrypto crates (`twofish`, `cbc`, `sha2`, `hmac`), constant‑time checks, authenticate‑before‑parse,
 input size caps, zeroized secrets and an atomic, verified save with a `.ibak` backup.
 Please report vulnerabilities privately via GitHub Security Advisories.

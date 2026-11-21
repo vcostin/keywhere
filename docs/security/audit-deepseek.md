@@ -4,7 +4,7 @@ Scope: the committed tree at `9718fc9` (line numbers below refer to it). While
 this review was being written, an unreviewed change set appeared in the working
 tree (mlock'd key material, a logind sleep inhibitor, `sensitive` text fields);
 it targets memory residue and does not change any finding here. Reviewed against
-`docs/PLAN.md` and `docs/security-review-grok.md`. Code only: the GUI was not
+`docs/PLAN.md` and `docs/security/threat-model.md`. Code only: the GUI was not
 run, nothing was executed against `/home/roth/GoogleDrive`, and nothing outside
 this file was modified.
 
@@ -67,7 +67,7 @@ CloseAction::Hide` is the default), `crates/keywhere-app/src/lib.rs:274-296`
 `settings.rs:45-48` + `settings.rs:47` (`idle_lock_minutes = 0` means *never*),
 `crates/keywhere-app/src/i18n.rs:269` ("Hide, keep unlocked"),
 `docs/PLAN.md:47` ("Closing the last window locks by default unless 'keep
-running in tray' is on"), `docs/security-review-grok.md:130`.
+running in tray' is on"), `docs/security/threat-model.md:130`.
 
 Attack. A user closes the window on a shared or unattended machine and assumes
 it is locked. It is not: the window is removed but the decrypted `Vault` is
@@ -285,7 +285,7 @@ Impact. A change inside `third_party/gpui` is invisible to `cargo audit`, is not
 checked against the crates.io tarball, and cannot be reviewed as a diff; the
 app's largest dependency is effectively unauditable. `cargo-deny` (advisories,
 crates.io-only sources, licence policy, duplicate `sha2`/`hmac`/`zeroize`) is a
-"must" in `docs/security-review-grok.md:158` and is absent. CI installs
+"must" in `docs/security/threat-model.md:158` and is absent. CI installs
 `stable` while the repo pins `1.95.0`, so either the pin is ignored or every run
 re-resolves a toolchain the docs claim is fixed.
 
@@ -398,7 +398,7 @@ Ordered roughly by how promising the idea looked before testing.
     itself. A file created between the check and the rename is silently
     replaced (`lib.rs:392-396` + `save`). Cosmetic/UX; note only.
 
-16. **No warning for a group/world-readable vault** (`docs/security-review-grok.md:167`,
+16. **No warning for a group/world-readable vault** (`docs/security/threat-model.md:167`,
     "should"). The file is recreated 0600 on every save (`lib.rs:687-700`), but
     an externally loosened file is used as-is at open. One-line fix, no
     attack chain found beyond the usual "sync client loosens the mode".

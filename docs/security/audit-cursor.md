@@ -1,7 +1,7 @@
 # Security audit — Keywhere (Cursor)
 
 Independent adversarial review of Keywhere as a desktop password manager intended for third parties.
-Scope: committed tree at `9718fc9` (`main`). Threat model: [docs/security-review-grok.md](../security-review-grok.md). Plan: [docs/PLAN.md](../PLAN.md). RAM residue: [docs/security/ram-test.md](../security/ram-test.md). Prior milestone reviews under `docs/reviews/cursor-*.md` were checked so solved items are not re-litigated.
+Scope: committed tree at `9718fc9` (`main`). Threat model: [docs/security/threat-model.md](threat-model.md). Plan: [docs/PLAN.md](../PLAN.md). RAM residue: [docs/security/ram-test.md](ram-test.md). Prior milestone reviews under `docs/reviews/cursor-*.md` were checked so solved items are not re-litigated.
 
 Checks run: `cargo test --release` (46 passed: 31 core + 15 app), `cargo clippy --release --all-targets --features devtools -- -D warnings` (clean), `cargo audit` (0 vulnerabilities; unmaintained warnings only), `cargo tree` on `keywhere-core` / app, targeted greps, and a throwaway symlink-rename PoC under `/tmp/claude-1000/.../scratchpad/cursor-audit/`. GUI not run. Repository sources not modified (except this report). `/home/roth/GoogleDrive` not touched.
 
