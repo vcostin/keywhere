@@ -50,8 +50,8 @@ macOS/Windows: clipboard protection works; tray and lock‑on‑sleep hooks are 
 ### Settings and language
 
 The gear button (or `Ctrl+,` / `⌘,`) opens **Settings**: auto‑lock time (1–60 min or never),
-clipboard clear time (5–120 s), what closing the window does (hide and keep unlocked, or lock and
-hide), and the **language** (System, English, Română). Settings apply immediately and are stored in
+clipboard clear time (5–120 s), what closing the window does (lock and hide — the default — or
+hide and keep unlocked), and the **language** (System, English, Română). Settings apply immediately and are stored in
 `~/.config/keywhere/settings` (never secrets). Translations live in
 `crates/keywhere-app/src/i18n.rs`; adding a language is one column there.
 

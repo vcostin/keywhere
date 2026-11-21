@@ -31,7 +31,9 @@ impl Default for Settings {
         Settings {
             idle_lock_minutes: 5,
             clipboard_clear_secs: 30,
-            close_action: CloseAction::Hide,
+            // Safe by default (audit KW-H1): closing locks. Keeping the vault
+            // unlocked in the background is an explicit opt-in.
+            close_action: CloseAction::Lock,
             language: None,
             // Keywhere's identity is the navy dark look; System/Light are opt-in.
             theme: ThemeChoice::Dark,
@@ -75,10 +77,11 @@ impl Settings {
                     }
                 }
                 "close_action" => {
-                    s.close_action = if v == "lock" {
-                        CloseAction::Lock
-                    } else {
+                    // Only an explicit "hide" keeps the vault unlocked.
+                    s.close_action = if v == "hide" {
                         CloseAction::Hide
+                    } else {
+                        CloseAction::Lock
                     }
                 }
                 "language" => s.language = Lang::from_code(v),
@@ -143,5 +146,13 @@ mod tests {
         assert_eq!(bad.clipboard_clear_secs, CLIPBOARD_MAX);
         assert_eq!(bad.language, None);
         assert_eq!(Settings::parse("idle_lock_minutes = 0").idle_lock(), None);
+    }
+
+    #[test]
+    fn close_locks_unless_hide_is_chosen() {
+        assert_eq!(Settings::default().close_action, CloseAction::Lock);
+        assert_eq!(Settings::parse("").close_action, CloseAction::Lock);
+        assert_eq!(Settings::parse("close_action = bogus").close_action, CloseAction::Lock);
+        assert_eq!(Settings::parse("close_action = hide").close_action, CloseAction::Hide);
     }
 }

@@ -274,7 +274,8 @@ impl Shell {
     }
 
     /// Window close button / Alt+F4. With a tray: the window is removed
-    /// entirely (no taskbar entry) and an unlocked session is kept in the
+    /// entirely (no taskbar entry); by default the vault locks first. With
+    /// "Hide, keep unlocked" chosen, an unlocked session is kept in the
     /// background (auto-locks after the auto-lock time, on screen lock / sleep, tray
     /// → Lock, quit); tray → Open brings it back unlocked. Without a tray:
     /// quit. (Relies on the vendored gpui keep-alive patch.)

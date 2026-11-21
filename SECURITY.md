@@ -71,7 +71,7 @@ builds are not ready to give to others** until these are in place:
 
 ## Defaults
 
-Closing the window with a tray available keeps the vault unlocked in the
-background ("Hide, keep unlocked") until the auto‑lock time, a screen lock,
-sleep, or tray → Lock. Choose "Lock" under Settings → On close for the stricter
-behaviour.
+Closing the window locks the vault ("Lock and hide"). "Hide, keep unlocked"
+is an opt‑in under Settings → On close: the vault then stays unlocked in the
+background until the auto‑lock time, a screen lock, sleep, or tray → Lock.
+Settings files that already say `close_action = hide` keep that choice.

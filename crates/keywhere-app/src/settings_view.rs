@@ -250,22 +250,22 @@ impl Render for SettingsView {
             .gap(px(6.))
             .child(
                 Self::chip(
-                    "close-hide".into(),
-                    t("Hide, keep unlocked").into(),
-                    s.close_action == CloseAction::Hide,
-                )
-                .on_click(|_, window, _| {
-                    Self::change(|s| s.close_action = CloseAction::Hide, window)
-                }),
-            )
-            .child(
-                Self::chip(
                     "close-lock".into(),
                     t("Lock and hide").into(),
                     s.close_action == CloseAction::Lock,
                 )
                 .on_click(|_, window, _| {
                     Self::change(|s| s.close_action = CloseAction::Lock, window)
+                }),
+            )
+            .child(
+                Self::chip(
+                    "close-hide".into(),
+                    t("Hide, keep unlocked").into(),
+                    s.close_action == CloseAction::Hide,
+                )
+                .on_click(|_, window, _| {
+                    Self::change(|s| s.close_action = CloseAction::Hide, window)
                 }),
             );
 
