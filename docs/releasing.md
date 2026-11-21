@@ -30,11 +30,12 @@ a sentence a user would understand. Admins can bypass in an emergency. There is 
    git push origin main v0.2.0
    ```
 
-The workflow first runs the full release‑mode tests and lints on macOS and Windows (pull
-requests only check Linux, with a lighter build profile). It then refuses a tag that doesn't match
-the workspace version, runs the Linux tests, builds,
-signs, verifies the signature against the committed public key, and only then publishes. The
-release is marked *latest*; the updater reads
+The workflow runs the full release‑mode tests and lints on macOS and Windows in parallel with
+the Linux package build (pull requests only check Linux, with a lighter build profile). Linux
+refuses a tag that doesn't match the workspace version, then tests, builds the AppImage/`.deb`/`.rpm`,
+runs the AppImage end‑to‑end test, and installs the packages in containers. A final job waits for
+both sides, signs `latest.json`, verifies the signature against the committed public key, and only
+then publishes. The release is marked *latest*; the updater reads
 `https://github.com/vcostin/keywhere/releases/latest/download/latest.json`.
 
 To test an in‑app update end to end: run the previous release's AppImage, publish the new tag,

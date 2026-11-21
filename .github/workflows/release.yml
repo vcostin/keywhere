@@ -15,7 +15,7 @@ env:
 
 jobs:
   # Full release-mode tests on the platforms PR checks skip. Nothing is
-  # published unless these pass.
+  # published unless these pass (publish job needs this and linux).
   platforms:
     name: tests (${{ matrix.os }})
     strategy:
@@ -65,20 +65,21 @@ jobs:
             dist/*.msi
           if-no-files-found: warn
 
+  # Runs in parallel with platforms. Publish waits for both, so macOS/
+  # Windows release-mode tests still gate the GitHub Release.
   linux:
-    needs: platforms
     name: Linux (AppImage, .deb, .rpm)
     # Oldest supported glibc: build on the oldest maintained runner.
     runs-on: ubuntu-22.04
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
       - uses: dtolnay/rust-toolchain@1.95.0
         with:
           components: clippy
+      # Separate key from the PR `ci` profile cache (different rustc flags).
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: release
 
       - name: Linux GPUI dependencies
         run: |
@@ -130,6 +131,41 @@ jobs:
           docker run --rm -v "$PWD/dist:/dist:ro" opensuse/tumbleweed sh -c \
             "zypper -n --quiet install --allow-unsigned-rpm $RPM && keywhere --version | grep '^Keywhere $V '"
 
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-packages
+          path: |
+            dist/Keywhere-*-x86_64.AppImage
+            dist/keywhere_*.deb
+            dist/keywhere-*.rpm
+          if-no-files-found: error
+
+  # Gates publication on every check above. Signing and the GitHub Release
+  # happen only after macOS/Windows tests and the Linux packages succeed.
+  publish:
+    needs: [platforms, linux]
+    name: Publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Version from tag
+        id: version
+        run: |
+          set -euo pipefail
+          V=${GITHUB_REF_NAME#v}
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+
+      - name: Linux packages
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-packages
+          path: dist
+
       - name: macOS and Windows preview packages
         continue-on-error: true
         uses: actions/download-artifact@v4
@@ -141,8 +177,9 @@ jobs:
       - name: Update manifest
         run: packaging/make-update-manifest.sh "${{ steps.version.outputs.version }}"
 
-      - name: Install rsign2
-        run: cargo install --locked rsign2 --version 0.6.7
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: rsign2@0.6.7
 
       - name: Sign the update manifest
         env:
