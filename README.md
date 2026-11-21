@@ -19,7 +19,18 @@ Works with files from Password Safe and Password Gorilla. No cloud account, no s
   manager (`sudo apt install ./keywhere_*.deb`, `sudo dnf install ./keywhere-*.rpm`, or
   `sudo zypper install --allow-unsigned-rpm ./keywhere-*.rpm`).
 
-`SHA256SUMS` on the release lists the checksums.
+**macOS (Apple silicon) and Windows, preview:** the `*-preview.zip` files on the release. They
+aren't code-signed, so the OS asks before the first start.
+* macOS: unzip, move **Keywhere.app** to Applications, then run once in Terminal
+
+  ```sh
+  xattr -dr com.apple.quarantine /Applications/Keywhere.app
+  ```
+
+  (or open it once and choose System Settings → Privacy & Security → **Open Anyway**).
+* Windows: unzip and run `keywhere.exe`; at the SmartScreen warning choose **More info → Run anyway**.
+
+`SHA256SUMS` on the release lists the checksums: check the zip before you allow it to run.
 
 From source:
 
@@ -55,7 +66,8 @@ cargo run --release -p keywhere -- path/to/vault.psafe3
 * **Clipboard:** copied secrets are marked *exclude from history* (KDE Klipper hint, Windows
   history/cloud exclusion, macOS concealed type) and cleared after 30 s, on lock and on quit.
 
-macOS/Windows: clipboard protection works; tray and lock‑on‑sleep hooks are not implemented yet.
+macOS/Windows: auto‑lock on screen lock, user switch and sleep (Windows also when the display
+turns off) and clipboard protection work; the window is kept out of screen captures. No tray yet.
 
 ### Settings and language
 
@@ -121,6 +133,10 @@ Please report vulnerabilities privately via GitHub Security Advisories.
 cargo test -p keywhere-core      # vault engine tests
 cargo run --release -p keywhere  # desktop app (Linux needs wayland/x11, xkbcommon, vulkan dev libs)
 ```
+
+On macOS, building needs full Xcode for the Metal shader compiler (`metal`); the Command Line
+Tools alone aren't enough. Without Xcode, add `--features gpui/runtime_shaders` (shaders are then
+compiled when the app starts). The prebuilt app doesn't need Xcode.
 
 ## Fonts
 
