@@ -19,11 +19,19 @@ cat <<NOTES
 no in-app updates yet). They lock with the screen lock and before sleep,
 like the Linux build:
 
-* **Keywhere-$V-macos-arm64-preview.zip**: Apple silicon Macs. macOS will
-  refuse to open it at first: right-click Keywhere.app → Open, or allow it in
-  System Settings → Privacy & Security.
-* **Keywhere-$V-windows-x64-preview.zip**: Windows 10/11. SmartScreen warns
-  on first start: "More info" → "Run anyway".
+* **Keywhere-$V-macos-arm64-preview.zip**: Apple silicon Macs. Unzip, move
+  Keywhere.app to Applications, then run once in Terminal (macOS blocks
+  unsigned downloads until this mark is removed):
 
-Checksums are in \`SHA256SUMS\`. The in-app updater checks the signed \`latest.json\`.
+  \`\`\`sh
+  xattr -dr com.apple.quarantine /Applications/Keywhere.app
+  \`\`\`
+
+  Or open it once, then System Settings → Privacy & Security → Open Anyway.
+* **Keywhere-$V-windows-x64-preview.zip**: Windows 10/11. Unzip and run
+  keywhere.exe. SmartScreen warns on first start: "More info" → "Run anyway"
+  (or run \`Unblock-File keywhere.exe\` in PowerShell first).
+
+Checksums are in \`SHA256SUMS\`: check a preview zip against it before you
+allow it to run. The in-app updater checks the signed \`latest.json\`.
 NOTES
