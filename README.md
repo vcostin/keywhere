@@ -90,8 +90,8 @@ hide and keep unlocked), and the **language** (System, English, Română). Setti
 
 On first start Keywhere asks whether it may check GitHub for new versions at startup; nothing
 happens on the network until you answer. Settings → Updates has the same switch and a **Check
-now** button. When a new version is out, the AppImage, the macOS app and the Windows portable
-exe offer **Update and restart**: Keywhere downloads the new version, checks it against a
+now** button. When a new version is out, the AppImage, the macOS app, and on Windows the
+portable exe or the per-user setup install offer **Update and restart**: Keywhere downloads the new version, checks it against a
 manifest signed with Keywhere's release key (the public key is built into the app), swaps it in
 place, locks and restarts. Copies installed by a package manager, built from source, or in a
 folder Keywhere can't write only get a notice with a link. Details:

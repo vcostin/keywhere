@@ -90,6 +90,7 @@ Section "Keywhere"
 SectionEnd
 
 Section "Uninstall"
+  !insertmacro WaitUntilClosed
   Delete "$INSTDIR\Keywhere.exe"
   ; Copies the in-app updater moved aside.
   Delete "$INSTDIR\.Keywhere.exe.old-*"

@@ -238,12 +238,19 @@ fn cleanup_next_to(target: &Path) {
     let (Some(dir), Some(name)) = (target.parent(), target.file_name()) else {
         return;
     };
-    let prefix = format!(".{}.old-", name.to_string_lossy());
+    let name = name.to_string_lossy();
+    let prefixes = [
+        format!(".{name}.old-"),
+        // An update interrupted mid-download or mid-unpack.
+        format!(".{name}.update-"),
+        ".Keywhere-update-".to_string(),
+    ];
     let Ok(entries) = fs::read_dir(dir) else {
         return;
     };
     for e in entries.flatten() {
-        if e.file_name().to_string_lossy().starts_with(&prefix) {
+        let n = e.file_name().to_string_lossy().into_owned();
+        if prefixes.iter().any(|p| n.starts_with(p.as_str())) {
             let p = e.path();
             let _ = if p.is_dir() {
                 fs::remove_dir_all(&p)
@@ -524,9 +531,8 @@ fn replace_from(
             }
         }
     })();
-    if result.is_err() {
-        let _ = fs::remove_file(&tmp);
-    }
+    // On success only the macOS zip is still there (the others were moved).
+    let _ = fs::remove_file(&tmp);
     result
 }
 
@@ -558,7 +564,11 @@ fn install_bundle(zip: &Path, bundle: &Path, version: &semver::Version) -> Resul
         .ok_or_else(|| err("Keywhere's folder is unknown.".into()))?;
     let staging = dir.join(format!(".Keywhere-update-{}", std::process::id()));
     let _ = fs::remove_dir_all(&staging);
-    fs::create_dir(&staging).map_err(|e| err(e.to_string()))?;
+    // Private, and fails if someone recreated the name in between.
+    let mut builder = fs::DirBuilder::new();
+    #[cfg(unix)]
+    std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+    builder.create(&staging).map_err(|e| err(e.to_string()))?;
     let result = (|| {
         let ok = std::process::Command::new("/usr/bin/ditto")
             .args(["-x", "-k"])
@@ -573,6 +583,13 @@ fn install_bundle(zip: &Path, bundle: &Path, version: &semver::Version) -> Resul
         }
         let new_app = staging.join("Keywhere.app");
         let new_bin = new_app.join("Contents/MacOS/keywhere");
+        // Defence in depth (the zip already matched the signed checksum): a
+        // real directory whose symlinks all stay inside it.
+        if !bundle_is_contained(&new_app) {
+            return Err(UpdateError::Verify(
+                "The update contains links outside Keywhere.app.",
+            ));
+        }
         if !new_bin.is_file() {
             return Err(UpdateError::Verify("The update has no Keywhere.app."));
         }
@@ -583,6 +600,44 @@ fn install_bundle(zip: &Path, bundle: &Path, version: &semver::Version) -> Resul
     })();
     let _ = fs::remove_dir_all(&staging);
     result
+}
+
+/// `app` is a directory (not a symlink), and every symlink inside it is
+/// relative and resolves inside it (bundles use relative links in
+/// frameworks; nothing may point elsewhere).
+fn bundle_is_contained(app: &Path) -> bool {
+    let real_dir = fs::symlink_metadata(app).is_ok_and(|m| m.is_dir());
+    let Ok(root) = fs::canonicalize(app) else {
+        return false;
+    };
+    if !real_dir {
+        return false;
+    }
+    let mut stack = vec![app.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        let Ok(entries) = fs::read_dir(&dir) else {
+            return false;
+        };
+        for entry in entries {
+            let Ok(entry) = entry else {
+                return false;
+            };
+            let p = entry.path();
+            let Ok(m) = fs::symlink_metadata(&p) else {
+                return false;
+            };
+            if m.file_type().is_symlink() {
+                let relative = fs::read_link(&p).is_ok_and(|t| t.is_relative());
+                let inside = fs::canonicalize(&p).is_ok_and(|c| c.starts_with(&root));
+                if !relative || !inside {
+                    return false;
+                }
+            } else if m.is_dir() {
+                stack.push(p);
+            }
+        }
+    }
+    true
 }
 
 fn hex(bytes: &[u8]) -> String {
@@ -1085,6 +1140,8 @@ mod tests {
         let target = dir.join("Keywhere.exe");
         fs::write(&target, "new").unwrap();
         fs::write(dir.join(".Keywhere.exe.old-123"), "old").unwrap();
+        fs::write(dir.join(".Keywhere.exe.update-9.exe"), "partial").unwrap();
+        fs::create_dir_all(dir.join(".Keywhere-update-9/Keywhere.app")).unwrap();
         fs::create_dir_all(dir.join(".Keywhere.exe.old-456/Contents")).unwrap();
         fs::write(dir.join("vault.psafe3"), "keep").unwrap();
         cleanup_next_to(&target);
@@ -1094,6 +1151,35 @@ mod tests {
             .collect();
         names.sort();
         assert_eq!(names, vec!["Keywhere.exe", "vault.psafe3"]);
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn bundle_symlinks_must_stay_inside() {
+        use std::os::unix::fs::symlink;
+        let dir = std::env::temp_dir().join(format!("kw-bundle-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let app = dir.join("Keywhere.app");
+        fs::create_dir_all(app.join("Contents/Frameworks/X.framework/Versions/A")).unwrap();
+        // A framework-style relative link inside the bundle is fine.
+        symlink(
+            "Versions/A",
+            app.join("Contents/Frameworks/X.framework/Current"),
+        )
+        .unwrap();
+        assert!(bundle_is_contained(&app));
+        // Absolute, or relative but escaping: refused.
+        symlink("/etc", app.join("Contents/abs")).unwrap();
+        assert!(!bundle_is_contained(&app));
+        fs::remove_file(app.join("Contents/abs")).unwrap();
+        symlink("../../..", app.join("Contents/up")).unwrap();
+        assert!(!bundle_is_contained(&app));
+        fs::remove_file(app.join("Contents/up")).unwrap();
+        // The bundle itself being a symlink: refused.
+        let link = dir.join("Link.app");
+        symlink(&app, &link).unwrap();
+        assert!(!bundle_is_contained(&link));
         fs::remove_dir_all(&dir).unwrap();
     }
 

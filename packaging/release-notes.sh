@@ -16,8 +16,9 @@ cat <<NOTES
 * **keywhere-$V-1.x86_64.rpm**: Fedora, openSUSE.
 
 **Preview, unsigned** (not code-signed or notarized yet). Like the Linux
-build they update themselves from the app, have a tray icon (menu bar /
-notification area) and lock with the screen lock and before sleep:
+build they have a tray icon (menu bar / notification area), lock with the
+screen lock and before sleep, and (except the MSI) update themselves from
+the app:
 
 * **Keywhere-$V-macos-arm64.dmg** (Apple silicon) /
   **Keywhere-$V-macos-x64.dmg** (Intel): open the .dmg and drag Keywhere to
