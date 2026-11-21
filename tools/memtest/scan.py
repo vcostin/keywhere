@@ -6,13 +6,13 @@ secrets = [s for s in open(M + '/secrets.txt').read().split('\n') if s]
 env = dict(os.environ, KEYWHERE_DEMO_PASSWORD='test123', XDG_CONFIG_HOME=M + '/cfg', HOME=M)
 if mode == 'scan':
     env['KEYWHERE_DEV_MEMORY_TEST'] = '1'
-args=[APP, M + '/demo.psafe3'] + ([M + '/pw.txt'] if mode == 'ui' else []) + (['copy:Gmail'] if mode == 'copy' else [])
-if mode == 'copy':
+args=[APP, M + '/demo.psafe3'] + ([M + '/pw.txt'] if mode == 'ui' else []) + (['copy:Gmail'] if mode == 'copy' else []) + (['reveal:Company SSO'] if mode == 'reveal' else [])
+if mode in ('copy', 'reveal'):
     env['KEYWHERE_DEV_MEMORY_TEST'] = '1'
 if mode == 'ui':
     env['KEYWHERE_DEV_MEMORY_TEST'] = '1'
     env.pop('KEYWHERE_DEMO_PASSWORD', None)
-p = subprocess.Popen(args, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+p = subprocess.Popen(args, env=env, stdout=subprocess.DEVNULL, stderr=open(M + '/stderr-' + mode + '.txt', 'w'))
 out = open(M + '/result-' + mode + '.txt', 'w')
 def log(*a):
     print(*a, file=out, flush=True)
@@ -44,6 +44,13 @@ def scan(label):
                 if c:
                     where = parts[5] if len(parts) > 5 else '[anon]'
                     found.setdefault(s, []).append((c, where, 'utf16' if enc != s.encode() else 'utf8'))
+                    if label.startswith('AFTER') and s != 'test123' and '+4' in label:
+                        i = data.find(enc)
+                        while i >= 0:
+                            ctx = data[max(0,i-160):i+len(enc)+96]
+                            log('  CTX @%x' % (a+i), ctx.hex())
+                            log('  TXT', ''.join(chr(x) if 32<=x<127 else '.' for x in ctx))
+                            i = data.find(enc, i+1)
     log(f'{label}: scanned {total/1e6:.1f} MB; secrets present: {len(found)}/{len(secrets)}')
     for s, hits in sorted(found.items()):
         log('   ', ('*' * 3 + s[-3:]) if s != 'test123' else 'MASTER(test123)', hits)

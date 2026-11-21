@@ -269,6 +269,45 @@ mod tests {
         std::fs::remove_dir_all(&base).unwrap();
     }
 
+    fn opened(line: &str) -> Option<(PathBuf, Option<String>)> {
+        match parse_open(line)? {
+            SysEvent::Open(p, t) => Some((p, t)),
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn open_command_round_trips() {
+        let p = Path::new("/home/u/Vaults/my vault.psafe3");
+        let line = open_command(p).unwrap();
+        assert!(line.starts_with("open\t"));
+        assert_eq!(opened(&line).unwrap().0, p);
+    }
+
+    #[test]
+    fn open_command_refuses_unsendable_paths() {
+        assert!(open_command(Path::new("relative.psafe3")).is_none());
+        assert!(open_command(Path::new("/tmp/a\tb.psafe3")).is_none());
+        assert!(open_command(Path::new("/tmp/a\nb.psafe3")).is_none());
+        let long = format!("/{}", "a".repeat(MAX_PATH));
+        assert!(open_command(Path::new(&long)).is_none());
+    }
+
+    #[test]
+    fn parse_open_checks_its_input() {
+        assert_eq!(
+            opened("open\ttok-1\t/a b/c.psafe3"),
+            Some((PathBuf::from("/a b/c.psafe3"), Some("tok-1".into())))
+        );
+        // "-" means no activation token; a bad token is dropped, not trusted.
+        assert_eq!(opened("open\t-\t/v.psafe3").unwrap().1, None);
+        assert_eq!(opened("open\tbad token\t/v.psafe3").unwrap().1, None);
+        assert!(opened("open\t-\trelative.psafe3").is_none());
+        assert!(opened("open\t-").is_none());
+        assert!(opened("show\t-\t/v.psafe3").is_none());
+        assert!(opened("opened\t-\t/v.psafe3").is_none());
+    }
+
     #[test]
     fn peer_check_accepts_own_uid() {
         let (a, _b) = UnixStream::pair().unwrap();

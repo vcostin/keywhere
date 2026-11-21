@@ -29,8 +29,8 @@ use std::time::{Duration, Instant};
 
 use futures::StreamExt;
 use gpui::{
-    div, prelude::*, px, size, App, Application, Bounds, Context, Entity, Focusable, Global,
-    KeyBinding, Window, WindowBounds, WindowHandle, WindowOptions,
+    div, prelude::*, px, size, App, Application, Bounds, Context, Entity, FocusHandle, Focusable,
+    Global, KeyBinding, Window, WindowBounds, WindowHandle, WindowOptions,
 };
 use keywhere_core::lock::VaultLock;
 use keywhere_core::Vault;
@@ -100,6 +100,8 @@ struct Shell {
     /// A vault opened from the file manager while another one is unlocked:
     /// ask before locking it.
     pending_open: Option<PathBuf>,
+    /// Keyboard focus for that question (Enter opens, Escape cancels).
+    open_focus: FocusHandle,
     settings: Option<Entity<settings_view::SettingsView>>,
     last_input: Instant,
     _idle: gpui::Task<()>,
@@ -144,6 +146,7 @@ impl Shell {
         let mut this = Self {
             screen: Screen::Unlock(Self::unlock_view(path.clone(), window, cx)),
             pending_open: None,
+            open_focus: cx.focus_handle(),
             settings: None,
             last_input: Instant::now(),
             _idle: idle,
@@ -358,6 +361,7 @@ impl Shell {
                 };
                 if !same(&b.read(cx).path) {
                     self.pending_open = Some(path);
+                    window.focus(&self.open_focus);
                     cx.notify();
                 }
             }
@@ -372,6 +376,14 @@ impl Shell {
         if let Screen::Unlock(u) = &self.screen {
             u.update(cx, |u, cx| u.set_path(path, window, cx));
         }
+    }
+
+    fn cancel_open(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.pending_open = None;
+        if let Screen::Vault(b) = &self.screen {
+            window.focus(&b.focus_handle(cx));
+        }
+        cx.notify();
     }
 
     fn render_pending_open(&self, cx: &mut Context<Self>) -> Option<gpui::AnyElement> {
@@ -425,6 +437,15 @@ impl Shell {
                         .border_color(ca(ACCENT, 0x88))
                         .shadow_lg()
                         .occlude()
+                        .track_focus(&self.open_focus)
+                        .on_key_down(cx.listener(|this, ev: &gpui::KeyDownEvent, window, cx| {
+                            match ev.keystroke.key.as_str() {
+                                "enter" => this.accept_open(window, cx),
+                                "escape" => this.cancel_open(window, cx),
+                                _ => return,
+                            }
+                            cx.stop_propagation();
+                        }))
                         .flex()
                         .flex_col()
                         .gap_2()
@@ -445,10 +466,7 @@ impl Shell {
                                     cx.listener(|this, _, window, cx| this.accept_open(window, cx)),
                                 ))
                                 .child(btn("pending-open-no", "Cancel", false).on_click(
-                                    cx.listener(|this, _, _, cx| {
-                                        this.pending_open = None;
-                                        cx.notify();
-                                    }),
+                                    cx.listener(|this, _, window, cx| this.cancel_open(window, cx)),
                                 )),
                         ),
                 )
@@ -540,7 +558,14 @@ impl Shell {
             b.clear_clipboard_if_ours(cx);
             b.path.clone()
         });
-        self.screen = Screen::Unlock(Self::unlock_view(Some(path), window, cx));
+        let unlock = Self::unlock_view(Some(path), window, cx);
+        // Locked (idle, screen lock, Ctrl+L) while "Open …?" was asking:
+        // the vault is locked now, so open the file, as when it arrives
+        // while locked.
+        if let Some(p) = self.pending_open.take() {
+            unlock.update(cx, |u, cx| u.set_path(p, window, cx));
+        }
+        self.screen = Screen::Unlock(unlock);
         set_tray(sys::TrayState::Locked, cx);
         cx.notify();
         window.text_system().clear_line_layout_cache();

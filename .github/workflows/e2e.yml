@@ -1,0 +1,49 @@
+name: E2E
+
+# End-to-end test of the release binary on a virtual X display
+# (tools/e2e/run.sh). It is heavy (a release build), so pull requests run it
+# only when the test itself changes; release.yml runs the same script on the
+# AppImage before anything is published. Run it by hand from the Actions tab
+# for any branch.
+on:
+  pull_request:
+    paths:
+      - "tools/e2e/**"
+      - "crates/keywhere-core/examples/e2e_vault.rs"
+      - ".github/workflows/e2e.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: e2e-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  e2e:
+    name: e2e (Xvfb)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@1.95.0
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: e2e
+      - name: Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev \
+            libx11-xcb-dev libxcb1-dev libxcb-shape0-dev libxcb-xfixes0-dev libfontconfig-dev \
+            libfreetype-dev libvulkan-dev libzstd-dev libasound2-dev clang \
+            xvfb xdotool xclip mesa-vulkan-drivers dbus
+      - name: Build
+        run: |
+          cargo build --locked --release -p keywhere
+          cargo build --locked --release -p keywhere-core --example e2e_vault
+      - name: End-to-end test
+        run: tools/e2e/run.sh target/release/keywhere target/release/examples/e2e_vault
