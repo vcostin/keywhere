@@ -17,6 +17,11 @@ concurrency:
 permissions:
   contents: read
 
+# The prebuilt cargo-fuzz is a musl binary and would default to the musl
+# target; fuzz the normal glibc build.
+env:
+  TARGET: x86_64-unknown-linux-gnu
+
 jobs:
   fuzz:
     name: fuzz (60 s per target)
@@ -33,14 +38,14 @@ jobs:
           workspaces: fuzz
       - name: Build targets
         working-directory: fuzz
-        run: cargo +nightly fuzz build
+        run: cargo +nightly fuzz build --target "$TARGET"
       - name: Run targets
         working-directory: fuzz
         run: |
           for t in $(cargo +nightly fuzz list); do
             echo "::group::$t"
             mkdir -p "corpus/$t"
-            cargo +nightly fuzz run "$t" "corpus/$t" "seeds/$t" -- \
+            cargo +nightly fuzz run --target "$TARGET" "$t" "corpus/$t" "seeds/$t" -- \
               -max_total_time=60 -rss_limit_mb=2048
             echo "::endgroup::"
           done
