@@ -1,0 +1,50 @@
+name: Cache warm-up
+
+# CI runs only on pull requests, and a PR branch can only reuse its own build
+# cache or main's. Without this, main never saves one and every new PR
+# compiles all dependencies (GPUI) from scratch (~10 min instead of ~2).
+# After each merge this builds what the PR checks build and saves it under
+# the key ci.yml restores. It runs no tests or lints and gates nothing.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+concurrency:
+  group: cache-warm
+  cancel-in-progress: true
+
+jobs:
+  warm:
+    name: warm build cache
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      # Same toolchain, components, cache key and dependencies as ci.yml.
+      - uses: dtolnay/rust-toolchain@1.95.0
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ci
+      - name: Linux GPUI dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev \
+            libx11-xcb-dev libxcb1-dev libxcb-shape0-dev libxcb-xfixes0-dev libfontconfig-dev \
+            libfreetype-dev libvulkan-dev libzstd-dev libasound2-dev clang
+      # Test binaries (cargo test) and check metadata (clippy), as in ci.yml.
+      - name: Build tests
+        run: |
+          cargo test --locked --profile ci -p keywhere-core --no-run
+          cargo test --locked --profile ci -p keywhere --no-run
+      - name: Build lint metadata
+        run: |
+          cargo clippy --locked --profile ci -p keywhere-core --all-targets
+          cargo clippy --locked --profile ci -p keywhere --all-targets --features devtools
