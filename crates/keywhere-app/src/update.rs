@@ -386,6 +386,8 @@ fn create_private(p: &Path) -> std::io::Result<fs::File> {
 }
 
 fn make_executable(p: &Path) -> std::io::Result<()> {
+    #[cfg(not(unix))]
+    let _ = p;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -695,6 +697,8 @@ mod tests {
         assert!(!is_sha256_hex("abc"));
     }
 
+    // Uses a shell script as the "new version".
+    #[cfg(unix)]
     #[test]
     fn replace_only_with_verified_file() {
         let dir = std::env::temp_dir().join(format!("kw-repl-{}", std::process::id()));
@@ -771,6 +775,8 @@ mod tests {
         fs::remove_dir_all(&dir).unwrap();
     }
 
+    // Uses a shell script as the "new version".
+    #[cfg(unix)]
     #[test]
     fn version_check_of_new_file() {
         let dir = std::env::temp_dir().join(format!("kw-upd-{}", std::process::id()));
