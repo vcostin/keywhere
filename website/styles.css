@@ -45,7 +45,7 @@
   --accent: #e39a1f;
   --accent-ink: #2a1a00;
   --accent-text: #8f5800; /* amber dark enough for small text on light backgrounds */
-  --accent-display: #c47a0a; /* large headings only */
+  --accent-display: #bc7508; /* large headings only: 3:1 on --bg and --surface */
   --focus: #2f6bea;
   --selection: #d3e0f8;
   --link: #2459c8;

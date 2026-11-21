@@ -157,7 +157,7 @@ function fileRow(type, asset) {
   const li = el("li", "file");
   li.dataset.type = type.id;
   const a = el("a", "file-link");
-  a.href = asset ? asset.browser_download_url : LATEST;
+  a.href = (asset && safeUrl(asset.browser_download_url)) ?? LATEST;
   const kind = el("span", "file-kind", type.kind);
   if (type.tag) kind.append(" ", el("span", "tag tag-accent", type.tag));
   a.append(kind, el("span", "file-desc", type.desc));
@@ -240,7 +240,7 @@ function renderOther(other) {
   for (const { asset, desc } of other) {
     const li = el("li");
     const a = el("a", "", asset.name);
-    a.href = asset.browser_download_url;
+    a.href = safeUrl(asset.browser_download_url) ?? LATEST;
     li.append(a);
     const size = formatBytes(asset.size);
     if (size) li.append(el("span", "file-meta", ` ${size}`));
@@ -263,7 +263,7 @@ function renderPrimary(byType, version) {
   const hasAny = TYPES.some((t) => t.os === os && byType.get(t.id).length);
   if (pick) {
     const [type, asset] = pick;
-    primary.href = asset.browser_download_url;
+    primary.href = safeUrl(asset.browser_download_url) ?? LATEST;
     primaryLabel.textContent = `Download for ${name}`;
     primaryMeta.textContent = [type.kind, version, formatBytes(asset.size)].filter(Boolean).join(" · ");
     ctaStatus.textContent =
@@ -312,7 +312,7 @@ async function main() {
     text: "GitHub Releases",
     href: releaseUrl,
   });
-  if (sums) sumsLink.href = sums.browser_download_url;
+  if (sums) sumsLink.href = safeUrl(sums.browser_download_url) ?? LATEST;
 
   renderCards(byType, version);
   renderOther(other);
