@@ -15,3 +15,17 @@ version = "0.1.0"
 [patch.crates-io]
 xattr = { path = "third_party/xattr" }
 gpui = { path = "third_party/gpui" }
+
+# Pull-request checks (`--profile ci`): our app code builds fast (no
+# optimisation, no debug info), while dependencies and the crypto engine are
+# optimised so the key-stretching and tamper tests stay quick.
+[profile.ci]
+inherits = "dev"
+debug = false
+incremental = false
+
+[profile.ci.package."*"]
+opt-level = 2
+
+[profile.ci.package.keywhere-core]
+opt-level = 2
