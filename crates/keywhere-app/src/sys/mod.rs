@@ -7,6 +7,8 @@ pub mod clipboard;
 #[cfg(unix)]
 pub mod instance;
 #[cfg(target_os = "linux")]
+pub mod integrate;
+#[cfg(target_os = "linux")]
 pub mod linux;
 #[cfg(target_os = "linux")]
 pub mod picker;

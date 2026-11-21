@@ -291,6 +291,11 @@ impl WaylandWindow {
             toplevel.set_parent(parent.as_ref());
         }
 
+        // Keywhere patch: task-bar icon without a .desktop file.
+        if let Some(manager) = globals.toplevel_icon_manager.as_ref() {
+            super::toplevel_icon::apply(manager, &globals.shm, &globals.qh, &toplevel);
+        }
+
         if let Some(size) = params.window_min_size {
             toplevel.set_min_size(size.width.0 as i32, size.height.0 as i32);
         }

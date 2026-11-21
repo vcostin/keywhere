@@ -1,6 +1,7 @@
 //! Keywhere desktop app (GPUI) as a library, so dev tools/examples can drive it.
 
 pub mod alloc;
+pub mod app_icon;
 pub mod assets;
 
 /// Freed memory is zeroed process-wide (see alloc.rs).
@@ -455,6 +456,82 @@ impl Shell {
         )
     }
 
+    fn render_menu_notice() -> Option<gpui::AnyElement> {
+        use theme::*;
+        if !MENU_NOTICE.load(std::sync::atomic::Ordering::Relaxed) {
+            return None;
+        }
+        let btn = |id: &'static str, label: &'static str, primary: bool| {
+            div()
+                .id(id)
+                .h(px(28.))
+                .px_3()
+                .flex()
+                .items_center()
+                .rounded(px(7.))
+                .cursor_pointer()
+                .text_size(px(12.))
+                .when(primary, |d| {
+                    d.bg(c(ACCENT))
+                        .text_color(c(ACCENT_INK))
+                        .font_weight(gpui::FontWeight::SEMIBOLD)
+                })
+                .when(!primary, |d| {
+                    d.border_1()
+                        .border_color(c(BORDER))
+                        .bg(c(RAISED))
+                        .text_color(c(TEXT_SOFT))
+                        .hover(|d| d.bg(c(HOVER)))
+                })
+                .child(i18n::t(label))
+        };
+        let hide = || MENU_NOTICE.store(false, std::sync::atomic::Ordering::Relaxed);
+        Some(
+            div()
+                .id("menu-notice")
+                .absolute()
+                .bottom(px(44.))
+                .left(px(16.))
+                .w(px(340.))
+                .max_w_full()
+                .p_3()
+                .rounded(px(10.))
+                .bg(c(PANEL))
+                .border_1()
+                .border_color(ca(ACCENT, 0x88))
+                .shadow_lg()
+                .occlude()
+                .flex()
+                .flex_col()
+                .gap_2()
+                .child(div().text_size(px(12.5)).text_color(c(TEXT)).child(i18n::t(
+                    "Keywhere added itself to your app menu, so you can pin it to the task bar and open .psafe3 files with it.",
+                )))
+                .child(
+                    div()
+                        .flex()
+                        .gap_2()
+                        .child(btn("menu-notice-ok", "OK", true).on_click(move |_, window, _| {
+                            hide();
+                            window.refresh();
+                        }))
+                        .child(btn("menu-notice-undo", "Undo", false).on_click(
+                            move |_, window, cx| {
+                                hide();
+                                #[cfg(target_os = "linux")]
+                                cx.background_executor()
+                                    .spawn(async { sys::integrate::remove() })
+                                    .detach();
+                                #[cfg(not(target_os = "linux"))]
+                                let _ = cx;
+                                window.refresh();
+                            },
+                        )),
+                )
+                .into_any_element(),
+        )
+    }
+
     fn lock(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Screen::Vault(b) = &self.screen else {
             return;
@@ -516,6 +593,7 @@ impl Render for Shell {
             })
             .children(update_view::toast(cx))
             .children(self.render_pending_open(cx))
+            .children(Self::render_menu_notice())
             .when_some(self.settings.clone(), |d, v| {
                 d.child(
                     div()
@@ -646,6 +724,7 @@ fn run_inner(path: Option<PathBuf>, preunlocked: Preunlocked, select: Option<Str
         .with_assets(assets::Assets)
         .run(move |cx: &mut App| {
             assets::load_fonts(cx);
+            app_icon::install();
             i18n::apply_setting(settings::get().language);
             use browser::*;
             cx.bind_keys([
@@ -703,6 +782,21 @@ fn run_inner(path: Option<PathBuf>, preunlocked: Preunlocked, select: Option<Str
             open_main_window(path, preunlocked, select, cx);
             if auto_update_check {
                 update::start_check(false, cx);
+            }
+
+            // AppImage: menu entry for the icon, pinning and "Open with".
+            #[cfg(target_os = "linux")]
+            if !cfg!(feature = "devtools") {
+                let task = cx
+                    .background_executor()
+                    .spawn(async { sys::integrate::integrate() });
+                cx.spawn(async move |cx| {
+                    if task.await == sys::integrate::Outcome::Created {
+                        MENU_NOTICE.store(true, std::sync::atomic::Ordering::Relaxed);
+                        let _ = cx.update(|cx| cx.refresh_windows());
+                    }
+                })
+                .detach();
             }
 
             // A hidden (unlocked) session still auto-locks after IDLE_LOCK.
@@ -862,6 +956,9 @@ fn handle_sys_event(ev: sys::SysEvent, cx: &mut App) {
 }
 
 gpui::actions!(keywhere, [Quit, OpenSettings]);
+
+/// The AppImage just added itself to the app menu: say so once, with Undo.
+static MENU_NOTICE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// "Update and restart": download and verify the new AppImage, then lock,
 /// start the new version and quit.

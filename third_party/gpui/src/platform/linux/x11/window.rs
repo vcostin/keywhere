@@ -59,6 +59,7 @@ x11rb::atom_manager! {
         WM_CHANGE_STATE,
         WM_TRANSIENT_FOR,
         _NET_WM_PID,
+        _NET_WM_ICON,
         _NET_WM_NAME,
         _NET_WM_STATE,
         _NET_WM_STATE_MAXIMIZED_VERT,
@@ -489,6 +490,32 @@ impl X11WindowState {
                     &[pid],
                 ),
             )?;
+
+            // Keywhere patch: task-bar icon (_NET_WM_ICON: width, height,
+            // then ARGB pixels as CARDINALs, for each size).
+            if let Some((_, images)) = crate::window_icon::window_icon() {
+                let mut data: Vec<u32> = Vec::new();
+                // Up to 128 px keeps the request well under X11's limit.
+                for img in images.iter().filter(|i| i.size <= 128) {
+                    data.push(img.size);
+                    data.push(img.size);
+                    data.extend(img.rgba.chunks_exact(4).map(|p| {
+                        (p[3] as u32) << 24 | (p[0] as u32) << 16 | (p[1] as u32) << 8 | p[2] as u32
+                    }));
+                }
+                if !data.is_empty() {
+                    check_reply(
+                        || "X11 ChangeProperty32 for _NET_WM_ICON failed.",
+                        xcb.change_property32(
+                            xproto::PropMode::REPLACE,
+                            x_window,
+                            atoms._NET_WM_ICON,
+                            xproto::AtomEnum::CARDINAL,
+                            &data,
+                        ),
+                    )?;
+                }
+            }
 
             if let Some(size) = params.window_min_size {
                 let mut size_hints = WmSizeHints::new();

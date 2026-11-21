@@ -117,6 +117,8 @@ pub struct Globals {
     pub decoration_manager: Option<zxdg_decoration_manager_v1::ZxdgDecorationManagerV1>,
     pub blur_manager: Option<org_kde_kwin_blur_manager::OrgKdeKwinBlurManager>,
     pub text_input_manager: Option<zwp_text_input_manager_v3::ZwpTextInputManagerV3>,
+    /// Keywhere patch: app icon in the task bar (xdg-toplevel-icon-v1).
+    pub toplevel_icon_manager: Option<super::toplevel_icon::XdgToplevelIconManagerV1>,
     pub executor: ForegroundExecutor,
 }
 
@@ -154,6 +156,7 @@ impl Globals {
             decoration_manager: globals.bind(&qh, 1..=1, ()).ok(),
             blur_manager: globals.bind(&qh, 1..=1, ()).ok(),
             text_input_manager: globals.bind(&qh, 1..=1, ()).ok(),
+            toplevel_icon_manager: globals.bind(&qh, 1..=1, ()).ok(),
             executor,
             qh,
         }
@@ -942,6 +945,8 @@ delegate_noop!(WaylandClientStatePtr: ignore zwp_primary_selection_device_manage
 delegate_noop!(WaylandClientStatePtr: ignore wl_shm::WlShm);
 delegate_noop!(WaylandClientStatePtr: ignore wl_shm_pool::WlShmPool);
 delegate_noop!(WaylandClientStatePtr: ignore wl_buffer::WlBuffer);
+delegate_noop!(WaylandClientStatePtr: ignore super::toplevel_icon::XdgToplevelIconManagerV1);
+delegate_noop!(WaylandClientStatePtr: ignore super::toplevel_icon::protocol::xdg_toplevel_icon_v1::XdgToplevelIconV1);
 delegate_noop!(WaylandClientStatePtr: ignore wl_region::WlRegion);
 delegate_noop!(WaylandClientStatePtr: ignore wp_fractional_scale_manager_v1::WpFractionalScaleManagerV1);
 delegate_noop!(WaylandClientStatePtr: ignore zxdg_decoration_manager_v1::ZxdgDecorationManagerV1);

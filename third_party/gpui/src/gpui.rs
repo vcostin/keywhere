@@ -45,6 +45,7 @@ mod text_system;
 mod util;
 mod view;
 mod window;
+mod window_icon;
 
 #[cfg(doc)]
 pub mod _ownership_and_data_flow;
@@ -106,6 +107,7 @@ pub use util::smol_timeout;
 pub use util::{FutureExt, Timeout, arc_cow::ArcCow};
 pub use view::*;
 pub use window::*;
+pub use window_icon::{WindowIconImage, set_window_icon};
 
 use std::{any::Any, borrow::BorrowMut, future::Future};
 use taffy::TaffyLayoutEngine;
