@@ -50,6 +50,8 @@ jobs:
         with:
           fetch-depth: 0
       - uses: dtolnay/rust-toolchain@1.95.0
+        with:
+          components: clippy
 
       - name: Linux GPUI dependencies
         run: |
