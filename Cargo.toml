@@ -9,9 +9,10 @@ version = "0.1.2"
 
 # gpui 0.2.2 -> zed-async-tar -> xattr 0.2.3 references libc::ENOATTR, removed for Linux in
 # newer libc. Patched copy; drop once gpui ships a newer dependency chain.
-# gpui 0.2.2 ends the Linux event loop when the last window closes; Keywhere
-# hides to the tray by closing its window, so that is patched out (2 lines,
-# marked "Keywhere patch" in wayland/client.rs and x11/client.rs). Other
+# gpui 0.2.2 ends the Linux and Windows event loop when the last window
+# closes; Keywhere hides to the tray by closing its window, so that is
+# patched out (marked "Keywhere patch" in wayland/client.rs, x11/client.rs
+# and windows/platform.rs). Other
 # "Keywhere patch" changes: taffy/line-layout cache clearing (no secret text
 # left in memory) and a window icon (`set_window_icon`: Wayland
 # xdg-toplevel-icon-v1 generated from a vendored XML, X11 _NET_WM_ICON).

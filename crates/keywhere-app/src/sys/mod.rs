@@ -15,6 +15,8 @@ pub mod linux;
 pub mod macos;
 #[cfg(target_os = "linux")]
 pub mod picker;
+#[cfg(any(target_os = "macos", windows))]
+pub mod tray;
 #[cfg(target_os = "linux")]
 pub mod wayland;
 #[cfg(windows)]
@@ -66,10 +68,13 @@ pub enum TrayState {
     Unlocked,
 }
 
-/// Handle to whatever tray this platform has (none on macOS/Windows yet).
+/// Handle to this platform's tray: StatusNotifierItem on Linux, the menu
+/// bar on macOS, the notification area on Windows.
 pub struct Tray {
     #[cfg(target_os = "linux")]
     inner: Option<linux::TrayHandle>,
+    #[cfg(any(target_os = "macos", windows))]
+    inner: Option<tray::TrayHandle>,
 }
 
 impl Tray {
@@ -80,7 +85,13 @@ impl Tray {
                 inner: linux::start_tray(tx),
             }
         }
-        #[cfg(not(target_os = "linux"))]
+        #[cfg(any(target_os = "macos", windows))]
+        {
+            Tray {
+                inner: tray::start_tray(tx),
+            }
+        }
+        #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
         {
             let _ = tx;
             Tray {}
@@ -89,11 +100,11 @@ impl Tray {
 
     /// Is a tray icon actually showing? (Decides close-to-tray vs quit.)
     pub fn available(&self) -> bool {
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", target_os = "macos", windows))]
         {
             self.inner.is_some()
         }
-        #[cfg(not(target_os = "linux"))]
+        #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
         {
             false
         }
@@ -104,7 +115,11 @@ impl Tray {
         if let Some(h) = &self.inner {
             linux::set_tray_state(h, state);
         }
-        #[cfg(not(target_os = "linux"))]
+        #[cfg(any(target_os = "macos", windows))]
+        if let Some(h) = &self.inner {
+            tray::set_tray_state(h, state);
+        }
+        #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
         let _ = state;
     }
 }

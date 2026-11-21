@@ -69,7 +69,9 @@ cargo run --release -p keywhere -- path/to/vault.psafe3
   history/cloud exclusion, macOS concealed type) and cleared after 30 s, on lock and on quit.
 
 macOS/Windows: auto‑lock on screen lock, user switch and sleep (Windows also when the display
-turns off) and clipboard protection work; the window is kept out of screen captures. No tray yet.
+turns off), clipboard protection and the tray icon (menu bar on macOS, notification area on
+Windows: Open / Lock / Quit) work; the window is kept out of screen captures. Closing the window
+hides Keywhere to the tray as on Linux; on macOS the Dock icon brings it back.
 
 ### Settings and language
 

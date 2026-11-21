@@ -15,9 +15,9 @@ cat <<NOTES
 * **keywhere_$V-1_amd64.deb**: Debian, Ubuntu 22.04+.
 * **keywhere-$V-1.x86_64.rpm**: Fedora, openSUSE.
 
-**Preview, unsigned** (not code-signed or notarized yet; no tray icon and
-no in-app updates yet). They lock with the screen lock and before sleep,
-like the Linux build:
+**Preview, unsigned** (not code-signed or notarized yet; no in-app updates
+yet). Like the Linux build they have a tray icon (menu bar / notification
+area) and lock with the screen lock and before sleep:
 
 * **Keywhere-$V-macos-arm64.dmg** (Apple silicon) /
   **Keywhere-$V-macos-x64.dmg** (Intel): open the .dmg and drag Keywhere to

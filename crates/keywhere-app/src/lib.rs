@@ -752,114 +752,114 @@ pub fn run_preunlocked(path: PathBuf, vault: Vault, select: Option<String>) {
 
 fn run_inner(path: Option<PathBuf>, preunlocked: Preunlocked, select: Option<String>) {
     harden_process();
-    Application::new()
-        .with_assets(assets::Assets)
-        .run(move |cx: &mut App| {
-            assets::load_fonts(cx);
-            app_icon::install();
-            i18n::apply_setting(settings::get().language);
-            use browser::*;
-            cx.bind_keys([
-                KeyBinding::new("secondary-l", Lock, None),
-                KeyBinding::new("secondary-f", FocusSearch, Some("Browser")),
-                KeyBinding::new("secondary-k", FocusSearch, Some("Browser")),
-                KeyBinding::new("down", SelectNext, Some("Browser")),
-                KeyBinding::new("up", SelectPrev, Some("Browser")),
-                KeyBinding::new("secondary-c", CopyPassword, Some("Browser && !TextField")),
-                KeyBinding::new("secondary-b", CopyUsername, Some("Browser && !TextField")),
-                KeyBinding::new("secondary-u", OpenUrl, Some("Browser")),
-                KeyBinding::new("secondary-r", ToggleReveal, Some("Browser")),
-                KeyBinding::new("secondary-n", NewEntry, Some("Browser")),
-                KeyBinding::new("secondary-e", EditEntry, Some("Browser")),
-                KeyBinding::new("secondary-d", DuplicateEntry, Some("Browser")),
-                KeyBinding::new(
-                    "delete",
-                    DeleteEntry,
-                    Some("Browser && !TextField && !Editor"),
-                ),
-                KeyBinding::new("secondary-q", Quit, None),
-                KeyBinding::new("secondary-,", OpenSettings, None),
-            ]);
-            cx.on_action(|_: &Quit, cx| cx.quit());
+    let app = Application::new().with_assets(assets::Assets);
+    // macOS: clicking the Dock icon with no window open brings it back,
+    // like the tray's "Open Keywhere".
+    app.on_reopen(|cx| handle_sys_event(sys::SysEvent::Show(None), cx));
+    app.run(move |cx: &mut App| {
+        assets::load_fonts(cx);
+        app_icon::install();
+        i18n::apply_setting(settings::get().language);
+        use browser::*;
+        cx.bind_keys([
+            KeyBinding::new("secondary-l", Lock, None),
+            KeyBinding::new("secondary-f", FocusSearch, Some("Browser")),
+            KeyBinding::new("secondary-k", FocusSearch, Some("Browser")),
+            KeyBinding::new("down", SelectNext, Some("Browser")),
+            KeyBinding::new("up", SelectPrev, Some("Browser")),
+            KeyBinding::new("secondary-c", CopyPassword, Some("Browser && !TextField")),
+            KeyBinding::new("secondary-b", CopyUsername, Some("Browser && !TextField")),
+            KeyBinding::new("secondary-u", OpenUrl, Some("Browser")),
+            KeyBinding::new("secondary-r", ToggleReveal, Some("Browser")),
+            KeyBinding::new("secondary-n", NewEntry, Some("Browser")),
+            KeyBinding::new("secondary-e", EditEntry, Some("Browser")),
+            KeyBinding::new("secondary-d", DuplicateEntry, Some("Browser")),
+            KeyBinding::new(
+                "delete",
+                DeleteEntry,
+                Some("Browser && !TextField && !Editor"),
+            ),
+            KeyBinding::new("secondary-q", Quit, None),
+            KeyBinding::new("secondary-,", OpenSettings, None),
+        ]);
+        cx.on_action(|_: &Quit, cx| cx.quit());
 
-            let (tx, mut rx) = sys::channel();
-            // Dev "copy:" runs still listen so tests can send `lock`.
+        let (tx, mut rx) = sys::channel();
+        // Dev "copy:" runs still listen so tests can send `lock`.
+        #[cfg(unix)]
+        if select.as_deref().is_none_or(|s| s.starts_with("copy:")) || cfg!(feature = "devtools") {
+            sys::instance::listen(tx.clone());
+        }
+        sys::watch_session(tx.clone());
+        let tray = sys::Tray::start(tx);
+        cx.set_global(AppState {
+            path: path.clone(),
+            tray,
+            window: None,
+            hidden: None,
+        });
+        cx.on_app_quit(|cx| {
+            drop_hidden_session(cx);
             #[cfg(unix)]
-            if select.as_deref().is_none_or(|s| s.starts_with("copy:"))
-                || cfg!(feature = "devtools")
-            {
-                sys::instance::listen(tx.clone());
-            }
-            sys::watch_session(tx.clone());
-            let tray = sys::Tray::start(tx);
-            cx.set_global(AppState {
-                path: path.clone(),
-                tray,
-                window: None,
-                hidden: None,
-            });
-            cx.on_app_quit(|cx| {
-                drop_hidden_session(cx);
-                #[cfg(unix)]
-                sys::instance::cleanup();
-                async {}
+            sys::instance::cleanup();
+            async {}
+        })
+        .detach();
+
+        // Dev/test runs (screenshots, RAM test) never touch the network.
+        let auto_update_check = select.is_none()
+            && preunlocked.is_none()
+            && !cfg!(feature = "devtools")
+            && settings::get().check_updates == Some(true);
+        open_main_window(path, preunlocked, select, cx);
+        if auto_update_check {
+            update::start_check(false, cx);
+        }
+
+        // AppImage: menu entry for the icon, pinning and "Open with".
+        #[cfg(target_os = "linux")]
+        if !cfg!(feature = "devtools") {
+            let task = cx
+                .background_executor()
+                .spawn(async { sys::integrate::integrate() });
+            cx.spawn(async move |cx| {
+                if task.await == sys::integrate::Outcome::Created {
+                    MENU_NOTICE.store(true, std::sync::atomic::Ordering::Relaxed);
+                    let _ = cx.update(|cx| cx.refresh_windows());
+                }
             })
             .detach();
+        }
 
-            // Dev/test runs (screenshots, RAM test) never touch the network.
-            let auto_update_check = select.is_none()
-                && preunlocked.is_none()
-                && !cfg!(feature = "devtools")
-                && settings::get().check_updates == Some(true);
-            open_main_window(path, preunlocked, select, cx);
-            if auto_update_check {
-                update::start_check(false, cx);
+        // A hidden (unlocked) session still auto-locks after IDLE_LOCK.
+        cx.spawn(async move |cx| loop {
+            cx.background_executor().timer(Duration::from_secs(5)).await;
+            let expired = cx.update(|cx| {
+                let expired = cx
+                    .global::<AppState>()
+                    .hidden
+                    .as_ref()
+                    .is_some_and(|h| idle_lock().is_some_and(|d| h.since.elapsed() >= d));
+                if expired {
+                    drop_hidden_session(cx);
+                }
+            });
+            if expired.is_err() {
+                break;
             }
+        })
+        .detach();
 
-            // AppImage: menu entry for the icon, pinning and "Open with".
-            #[cfg(target_os = "linux")]
-            if !cfg!(feature = "devtools") {
-                let task = cx
-                    .background_executor()
-                    .spawn(async { sys::integrate::integrate() });
-                cx.spawn(async move |cx| {
-                    if task.await == sys::integrate::Outcome::Created {
-                        MENU_NOTICE.store(true, std::sync::atomic::Ordering::Relaxed);
-                        let _ = cx.update(|cx| cx.refresh_windows());
-                    }
-                })
-                .detach();
-            }
-
-            // A hidden (unlocked) session still auto-locks after IDLE_LOCK.
-            cx.spawn(async move |cx| loop {
-                cx.background_executor().timer(Duration::from_secs(5)).await;
-                let expired = cx.update(|cx| {
-                    let expired = cx
-                        .global::<AppState>()
-                        .hidden
-                        .as_ref()
-                        .is_some_and(|h| idle_lock().is_some_and(|d| h.since.elapsed() >= d));
-                    if expired {
-                        drop_hidden_session(cx);
-                    }
-                });
-                if expired.is_err() {
+        cx.spawn(async move |cx| {
+            while let Some(ev) = rx.next().await {
+                if cx.update(|cx| handle_sys_event(ev, cx)).is_err() {
                     break;
                 }
-            })
-            .detach();
-
-            cx.spawn(async move |cx| {
-                while let Some(ev) = rx.next().await {
-                    if cx.update(|cx| handle_sys_event(ev, cx)).is_err() {
-                        break;
-                    }
-                }
-            })
-            .detach();
-            cx.activate(true);
-        });
+            }
+        })
+        .detach();
+        cx.activate(true);
+    });
 }
 
 fn open_main_window(
