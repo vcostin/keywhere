@@ -102,7 +102,7 @@ unsafe fn run() -> Result<(), &'static str> {
             DEVICE_NOTIFY_WINDOW_HANDLE,
         )
     };
-    if display.is_null() {
+    if display == 0 {
         eprintln!("keywhere: no display-off notifications");
     }
     // SAFETY: standard message loop for windows owned by this thread.
