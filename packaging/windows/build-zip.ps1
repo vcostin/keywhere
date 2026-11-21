@@ -7,6 +7,10 @@ $version = ($meta.packages | Where-Object name -eq 'keywhere').version
 cargo build --locked --release -p keywhere
 if ($LASTEXITCODE -ne 0) { throw 'cargo build failed' }
 
+# The exe must not need the Visual C++ Redistributable (see .cargo/config.toml).
+$bytes = [IO.File]::ReadAllText((Resolve-Path target\release\keywhere.exe), [Text.Encoding]::Latin1)
+if ($bytes -match 'VCRUNTIME140') { throw 'keywhere.exe imports VCRUNTIME140.dll' }
+
 $work = Join-Path ([IO.Path]::GetTempPath()) "keywhere-zip-$PID"
 New-Item -ItemType Directory -Force $work | Out-Null
 Copy-Item target\release\keywhere.exe $work

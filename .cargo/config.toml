@@ -1,0 +1,8 @@
+# Windows: link the C runtime statically. A clean Windows install has no
+# VCRUNTIME140.dll (Visual C++ Redistributable), and the app then exits at
+# start with STATUS_DLL_NOT_FOUND before showing anything.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]
+
+[target.aarch64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]
