@@ -95,3 +95,22 @@ and a download link for them.
   libc, libxcb and libxkbcommon and loads Wayland/Vulkan from the system.
 * The type‑2 runtime needs FUSE 2 (`libfuse2`) at run time, or
   `APPIMAGE_EXTRACT_AND_RUN=1`.
+
+## macOS and Windows previews
+
+The release's `platforms` jobs also build unsigned preview packages:
+
+* `packaging/macos/build-app.sh` builds `Keywhere-<v>-macos-arm64-preview.zip`: a
+  `Keywhere.app` bundle (icon rendered from the logo by the `render_icon` example), ad-hoc
+  signed only. It has no Developer ID signature and no notarization, so Gatekeeper asks the
+  user to allow it.
+* `packaging/windows/build-zip.ps1` builds `Keywhere-<v>-windows-x64-preview.zip` with
+  `keywhere.exe`, the licence and a README. It isn't code-signed, so SmartScreen warns.
+
+The Linux job adds both to `SHA256SUMS` and the release. They aren't in `latest.json`: the
+in-app updater only replaces AppImages. To build them without a release, run the
+**Preview packages** workflow from the Actions tab. It also runs on PRs that change these
+scripts.
+
+They stay "preview" until macOS and Windows have lock-on-sleep or screen lock, process
+hardening, screen-capture exclusion, and real code signing.

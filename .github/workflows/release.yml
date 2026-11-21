@@ -37,6 +37,19 @@ jobs:
         run: cargo test --locked --release -p keywhere
       - name: App lints
         run: cargo clippy --locked --release -p keywhere --all-targets --features devtools -- -D warnings
+      # Unsigned preview packages (see docs/releasing.md).
+      - name: Preview package (macOS)
+        if: runner.os == 'macOS'
+        run: packaging/macos/build-app.sh
+      - name: Preview package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: packaging/windows/build-zip.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: preview-${{ runner.os }}
+          path: dist/*-preview.zip
+          if-no-files-found: error
 
   linux:
     needs: platforms
@@ -103,6 +116,13 @@ jobs:
           docker run --rm -v "$PWD/dist:/dist:ro" opensuse/tumbleweed sh -c \
             "zypper -n --quiet install --allow-unsigned-rpm $RPM && keywhere --version | grep '^Keywhere $V '"
 
+      - name: macOS and Windows preview packages
+        uses: actions/download-artifact@v4
+        with:
+          pattern: preview-*
+          path: dist
+          merge-multiple: true
+
       - name: Update manifest
         run: packaging/make-update-manifest.sh "${{ steps.version.outputs.version }}"
 
@@ -129,7 +149,7 @@ jobs:
           rsign verify -p packaging/keywhere-update.pub -x dist/latest.json.minisig dist/latest.json
 
       - name: Checksums
-        run: cd dist && sha256sum Keywhere-*.AppImage keywhere_*.deb keywhere-*.rpm latest.json latest.json.minisig > SHA256SUMS && cat SHA256SUMS
+        run: cd dist && sha256sum Keywhere-*.AppImage keywhere_*.deb keywhere-*.rpm Keywhere-*-preview.zip latest.json latest.json.minisig > SHA256SUMS && cat SHA256SUMS
 
       - name: Release notes
         run: packaging/release-notes.sh "$GITHUB_REF_NAME" | tee dist/NOTES.md
@@ -150,7 +170,7 @@ jobs:
           V=${{ steps.version.outputs.version }}
           gh release create "$GITHUB_REF_NAME" \
             "dist/Keywhere-$V-x86_64.AppImage" "dist/keywhere_${V}-1_amd64.deb" \
-            "dist/keywhere-${V}-1.x86_64.rpm" dist/latest.json dist/latest.json.minisig dist/SHA256SUMS \
+            "dist/keywhere-${V}-1.x86_64.rpm" dist/Keywhere-*-preview.zip dist/latest.json dist/latest.json.minisig dist/SHA256SUMS \
             --repo "$GITHUB_REPOSITORY" \
             --title "Keywhere $V" \
             --notes-file dist/NOTES.md \

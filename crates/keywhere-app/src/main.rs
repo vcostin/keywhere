@@ -1,5 +1,8 @@
 //! Keywhere desktop app entry point.
 
+// Windows release builds are GUI programs: no console window behind the app.
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
+
 fn main() {
     let arg = std::env::args().nth(1);
     if matches!(arg.as_deref(), Some("--version" | "-V")) {
