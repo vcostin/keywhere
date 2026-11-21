@@ -57,3 +57,32 @@ Before shipping the updater to users, fix the temp-file TOCTOU (verify-then-exec
 - **GPUI state:** Global `STATUS`/`DISMISSED` mutex; `busy()` gates overlapping checks/installs; progress refresh loop stops when not `Downloading`; install captures `Available` + `AppImage` once at start.
 
 VERDICT: CHANGES REQUESTED
+
+## Re-check (ef41e42, 3939327)
+
+Re-checked claimed fixes in `ef41e42` (findings 1–8) and `3939327` (test-lang race). Scope: same updater surfaces as the original review. Did not modify sources (only this review file). Did not push, create releases, or touch signing secrets.
+
+Checks: `cargo test -p keywhere` — 26 passed; `cargo clippy --workspace --all-targets -- -D warnings` — clean. Platform gating reviewed for Windows/macOS CI (`appimage_*` / `running_from_appimage` under `target_os = "linux"`; `wait_for_exit` has a non-unix stub; `instance` / `is_running` / `run_after_update` socket wait under `unix`). No cross-compile run here.
+
+### Per finding
+
+1. **Resolved** (via the optional mitigation, not fd-based rename). `appimage_replaceable` refuses a target directory that is not owned by our uid or has group/other write (`mode & 0o022`). Cross-user unlink/replace of the verified temp file before path-based `rename` therefore requires write access that is no longer granted for an offered AppImage install. Same-UID swap remains possible (out of scope per SECURITY.md). Claimed ETXTBSY reason for skipping fd-exec is plausible; residual path TOCTOU under a private dir is accepted.
+2. **Resolved.** Type-2 magic (`\x7fELF` + `AI\x02` at offset 8), AppImage owned by us, `/proc/self/exe` under `$APPDIR` whose basename is `.mount_*` or `appimage_extracted_*`. Forged `$APPIMAGE` alone no longer yields `Install::AppImage`.
+3. **Resolved.** `--after-update` → `run_after_update` (never `forward_to_running`). After `wait_for_exit`, waits up to 10 s for `sys::instance::is_running()` (connect, no command); otherwise prints and `exit(1)`.
+4. **Resolved.** `release.yml` computes highest `vX.Y.Z` among existing tags plus `$GITHUB_REF_NAME` and sets `--latest=$latest` only when equal.
+5. **Resolved.** After `lock` + `drop_hidden_session`, waits 500 ms (covers lock’s ~240 ms flush), clears the line layout cache, `secret_text::sweep()`, then `relaunch` / quit.
+6. **Resolved.** Toast arms on any `Status::Failed`; auto-check failures still map to `Idle`.
+7. **Resolved.** `wait_for_exit` waits only while `/proc/<pid>` metadata is our uid, 30 s max, returns `false` if still alive; pairs with finding 3’s socket wait / hard error. PID reuse of another same-uid process can only delay or false-error, not silent handoff to the old Keywhere.
+8. **Resolved.** Explicit asset list: `Keywhere-$V-x86_64.AppImage`, `latest.json`, `latest.json.minisig`, `SHA256SUMS`.
+
+### New findings
+
+None that block ship.
+
+### Residuals (no change requested)
+
+- Path-based verify/exec/rename still races same-UID writers; directory mode is checked at `install_method()` (again at install start), not immediately before `rename`.
+- `is_running()`’s `UnixStream::connect` has no timeout; a wedged listener could stall the 10 s after-update loop (connect blocks inside one iteration). Unlikely for a normal quit path.
+- `gh release list --limit 200` could miss a newer tag in a repo with >200 releases when deciding `--latest` (edge case).
+
+VERDICT: APPROVE
