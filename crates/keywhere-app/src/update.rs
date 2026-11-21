@@ -565,9 +565,14 @@ fn install_bundle(zip: &Path, bundle: &Path, version: &semver::Version) -> Resul
     let staging = dir.join(format!(".Keywhere-update-{}", std::process::id()));
     let _ = fs::remove_dir_all(&staging);
     // Private, and fails if someone recreated the name in between.
-    let mut builder = fs::DirBuilder::new();
     #[cfg(unix)]
-    std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+    let builder = {
+        let mut b = fs::DirBuilder::new();
+        std::os::unix::fs::DirBuilderExt::mode(&mut b, 0o700);
+        b
+    };
+    #[cfg(not(unix))]
+    let builder = fs::DirBuilder::new();
     builder.create(&staging).map_err(|e| err(e.to_string()))?;
     let result = (|| {
         let ok = std::process::Command::new("/usr/bin/ditto")
