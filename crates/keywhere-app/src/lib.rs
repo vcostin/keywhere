@@ -13,6 +13,7 @@ pub mod config;
 pub mod editor;
 pub mod field;
 pub mod i18n;
+pub mod memlock;
 pub mod model;
 pub mod secret_text;
 pub mod select;

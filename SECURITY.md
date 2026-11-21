@@ -101,9 +101,10 @@ and which residuals were accepted; this file describes the current behaviour and
 
 ### Accepted residuals
 
-* If `mlock` fails (for example a low `RLIMIT_MEMLOCK`), the key page is not locked and no
-  warning is shown. Decrypted fields are never `mlock`ed, so they can reach swap (use encrypted
-  swap).
+* The key page can stay unlocked: when `mlock` fails (for example a low `RLIMIT_MEMLOCK`), on
+  Windows (no `VirtualLock` yet), and for v2 vaults. Unlocking still works; Keywhere logs one
+  warning to stderr and shows a note under Settings → Security while that vault is open.
+  Decrypted fields are never `mlock`ed, so they can reach swap (use encrypted swap).
 * A stale `.plk` lock from a crashed Keywhere is reclaimed without asking.
 * Another program running as you can still send `show`, `hide`, `lock` or `quit` to the running
   instance over its private socket.

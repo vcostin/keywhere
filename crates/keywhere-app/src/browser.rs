@@ -113,6 +113,7 @@ impl Drop for Browser {
     fn drop(&mut self) {
         // Lock, idle lock, sleep, quit: every way out of the unlocked view.
         self.rescue_unsaved();
+        crate::memlock::clear();
     }
 }
 
@@ -134,6 +135,7 @@ impl Browser {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
+        crate::memlock::record(vault.key_in_locked_memory());
         let entries = model::build(&vault);
         let groups = model::groups(&entries, &vault.empty_groups());
         let search = cx.new(|cx| TextField::new(cx, "Search", false).with_icon("icons/search.svg"));

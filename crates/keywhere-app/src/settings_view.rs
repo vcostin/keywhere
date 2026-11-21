@@ -315,6 +315,15 @@ impl Render for SettingsView {
             .child(Self::row("Auto‑lock after", self.idle.clone()))
             .child(Self::row("Clear clipboard after", clip))
             .child(Self::row("Closing the window", close))
+            .when(crate::memlock::not_locked(), |d| {
+                d.child(Self::row(
+                    "Key in memory",
+                    div()
+                        .text_size(px(12.))
+                        .text_color(c(WARN))
+                        .child(t(crate::memlock::message_en())),
+                ))
+            })
             .child(Self::section("Appearance"))
             .child(Self::row("Theme", self.theme.clone()))
             .child(Self::row("Language", self.language.clone()))
