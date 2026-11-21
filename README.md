@@ -16,7 +16,8 @@ Works with files from Password Safe and Password Gorilla. No cloud account, no s
 **Linux:** from [Releases](https://github.com/vcostin/keywhere/releases/latest) take
 * the **AppImage** (any distribution; updates itself): `chmod +x Keywhere-*.AppImage` and run it, or
 * the **.deb** (Debian, Ubuntu 22.04+) / **.rpm** (Fedora, openSUSE): install with your package
-  manager (`sudo apt install ./keywhere_*.deb`, `sudo dnf install ./keywhere-*.rpm`).
+  manager (`sudo apt install ./keywhere_*.deb`, `sudo dnf install ./keywhere-*.rpm`, or
+  `sudo zypper install --allow-unsigned-rpm ./keywhere-*.rpm`).
 
 `SHA256SUMS` on the release lists the checksums.
 

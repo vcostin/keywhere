@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build dist/keywhere_<version>_amd64.deb and dist/keywhere-<version>-1.x86_64.rpm
+# Build dist/keywhere_<version>-1_amd64.deb and dist/keywhere-<version>-1.x86_64.rpm
 # from target/release/keywhere (run build-appimage.sh first, or cargo build
 # --release). nfpm is pinned by version and SHA-256.
 #
@@ -14,12 +14,15 @@ NFPM_SHA=2afaa5ffb5e3493402e31e7c67a5a1fb42133e3f66fc315ca0051934125561c7
 
 TOOLS=$ROOT/target/package-tools
 mkdir -p "$TOOLS" "$ROOT/dist"
-if [ ! -x "$TOOLS/nfpm" ]; then
-  curl -fsSL --retry 3 -o "$TOOLS/nfpm.tar.gz" "$NFPM_URL"
-  echo "$NFPM_SHA  $TOOLS/nfpm.tar.gz" | sha256sum -c --quiet
-  tar -xzf "$TOOLS/nfpm.tar.gz" -C "$TOOLS" nfpm
-  rm "$TOOLS/nfpm.tar.gz"
+# Keep the pinned archive and re-verify it on every run; extract fresh.
+ARCHIVE=$TOOLS/$(basename "$NFPM_URL")
+if [ ! -f "$ARCHIVE" ] || ! echo "$NFPM_SHA  $ARCHIVE" | sha256sum -c --status; then
+  curl -fsSL --retry 3 -o "$ARCHIVE.part" "$NFPM_URL"
+  echo "$NFPM_SHA  $ARCHIVE.part" | sha256sum -c --quiet
+  mv "$ARCHIVE.part" "$ARCHIVE"
 fi
+rm -f "$TOOLS/nfpm"
+tar -xzf "$ARCHIVE" -C "$TOOLS" nfpm
 
 [ -x target/release/keywhere ] || cargo build --release --locked -p keywhere
 export KEYWHERE_VERSION=$(cargo metadata --no-deps --format-version 1 \

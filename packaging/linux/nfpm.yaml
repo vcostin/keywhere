@@ -30,7 +30,16 @@ contents:
 overrides:
   deb:
     depends: [libc6 (>= 2.35), libxcb1, libxkbcommon0, libxkbcommon-x11-0, libvulkan1]
-    recommends: [libwayland-client0]
+    recommends: [libwayland-client0, shared-mime-info, desktop-file-utils]
   rpm:
-    depends: [libxcb, libxkbcommon, libxkbcommon-x11, vulkan-loader]
-    recommends: [libwayland-client]
+    # Library sonames, so the same .rpm resolves on Fedora and openSUSE
+    # (their package names differ).
+    depends:
+      - libxcb.so.1()(64bit)
+      - libxkbcommon.so.0()(64bit)
+      - libxkbcommon-x11.so.0()(64bit)
+      - libvulkan.so.1()(64bit)
+    recommends:
+      - libwayland-client.so.0()(64bit)
+      - shared-mime-info
+      - desktop-file-utils

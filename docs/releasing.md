@@ -70,8 +70,10 @@ whose release page isn't that version's tag page, or whose version isn't newer t
 
 Built with [nfpm](https://nfpm.goreleaser.com) (pinned by SHA‑256 in
 `packaging/linux/build-packages.sh`) from `packaging/linux/nfpm.yaml`. They install the binary,
-desktop entry, icon and a `application/x-psafe3` MIME type. The release job installs the `.deb`
-on Ubuntu 22.04 and the `.rpm` in a Fedora container and runs `keywhere --version` before
+desktop entry, icon and an `application/x-psafe3` MIME type. The `.rpm` requires library
+sonames rather than package names, so one file works on Fedora and openSUSE. Packages aren't
+GPG‑signed; `SHA256SUMS` on the release covers them. The release job installs the `.deb`
+on Ubuntu 22.04 and the `.rpm` in Fedora and openSUSE containers and runs `keywhere --version` before
 publishing. The package manager owns these installs, so the in‑app updater only shows a notice
 and a download link for them.
 

@@ -15,7 +15,7 @@ env:
 
 jobs:
   linux:
-    name: Linux AppImage
+    name: Linux (AppImage, .deb, .rpm)
     # Oldest supported glibc: build on the oldest maintained runner.
     runs-on: ubuntu-22.04
     permissions:
@@ -54,14 +54,18 @@ jobs:
       - name: Build .deb and .rpm
         run: packaging/linux/build-packages.sh
 
-      - name: Install test (.deb on Ubuntu 22.04, .rpm on Fedora)
+      - name: Install test (.deb on Ubuntu 22.04, .rpm on Fedora and openSUSE)
         run: |
           set -euo pipefail
           V=${{ steps.version.outputs.version }}
           sudo apt-get install -y "./dist/keywhere_${V}-1_amd64.deb"
           /usr/bin/keywhere --version | grep "^Keywhere $V "
-          docker run --rm -v "$PWD/dist:/dist:ro" fedora:41 sh -c \
-            "dnf install -y -q /dist/keywhere-${V}-1.x86_64.rpm && keywhere --version | grep '^Keywhere $V '"
+          RPM="/dist/keywhere-${V}-1.x86_64.rpm"
+          docker run --rm -v "$PWD/dist:/dist:ro" fedora:latest sh -c \
+            "dnf install -y -q $RPM && keywhere --version | grep '^Keywhere $V '"
+          # The .rpm is not GPG-signed (integrity comes from SHA256SUMS).
+          docker run --rm -v "$PWD/dist:/dist:ro" opensuse/tumbleweed sh -c \
+            "zypper -n --quiet install --allow-unsigned-rpm $RPM && keywhere --version | grep '^Keywhere $V '"
 
       - name: Update manifest
         run: packaging/make-update-manifest.sh "${{ steps.version.outputs.version }}"
