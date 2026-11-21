@@ -716,9 +716,9 @@ impl WindowsPlatformInner {
         }
         match message {
             WM_GPUI_CLOSE_ONE_WINDOW => {
-                if self.close_one_window(HWND(lparam.0 as _)) {
-                    unsafe { PostQuitMessage(0) };
-                }
+                // Keywhere patch: keep running with zero windows (tray apps);
+                // the app quits explicitly via cx.quit().
+                let _ = self.close_one_window(HWND(lparam.0 as _));
                 Some(0)
             }
             WM_GPUI_TASK_DISPATCHED_ON_MAIN_THREAD => self.run_foreground_task(),

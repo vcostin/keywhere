@@ -113,5 +113,5 @@ in-app updater only replaces AppImages. To build them without a release, run the
 scripts.
 
 They stay "preview" until they are code-signed (Apple Developer ID plus notarization, and
-Windows code signing), have been tested on real machines, and have a tray and single-instance
-handling like Linux.
+Windows code signing), have been tested on real machines, and have single-instance handling on
+Windows and in-app updates like Linux.
