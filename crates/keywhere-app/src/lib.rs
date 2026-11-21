@@ -558,7 +558,14 @@ impl Shell {
             b.clear_clipboard_if_ours(cx);
             b.path.clone()
         });
-        self.screen = Screen::Unlock(Self::unlock_view(Some(path), window, cx));
+        let unlock = Self::unlock_view(Some(path), window, cx);
+        // Locked (idle, screen lock, Ctrl+L) while "Open …?" was asking:
+        // the vault is locked now, so open the file, as when it arrives
+        // while locked.
+        if let Some(p) = self.pending_open.take() {
+            unlock.update(cx, |u, cx| u.set_path(p, window, cx));
+        }
+        self.screen = Screen::Unlock(unlock);
         set_tray(sys::TrayState::Locked, cx);
         cx.notify();
         window.text_system().clear_line_layout_cache();
