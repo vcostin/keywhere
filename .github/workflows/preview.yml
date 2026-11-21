@@ -3,8 +3,8 @@ name: Preview packages
 # Build the unsigned macOS and Windows preview packages without releasing,
 # for testing on real machines or VMs. Runs on PRs that change the packaging
 # scripts or the platform glue (crates/keywhere-app/src/sys), and by hand
-# from the Actions tab for any branch. It also builds and runs the app's
-# tests there, so macOS/Windows-only code is compiled before merging.
+# from the Actions tab for any branch. It also runs the app's tests and
+# lints there, so macOS/Windows-only code is checked before merging.
 on:
   pull_request:
     paths:
@@ -39,9 +39,15 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@1.95.0
+        with:
+          components: clippy
       - uses: Swatinem/rust-cache@v2
       - name: App tests
         run: cargo test --locked --release -p keywhere
+      # Same lints as release.yml's platform jobs, so macOS/Windows-only
+      # warnings fail the PR instead of the release.
+      - name: App lints
+        run: cargo clippy --locked --release -p keywhere --all-targets --features devtools -- -D warnings
       - name: Package (macOS)
         if: runner.os == 'macOS'
         run: |
