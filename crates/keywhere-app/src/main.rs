@@ -8,10 +8,14 @@ fn main() {
     }
     if arg.as_deref() == Some("--after-update") {
         // Started by the updater: let the old process exit first.
-        if let Some(pid) = std::env::args().nth(2) {
-            keywhere::update::wait_for_exit(&pid);
+        let exited = std::env::args()
+            .nth(2)
+            .is_none_or(|pid| keywhere::update::wait_for_exit(&pid));
+        if !exited {
+            eprintln!("Keywhere was updated, but the old version is still running. Quit it and start Keywhere again.");
+            std::process::exit(1);
         }
-        keywhere::run(keywhere::config::last_vault());
+        keywhere::run_after_update(keywhere::config::last_vault());
         return;
     }
     let path = std::env::args_os()

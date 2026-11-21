@@ -123,23 +123,65 @@ pub fn install_method() -> Install {
     Install::Manual
 }
 
+/// `$APPIMAGE` is only an environment variable, so prove it before
+/// overwriting anything: the file must be a type-2 AppImage owned by us, this
+/// process must be running from that image's mount (or extracted copy), and
+/// the folder must be writable by us and by nobody else (otherwise another
+/// user could swap the verified temp file before it is renamed into place).
 #[cfg(target_os = "linux")]
 fn appimage_replaceable(p: &Path) -> bool {
     use std::ffi::CString;
     use std::os::unix::ffi::OsStrExt;
+    use std::os::unix::fs::MetadataExt;
+    let uid = unsafe { libc::getuid() };
     let (Ok(meta), Some(dir)) = (fs::symlink_metadata(p), p.parent()) else {
         return false;
     };
-    if !p.is_absolute() || !meta.file_type().is_file() {
+    if !p.is_absolute() || !meta.file_type().is_file() || meta.uid() != uid {
         return false;
     }
-    // We replace the file by renaming over it, so the folder must be ours to
-    // write. (`access` uses the real uid, which is what we run as.)
+    let Ok(dmeta) = fs::metadata(dir) else {
+        return false;
+    };
+    if dmeta.uid() != uid || dmeta.mode() & 0o022 != 0 {
+        return false;
+    }
+    if !is_type2_appimage(p) || !running_from_appimage() {
+        return false;
+    }
     let Ok(c) = CString::new(dir.as_os_str().as_bytes()) else {
         return false;
     };
     // SAFETY: `c` is a valid NUL-terminated path.
     unsafe { libc::access(c.as_ptr(), libc::W_OK) == 0 }
+}
+
+#[cfg(any(target_os = "linux", test))]
+/// ELF with the AppImage type-2 magic `AI\x02` at offset 8.
+fn is_type2_appimage(p: &Path) -> bool {
+    let mut head = [0u8; 11];
+    fs::File::open(p)
+        .and_then(|mut f| f.read_exact(&mut head))
+        .is_ok()
+        && head.starts_with(b"\x7fELF")
+        && &head[8..11] == b"AI\x02"
+}
+
+/// Our executable lives inside the AppImage runtime's FUSE mount
+/// (`/tmp/.mount_*`) or its extract-and-run folder, i.e. under `$APPDIR`.
+#[cfg(target_os = "linux")]
+fn running_from_appimage() -> bool {
+    let (Some(appdir), Ok(exe)) = (std::env::var_os("APPDIR"), fs::read_link("/proc/self/exe"))
+    else {
+        return false;
+    };
+    let appdir = PathBuf::from(appdir);
+    let name = appdir
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    (name.starts_with(".mount_") || name.starts_with("appimage_extracted_"))
+        && exe.starts_with(&appdir)
 }
 
 // ---------- verification (pure, tested) ----------
@@ -398,15 +440,31 @@ pub fn relaunch(target: &Path) -> std::io::Result<()> {
         .map(|_| ())
 }
 
-/// `keywhere --after-update <pid>`: wait (up to 15 s) for the old process to
-/// exit so the new one can become the single instance.
-pub fn wait_for_exit(pid: &str) {
-    let Ok(pid) = pid.parse::<u32>() else { return };
+/// `keywhere --after-update <pid>`: wait (up to 30 s) for the old process to
+/// exit so the new one can become the single instance. Only waits on a
+/// process of ours (same uid); returns false if it is still running.
+#[cfg(not(unix))]
+pub fn wait_for_exit(_pid: &str) -> bool {
+    true
+}
+
+/// See the non-unix variant.
+#[cfg(unix)]
+pub fn wait_for_exit(pid: &str) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    let Ok(pid) = pid.parse::<u32>() else {
+        return true;
+    };
     let proc = PathBuf::from(format!("/proc/{pid}"));
-    let deadline = Instant::now() + Duration::from_secs(15);
-    while proc.exists() && Instant::now() < deadline {
+    let ours = |p: &Path| fs::metadata(p).is_ok_and(|m| m.uid() == unsafe { libc::getuid() });
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while ours(&proc) {
+        if Instant::now() >= deadline {
+            return false;
+        }
         std::thread::sleep(Duration::from_millis(100));
     }
+    true
 }
 
 // ---------- UI state ----------
@@ -696,6 +754,20 @@ mod tests {
         replace_from(&new[..], &rel(good, new.len() as u64), &target, |_, _| {}).unwrap();
         assert_eq!(fs::read(&target).unwrap(), new);
         assert_eq!(leftovers(), 0);
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn appimage_magic() {
+        let dir = std::env::temp_dir().join(format!("kw-magic-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let f = dir.join("x");
+        fs::write(&f, b"\x7fELF\x02\x01\x01\x00AI\x02rest").unwrap();
+        assert!(is_type2_appimage(&f));
+        fs::write(&f, b"\x7fELF\x02\x01\x01\x00\x00\x00\x00rest").unwrap();
+        assert!(!is_type2_appimage(&f));
+        fs::write(&f, b"short").unwrap();
+        assert!(!is_type2_appimage(&f));
         fs::remove_dir_all(&dir).unwrap();
     }
 

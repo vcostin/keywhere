@@ -141,6 +141,19 @@ pub fn forward_to_running(cmd: &str) -> bool {
     s.write_all(format!("{cmd}\n").as_bytes()).is_ok()
 }
 
+/// Is another instance of ours answering on the socket? (Connects without
+/// sending a command.)
+pub fn is_running() -> bool {
+    let Some(path) = socket_path() else {
+        return false;
+    };
+    match std::fs::symlink_metadata(&path) {
+        Ok(m) if m.uid() == my_uid() => {}
+        _ => return false,
+    }
+    UnixStream::connect(&path).is_ok_and(|s| peer_is_us(&s))
+}
+
 /// Become the primary instance: listen for commands on a background thread.
 pub fn listen(tx: EventTx) {
     let Some(path) = socket_path() else { return };

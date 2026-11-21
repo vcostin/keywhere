@@ -89,7 +89,7 @@ pub fn toast(_cx: &App) -> Option<AnyElement> {
             .into(),
             vec![],
         ),
-        Status::Failed(e @ (UpdateError::Verify(_) | UpdateError::Install(_))) => (
+        Status::Failed(e) => (
             error_text(e),
             vec![button("update-dismiss", t("Dismiss").into(), false)
                 .on_click(|_, window, _| {

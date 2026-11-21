@@ -467,6 +467,24 @@ pub fn run(path: Option<PathBuf>) {
     run_inner(path, None, None)
 }
 
+/// Start after an in-app update. Never hand off to a running instance: if
+/// one still answers, it is the old version and this start must not silently
+/// disappear into it.
+pub fn run_after_update(path: Option<PathBuf>) {
+    #[cfg(unix)]
+    {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while sys::instance::is_running() {
+            if Instant::now() >= deadline {
+                eprintln!("Keywhere was updated, but the old version is still running. Quit it and start Keywhere again.");
+                std::process::exit(1);
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+    }
+    run_inner(path, None, None)
+}
+
 /// DEV ONLY: master password to "type" into the real unlock field (RAM test).
 #[cfg(feature = "devtools")]
 static DEV_TYPED: std::sync::Mutex<Option<zeroize::Zeroizing<String>>> =
@@ -712,12 +730,28 @@ pub(crate) fn install_update(cx: &mut App) {
             let _ = handle.update(cx, |shell, window, cx| shell.lock(window, cx));
         }
         drop_hidden_session(cx);
-        match update::relaunch(&target) {
-            Ok(()) => cx.quit(),
-            Err(e) => {
-                update::set_failed(update::UpdateError::Install(e.to_string()));
-                cx.refresh_windows();
-            }
-        }
+        // Let lock's frame flush (~250 ms) free and zero the old text
+        // layouts before the process goes away, then sweep once more.
+        cx.spawn(async move |cx| {
+            cx.background_executor()
+                .timer(Duration::from_millis(500))
+                .await;
+            let _ = cx.update(|cx| {
+                if let Some(handle) = cx.global::<AppState>().window {
+                    let _ = handle.update(cx, |_, window, _| {
+                        window.text_system().clear_line_layout_cache()
+                    });
+                }
+                secret_text::sweep();
+                match update::relaunch(&target) {
+                    Ok(()) => cx.quit(),
+                    Err(e) => {
+                        update::set_failed(update::UpdateError::Install(e.to_string()));
+                        cx.refresh_windows();
+                    }
+                }
+            });
+        })
+        .detach();
     });
 }
