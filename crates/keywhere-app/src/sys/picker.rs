@@ -18,13 +18,30 @@ pub const PICK_ARG: &str = "--pick-vault";
 /// Parent side (blocking; run it off the UI thread). `Ok(None)` = cancelled.
 pub fn pick_vault(title: &str, accept: &str) -> Result<Option<PathBuf>, String> {
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
-    let out = Command::new(exe)
+    let mut child = Command::new(exe)
         .args([PICK_ARG, title, accept])
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        .output()
+        .spawn()
         .map_err(|e| e.to_string())?;
+    // The user may browse for a while; a helper that never answers is
+    // killed eventually so the unlock screen isn't stuck waiting forever.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30 * 60);
+    loop {
+        match child.try_wait().map_err(|e| e.to_string())? {
+            Some(_) => break,
+            None if std::time::Instant::now() < deadline => {
+                std::thread::sleep(std::time::Duration::from_millis(100))
+            }
+            None => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err("the file dialog did not answer".into());
+            }
+        }
+    }
+    let out = child.wait_with_output().map_err(|e| e.to_string())?;
     match out.status.code() {
         Some(0) => {
             let path = String::from_utf8(out.stdout).map_err(|e| e.to_string())?;
@@ -66,7 +83,8 @@ fn open_file(title: &str, accept: &str) -> Result<Option<PathBuf>, String> {
         .trim_start_matches(':')
         .replace('.', "_");
     let request_path = format!("/org/freedesktop/portal/desktop/request/{sender}/{token}");
-    // Subscribe before calling, so a fast reply isn't missed.
+    // Subscribe to every Response for our requests *before* calling, so a
+    // fast reply isn't missed even if an old portal picks its own path.
     let responses = zbus::blocking::MessageIterator::for_match_rule(
         zbus::MatchRule::builder()
             .msg_type(zbus::message::Type::Signal)
@@ -74,7 +92,7 @@ fn open_file(title: &str, accept: &str) -> Result<Option<PathBuf>, String> {
             .map_err(err)?
             .member("Response")
             .map_err(err)?
-            .path(request_path.as_str())
+            .path_namespace(format!("/org/freedesktop/portal/desktop/request/{sender}"))
             .map_err(err)?
             .build(),
         &conn,
@@ -105,38 +123,14 @@ fn open_file(title: &str, accept: &str) -> Result<Option<PathBuf>, String> {
         )
         .map_err(err)?;
     let handle: OwnedObjectPath = reply.body().deserialize().map_err(err)?;
-    if handle.as_str() != request_path {
-        // Old portals pick their own path; follow it.
-        return wait_on(&conn, handle.as_str());
+    let _ = request_path; // normally equal to `handle`; old portals differ
+    for msg in responses {
+        let msg = msg.map_err(err)?;
+        if msg.header().path().map(|p| p.as_str()) == Some(handle.as_str()) {
+            return response(&msg);
+        }
     }
-    let mut responses = responses;
-    match responses.next() {
-        Some(msg) => response(&msg.map_err(err)?),
-        None => Err("the file dialog closed unexpectedly".into()),
-    }
-}
-
-fn wait_on(conn: &zbus::blocking::Connection, path: &str) -> Result<Option<PathBuf>, String> {
-    let err = |e: zbus::Error| e.to_string();
-    let it = zbus::blocking::MessageIterator::for_match_rule(
-        zbus::MatchRule::builder()
-            .msg_type(zbus::message::Type::Signal)
-            .interface("org.freedesktop.portal.Request")
-            .map_err(err)?
-            .member("Response")
-            .map_err(err)?
-            .path(path)
-            .map_err(err)?
-            .build(),
-        conn,
-        None,
-    )
-    .map_err(err)?;
-    let mut it = it;
-    match it.next() {
-        Some(msg) => response(&msg.map_err(err)?),
-        None => Err("the file dialog closed unexpectedly".into()),
-    }
+    Err("the file dialog closed unexpectedly".into())
 }
 
 fn response(msg: &zbus::Message) -> Result<Option<PathBuf>, String> {

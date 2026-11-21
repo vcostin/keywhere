@@ -229,7 +229,9 @@ fn watch_logind(tx: &EventTx) -> zbus::Result<()> {
 /// The logind session we belong to. Desktops that start apps as their own
 /// systemd user service (KDE does) leave the process outside any session, so
 /// `GetSessionByPID` fails; then use `$XDG_SESSION_ID`, then the user's
-/// graphical ("display") session.
+/// graphical ("display") session. With several graphical sessions of the
+/// same user (multi-seat), that may be a different one than ours; an extra
+/// lock is harmless, and sleep and the screen saver are still watched.
 fn own_session(conn: &zbus::blocking::Connection) -> zbus::Result<zbus::zvariant::OwnedObjectPath> {
     use zbus::zvariant::OwnedObjectPath;
     let by_pid = manager(conn, "GetSessionByPID", &std::process::id());

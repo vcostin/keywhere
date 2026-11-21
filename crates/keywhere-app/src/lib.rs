@@ -346,8 +346,14 @@ impl Shell {
                 u.update(cx, |u, cx| u.set_path(path, window, cx));
             }
             Screen::Vault(b) => {
-                let same = |a: &std::path::Path| {
-                    std::fs::canonicalize(a).ok() == std::fs::canonicalize(&path).ok()
+                // Same file only if both resolve to the same path (or, if
+                // either can't be resolved, the paths are identical).
+                let same = |a: &std::path::Path| match (
+                    std::fs::canonicalize(a),
+                    std::fs::canonicalize(&path),
+                ) {
+                    (Ok(x), Ok(y)) => x == y,
+                    _ => a == path.as_path(),
                 };
                 if !same(&b.read(cx).path) {
                     self.pending_open = Some(path);
