@@ -100,14 +100,18 @@ and a download link for them.
 
 The release's `platforms` jobs also build unsigned preview packages:
 
-* `packaging/macos/build-app.sh` builds `Keywhere-<v>-macos-arm64-preview.zip`: a
-  `Keywhere.app` bundle (icon rendered from the logo by the `render_icon` example), ad-hoc
-  signed only. It has no Developer ID signature and no notarization, so Gatekeeper asks the
-  user to allow it.
-* `packaging/windows/build-zip.ps1` builds `Keywhere-<v>-windows-x64-preview.zip` with
-  `keywhere.exe`, the licence and a README. It isn't code-signed, so SmartScreen warns.
+* `packaging/macos/build-app.sh <target>` builds `Keywhere-<v>-macos-arm64.dmg` and
+  `Keywhere-<v>-macos-x64.dmg` (both on the Apple silicon runner; the Intel one is
+  cross-compiled). Each is a drag-to-Applications disk image holding a `Keywhere.app` bundle
+  (icon rendered from the logo by the `render_icon` example), ad-hoc signed only: no Developer
+  ID, no notarization, so users remove the quarantine mark or choose "Open Anyway" once.
+* `packaging/windows/build-exe.ps1` builds `Keywhere-<v>-windows-x64-portable.exe`: the bare
+  exe, which needs no install. It has a static C runtime (`.cargo/config.toml`), and `build.rs`
+  embeds the icon (`packaging/windows/keywhere.ico`, rendered from the logo) and version info.
+  The script fails if the exe imports VCRUNTIME140.dll or its version resource is wrong. The
+  exe isn't code-signed, so SmartScreen warns.
 
-The Linux job adds both to `SHA256SUMS` and the release. They aren't in `latest.json`: the
+The Linux job adds all three to `SHA256SUMS` and the release. They aren't in `latest.json`: the
 in-app updater only replaces AppImages. To build them without a release, run the
 **Preview packages** workflow from the Actions tab. It also runs on PRs that change these
 scripts.

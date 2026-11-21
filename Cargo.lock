@@ -2935,6 +2935,7 @@ version = "0.1.2"
 dependencies = [
  "arboard",
  "block2",
+ "embed-resource",
  "futures",
  "getrandom 0.2.17",
  "gpui",
