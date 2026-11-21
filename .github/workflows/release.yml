@@ -118,4 +118,5 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --title "Keywhere $V" \
             --notes-file dist/NOTES.md \
+            --generate-notes \
             --latest=$latest
