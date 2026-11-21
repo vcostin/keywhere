@@ -8,6 +8,8 @@ the dev-only harnesses (feature `devtools`; never part of release builds).
 * `ui` – unlock through the real password field (password from a file, not
   argv/env), scan while unlocked, send `lock`, scan again.
 * `copy` – copy a password to the clipboard, lock, scan.
+* `reveal` – reveal a password on screen, lock, scan (residues found after
+  locking are printed with the bytes around them).
 * `scan` – pre-unlocked demo (master password arrives via env, so it is
   expected in memory: harness artefact).
 

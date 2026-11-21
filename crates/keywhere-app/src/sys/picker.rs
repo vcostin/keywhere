@@ -134,6 +134,15 @@ fn open_file(title: &str, accept: &str) -> Result<Option<PathBuf>, String> {
 fn response(msg: &zbus::Message) -> Result<Option<PathBuf>, String> {
     let (code, results): (u32, HashMap<String, OwnedValue>) =
         msg.body().deserialize().map_err(|e| e.to_string())?;
+    parse_response(code, &results)
+}
+
+/// The portal's `Response(code, results)`: the chosen local file, `None` if
+/// the user cancelled.
+fn parse_response(
+    code: u32,
+    results: &HashMap<String, OwnedValue>,
+) -> Result<Option<PathBuf>, String> {
     match code {
         0 => {}
         1 => return Ok(None), // cancelled
@@ -152,4 +161,42 @@ fn response(msg: &zbus::Message) -> Result<Option<PathBuf>, String> {
         .and_then(|u| u.to_file_path().ok())
         .map(Some)
         .ok_or_else(|| format!("not a local file: {uri}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use zbus::zvariant::Value;
+
+    fn uris(list: &[&str]) -> HashMap<String, OwnedValue> {
+        let v: Vec<String> = list.iter().map(|s| s.to_string()).collect();
+        HashMap::from([(
+            "uris".to_string(),
+            OwnedValue::try_from(Value::from(v)).unwrap(),
+        )])
+    }
+
+    #[test]
+    fn chosen_file_is_decoded() {
+        let r = parse_response(0, &uris(&["file:///home/u/My%20Vault.psafe3"]));
+        assert_eq!(r, Ok(Some(PathBuf::from("/home/u/My Vault.psafe3"))));
+    }
+
+    #[test]
+    fn cancel_is_not_an_error() {
+        assert_eq!(parse_response(1, &HashMap::new()), Ok(None));
+    }
+
+    #[test]
+    fn failures_and_odd_replies_are_errors() {
+        assert!(parse_response(2, &uris(&["file:///a.psafe3"])).is_err());
+        assert!(parse_response(0, &HashMap::new()).is_err());
+        assert!(parse_response(0, &uris(&[])).is_err());
+        assert!(parse_response(0, &uris(&["https://example.com/a.psafe3"])).is_err());
+        let wrong_type = HashMap::from([(
+            "uris".to_string(),
+            OwnedValue::try_from(Value::from(7u32)).unwrap(),
+        )]);
+        assert!(parse_response(0, &wrong_type).is_err());
+    }
 }

@@ -58,7 +58,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev \
             libx11-xcb-dev libxcb1-dev libxcb-shape0-dev libxcb-xfixes0-dev libfontconfig-dev \
-            libfreetype-dev libvulkan-dev libzstd-dev libasound2-dev clang libfuse2
+            libfreetype-dev libvulkan-dev libzstd-dev libasound2-dev clang libfuse2 \
+            xvfb xdotool xclip mesa-vulkan-drivers dbus
 
       - name: Tag matches the workspace version
         id: version
@@ -79,6 +80,12 @@ jobs:
 
       - name: Build AppImage
         run: packaging/linux/build-appimage.sh
+
+      - name: End-to-end test of the AppImage
+        run: |
+          cargo build --locked --release -p keywhere-core --example e2e_vault
+          tools/e2e/run.sh "dist/Keywhere-${{ steps.version.outputs.version }}-x86_64.AppImage" \
+            target/release/examples/e2e_vault
 
       - name: Build .deb and .rpm
         run: packaging/linux/build-packages.sh
