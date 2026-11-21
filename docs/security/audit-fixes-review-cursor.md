@@ -182,3 +182,22 @@ No additional blockers for this re-check. Prior residuals stand as documented (N
 VERDICT: APPROVE
 
 N1 required change is in place; no further required changes from this re-check.
+
+---
+
+## Addendum, 2026-11-22: status of the items left open
+
+Added after the fact; the review above is unchanged and still describes `9e79653`. Code
+references are to `main` at `a8296f4`.
+
+| Item | Status above | Now | Where |
+| --- | --- | --- | --- |
+| KW-H1 / F2: closing keeps the vault unlocked by default | Not fixed (deliberate) | **Resolved.** `CloseAction::Lock` is the default; "Hide, keep unlocked" is an explicit opt-in, and only a settings file that already says `close_action = hide` keeps it. Unit tests pin the default. | `80f11a1` ([settings.rs](../../crates/keywhere-app/src/settings.rs), `close_window` in [lib.rs](../../crates/keywhere-app/src/lib.rs)) |
+| KW-M6: macOS / Windows session lock | Not fixed (documented) | **Resolved, with a residual.** Windows locks on `WTS_SESSION_LOCK`, user switch, `PBT_APMSUSPEND` and display off; macOS on screen-locked, screens-did-sleep, session-resign-active and will-sleep. Residual: macOS will-sleep is not a barrier (the Mac may sleep before the lock has painted); an IOKit sleep handshake is still to do. | `5cf661c` (#11) ([sys/windows.rs](../../crates/keywhere-app/src/sys/windows.rs), [sys/macos.rs](../../crates/keywhere-app/src/sys/macos.rs)) |
+| KW-L7: Windows / macOS process hardening | Not fixed (documented) | **Resolved.** Windows: no error-report dumps, and a process DACL that denies same-user memory access, thread injection and handle duplication. macOS: `RLIMIT_CORE=0` and `PT_DENY_ATTACH`. Both also exclude the window from screen capture. | `5cf661c` (#11) (`harden_process` in [lib.rs](../../crates/keywhere-app/src/lib.rs), [sys/windows.rs](../../crates/keywhere-app/src/sys/windows.rs), [sys/capture.rs](../../crates/keywhere-app/src/sys/capture.rs)) |
+| Memory table: macOS/Windows sleep/lock hooks | Not done | **Resolved** as KW-M6 above. | `5cf661c` (#11) |
+
+Still open, unchanged: N2 (`mlock` failure is silent), N3 (never-saved edits are dropped on
+lock), KW-L6 (stale `.plk` reclaimed without asking), KW-M5 / F10 (two `sha2` versions; full
+vendored gpui), F8 / F9 residuals. [SECURITY.md](../../SECURITY.md#accepted-residuals) lists
+the accepted ones.

@@ -3,6 +3,10 @@
 Status: design requirements for the v1 desktop app. Not a code audit.
 Scope: a local Password Safe v3 (`.psafe3`) vault, no cloud backend, Rust + GPUI, interoperable with Password Safe (Windows 3.x and the Linux 1.x port, which already uses this file) and Password Gorilla.
 
+Where the shipped code deliberately differs from a requirement below, or hasn't met it yet, see
+[Status against the code](#status-against-the-code) at the end. [SECURITY.md](../../SECURITY.md)
+describes the current behaviour.
+
 Accepted limits of the format: iterated SHA-256 is the only KDF, Twofish-CBC is unauthenticated until the trailing HMAC is checked, and a sync provider keeps every historical ciphertext forever. Keywhere must not invent a new KDF or framing.
 
 Crypto belongs in `keywhere-core` (already `twofish`, `sha2`, `hmac`, `subtle`, `zeroize`, `getrandom`). The UI receives plaintext only after authentication, and only for as long as the vault stays unlocked.
@@ -178,3 +182,21 @@ The tray is another unlocked surface, and on some Linux desktops it is reachable
 ## Residual risk
 
 A same-user process can read an unlocked vault. Iterated SHA-256 will not stop a determined offline attack on a weak passphrase, and a sync provider already has the ciphertext. Disk encryption, a long passphrase, a short unlock window, and not clobbering a newer synced copy are the controls that match this product. A future V4 file or Argon2 would break Password Safe and Gorilla, so they are not options for the vault format.
+
+## Status against the code
+
+Checked against `main` at `a8296f4` (2026-11-22). The requirements above are kept as written;
+this table records where the code differs.
+
+| Requirement | Code today |
+| --- | --- |
+| §2 "V1/V2 Blowfish databases … do not claim to read them and do not write them." | Superseded by an owner decision (M4): Password Gorilla **v2** files are read and saved back as v2 ([psafe2.rs](../../crates/keywhere-core/src/psafe2.rs)), behind a weakness banner with **Upgrade to v3…**; a path once seen as v3 that turns into v2 opens read‑only. V1 is not supported. |
+| §3 `#![forbid(unsafe_code)]` in `keywhere-core` except one platform module | Not set. `unsafe` is confined to `LockedKey` in [psafe3.rs](../../crates/keywhere-core/src/psafe3.rs) (`mlock`/`madvise`/`munlock`) and two libc calls in [lock.rs](../../crates/keywhere-core/src/lock.rs) (`gethostname`, `kill(pid, 0)`). |
+| §3 `mlock` the secret allocations; failure is a warning | Only P′ is locked (K and L live only during a decrypt or save; plaintext fields are not locked). Linux and macOS use `mlock` (Linux adds `MADV_DONTDUMP`); Windows has no `VirtualLock` yet. A v2 vault's data key is zeroized but not locked. A failed lock is not reported (audit N2; SECURITY.md accepted residuals). |
+| §3 release builds disable core dumps and ptrace | Done on Linux (`RLIMIT_CORE=0`, `PR_SET_DUMPABLE=0`) and macOS (`RLIMIT_CORE=0`, `PT_DENY_ATTACH`); Windows turns off error‑report dumps and denies same‑user memory access with a process DACL. |
+| §5.5 Windows `ReplaceFileW` | `std::fs::rename`, which on Windows is `MoveFileExW(MOVEFILE_REPLACE_EXISTING)`; still atomic on the same volume. |
+| §6 / §7 lock on screen lock and suspend, lock on close | Done on all three platforms; closing the window locks by default (`80f11a1`). macOS will‑sleep is not a barrier: the lock may not have painted before the Mac sleeps (IOKit handling is to do). |
+| §8 licenses "compatible with GPL‑3.0‑or‑later" | Keywhere is MIT; [deny.toml](../../deny.toml) allows a permissive list (plus MPL‑2.0 and Mozilla's CA data licence). |
+| §8 ban duplicate `sha2` / `hmac` / `zeroize` | `hmac`, `zeroize`, `subtle`, `twofish`, `blowfish` and `cbc` are pinned to one version. `sha2` 0.11 is pulled only by gpui's asset hashing; all Keywhere crypto uses 0.10. |
+| §8 `cargo-auditable`, reproducible builds | Not yet (M5). Releases ship `SHA256SUMS` and a minisign‑signed update manifest. |
+| §9 Could 23 zeroizing allocator | Done for the whole app process (`alloc.rs`), not only the core crate. |
