@@ -1,0 +1,51 @@
+# Fuzz targets for the vault engine. Not part of the main workspace (needs a
+# nightly toolchain and cargo-fuzz); see README.md in this directory.
+[package]
+name = "keywhere-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+license = "MIT"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+arbitrary = { version = "1", features = ["derive"] }
+keywhere-core = { path = "../crates/keywhere-core" }
+
+# Its own workspace, so the main workspace's builds and lockfile ignore it.
+[workspace]
+members = ["."]
+
+[profile.release]
+debug = 1
+
+[[bin]]
+name = "psafe3_decode"
+path = "fuzz_targets/psafe3_decode.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "psafe3_parse"
+path = "fuzz_targets/psafe3_parse.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "psafe3_roundtrip"
+path = "fuzz_targets/psafe3_roundtrip.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "psafe2_decode"
+path = "fuzz_targets/psafe2_decode.rs"
+test = false
+doc = false
+bench = false

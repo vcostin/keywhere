@@ -94,7 +94,9 @@ Next for the engine:
 3. Typed accessors for every v3 field: policy, autotype, run command, protected, symbol set,
    attachments (preserved).
 4. Password Gorilla legacy: read v1/v2 (Blowfish) files and offer to save them as v3.
-5. `cargo fuzz` target on `psafe3::decode`. `cargo-deny` and `cargo-audit` in CI.
+5. `cargo fuzz` targets on `psafe3::decode`, the psafe3 plaintext parser, encode/decode round trip and
+   `psafe2::decode` (done: [fuzz/README.md](../fuzz/README.md), 60 s per target in CI on engine PRs).
+   `cargo-deny` and `cargo-audit` in CI (done).
 
 ## 5. Features and milestones
 

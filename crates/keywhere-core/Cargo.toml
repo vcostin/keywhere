@@ -21,3 +21,7 @@ thiserror = "1"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
+
+# `cargo fuzz` builds with `--cfg fuzzing` (see fuzz/README.md).
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(fuzzing)'] }
