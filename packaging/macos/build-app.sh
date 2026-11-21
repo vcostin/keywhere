@@ -1,20 +1,33 @@
 #!/usr/bin/env bash
-# PREVIEW: build dist/Keywhere-<version>-macos-<arch>-preview.zip (Keywhere.app)
-# from a release build. Ad-hoc signed only (no Developer ID, not notarized),
-# so Gatekeeper asks the user to allow it. Run on macOS.
+# PREVIEW: build dist/Keywhere-<version>-macos-<arch>.dmg (Keywhere.app plus
+# an Applications link to drag it onto) from a release build.
+#
+#   packaging/macos/build-app.sh [aarch64-apple-darwin | x86_64-apple-darwin]
+#
+# Default: the machine's own architecture. Ad-hoc signed only (no Developer
+# ID, not notarized): users remove the quarantine mark or choose "Open
+# Anyway" once. Run on macOS with Xcode (Metal shader compiler).
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 VERSION=$(cargo metadata --no-deps --format-version 1 \
     | python3 -c 'import json,sys; print(next(p["version"] for p in json.load(sys.stdin)["packages"] if p["name"]=="keywhere"))')
-ARCH=$(uname -m)
-cargo build --locked --release -p keywhere
+HOST=$(rustc -vV | sed -n 's/^host: //p')
+TARGET=${1:-$HOST}
+case "$TARGET" in
+    aarch64-apple-darwin) ARCH=arm64 ;;
+    x86_64-apple-darwin) ARCH=x64 ;;
+    *) echo "unsupported target $TARGET" >&2; exit 1 ;;
+esac
+cargo build --locked --release -p keywhere --target "$TARGET"
+BIN=target/$TARGET/release/keywhere
+# The icon renderer runs here, so build it for this machine.
 cargo build --locked --release -p keywhere --example render_icon
 
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
-APP=$WORK/Keywhere.app
+APP=$WORK/dmg/Keywhere.app
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-install -m755 target/release/keywhere "$APP/Contents/MacOS/keywhere"
+install -m755 "$BIN" "$APP/Contents/MacOS/keywhere"
 
 # .icns from the logo SVG.
 target/release/examples/render_icon "$WORK/png" >/dev/null
@@ -56,10 +69,16 @@ PLIST
 
 codesign --force --deep --sign - "$APP"
 codesign --verify --deep --strict "$APP"
-"$APP/Contents/MacOS/keywhere" --version | grep "^Keywhere $VERSION"
+# Only runnable here if it's this machine's architecture.
+if [ "$TARGET" = "$HOST" ]; then
+    "$APP/Contents/MacOS/keywhere" --version | grep "^Keywhere $VERSION"
+fi
 
+ln -s /Applications "$WORK/dmg/Applications"
 mkdir -p dist
-OUT=dist/Keywhere-$VERSION-macos-$ARCH-preview.zip
+OUT=dist/Keywhere-$VERSION-macos-$ARCH.dmg
 rm -f "$OUT"
-ditto -c -k --keepParent "$APP" "$OUT"
+hdiutil create -volname "Keywhere $VERSION" -srcfolder "$WORK/dmg" -fs HFS+ \
+    -format UDZO -imagekey zlib-level=9 -ov "$OUT" >/dev/null
+hdiutil verify "$OUT" >/dev/null
 echo "$OUT"

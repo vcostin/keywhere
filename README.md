@@ -19,18 +19,20 @@ Works with files from Password Safe and Password Gorilla. No cloud account, no s
   manager (`sudo apt install ./keywhere_*.deb`, `sudo dnf install ./keywhere-*.rpm`, or
   `sudo zypper install --allow-unsigned-rpm ./keywhere-*.rpm`).
 
-**macOS (Apple silicon) and Windows, preview:** the `*-preview.zip` files on the release. They
-aren't code-signed, so the OS asks before the first start.
-* macOS: unzip, move **Keywhere.app** to Applications, then run once in Terminal
+**macOS and Windows, preview:** not code-signed yet, so the OS asks before the first start.
+* macOS (`Keywhere-*-macos-arm64.dmg` for Apple silicon, `-macos-x64.dmg` for Intel): open the
+  .dmg, drag **Keywhere** to Applications, then run once in Terminal
 
   ```sh
   xattr -dr com.apple.quarantine /Applications/Keywhere.app
   ```
 
   (or open it once and choose System Settings → Privacy & Security → **Open Anyway**).
-* Windows: unzip and run `keywhere.exe`; at the SmartScreen warning choose **More info → Run anyway**.
+* Windows (`Keywhere-*-windows-x64-portable.exe`): a single program, nothing to install. Put it
+  anywhere (even a USB stick) and run it; at the SmartScreen warning choose **More info → Run
+  anyway**. Settings go to `%APPDATA%\keywhere`.
 
-`SHA256SUMS` on the release lists the checksums: check the zip before you allow it to run.
+`SHA256SUMS` on the release lists the checksums: check the file before you allow it to run.
 
 From source:
 

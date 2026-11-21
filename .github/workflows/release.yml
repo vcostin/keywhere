@@ -43,16 +43,21 @@ jobs:
       - name: Preview package (macOS)
         if: runner.os == 'macOS'
         continue-on-error: true
-        run: packaging/macos/build-app.sh
+        run: |
+          rustup target add x86_64-apple-darwin
+          packaging/macos/build-app.sh aarch64-apple-darwin
+          packaging/macos/build-app.sh x86_64-apple-darwin
       - name: Preview package (Windows)
         if: runner.os == 'Windows'
         continue-on-error: true
         shell: pwsh
-        run: packaging/windows/build-zip.ps1
+        run: packaging/windows/build-exe.ps1
       - uses: actions/upload-artifact@v4
         with:
           name: preview-${{ runner.os }}
-          path: dist/*-preview.zip
+          path: |
+            dist/*.dmg
+            dist/*-portable.exe
           if-no-files-found: warn
 
   linux:
@@ -158,8 +163,8 @@ jobs:
           set -euo pipefail
           shopt -s nullglob
           cd dist
-          previews=(Keywhere-*-preview.zip)
-          [ ${#previews[@]} -eq 2 ] || echo "::warning::${#previews[@]} of 2 macOS/Windows preview packages built"
+          previews=(Keywhere-*.dmg Keywhere-*-portable.exe)
+          [ ${#previews[@]} -eq 3 ] || echo "::warning::${#previews[@]} of 3 macOS/Windows preview packages built"
           sha256sum Keywhere-*.AppImage keywhere_*.deb keywhere-*.rpm "${previews[@]}" \
             latest.json latest.json.minisig > SHA256SUMS
           cat SHA256SUMS
@@ -182,7 +187,7 @@ jobs:
           [ "$highest" = "$GITHUB_REF_NAME" ] && latest=true
           V=${{ steps.version.outputs.version }}
           shopt -s nullglob
-          previews=(dist/Keywhere-*-preview.zip)
+          previews=(dist/Keywhere-*.dmg dist/Keywhere-*-portable.exe)
           gh release create "$GITHUB_REF_NAME" \
             "dist/Keywhere-$V-x86_64.AppImage" "dist/keywhere_${V}-1_amd64.deb" \
             "dist/keywhere-${V}-1.x86_64.rpm" "${previews[@]}" dist/latest.json dist/latest.json.minisig dist/SHA256SUMS \
