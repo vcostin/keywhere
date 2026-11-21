@@ -45,7 +45,7 @@
   --accent: #e39a1f;
   --accent-ink: #2a1a00;
   --accent-text: #8f5800; /* amber dark enough for small text on light backgrounds */
-  --accent-display: #c47a0a; /* large headings only */
+  --accent-display: #bc7508; /* large headings only: 3:1 on --bg and --surface */
   --focus: #2f6bea;
   --selection: #d3e0f8;
   --link: #2459c8;
@@ -1131,19 +1131,6 @@ kbd {
   overflow-wrap: anywhere;
   user-select: all;
 }
-.file.is-missing .file-link {
-  border-style: dashed;
-  background: transparent;
-  color: var(--muted);
-}
-.file.is-missing .file-link::before {
-  background: var(--dim);
-}
-.file.is-missing .file-name {
-  font-family: inherit;
-  font-size: 0.8rem;
-  font-style: italic;
-}
 .platform-note {
   font-size: 0.86rem;
   color: var(--warn-text);
@@ -1281,6 +1268,37 @@ kbd {
 }
 .verify-links a:hover::after {
   transform: translateX(3px);
+}
+/* Files of a release that aren't downloads for people, plus any file type this page doesn't know yet. */
+.other-files {
+  grid-column: 1 / -1;
+  border-top: 1px solid var(--line);
+  padding-top: 14px;
+  font-size: 0.88rem;
+}
+.other-files summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-weight: 500;
+}
+.other-files summary:hover {
+  color: var(--text);
+}
+.other-files ul {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+.other-files a {
+  font-family: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  font-size: 0.8rem;
+  overflow-wrap: anywhere;
+}
+.other-desc {
+  display: block;
+  color: var(--muted);
 }
 
 /* Shortcuts */

@@ -210,7 +210,7 @@
             </article>
             <article class="feature">
               <h3><span class="ficon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3l7 3v5c0 4.5-3 8.3-7 10-4-1.7-7-5.5-7-10V6z" /><path d="M9 12l2 2 4-4" /></svg></span>Signed updates</h3>
-              <p>Opt‑in update checks. The AppImage updates itself, and only after the download matches a manifest signed with Keywhere's release key.</p>
+              <p>Opt‑in update checks. The AppImage, the macOS app and the Windows portable and per‑user builds update themselves, and only after the download matches a manifest signed with Keywhere's release key. The .deb, .rpm and MSI get a notice with a link.</p>
             </article>
             <article class="feature">
               <h3><span class="ficon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5" /><path d="M3.5 12h17M12 3.5c2.5 2.6 3.5 5.4 3.5 8.5s-1 5.9-3.5 8.5c-2.5-2.6-3.5-5.4-3.5-8.5s1-5.9 3.5-8.5z" /></svg></span>English and Română</h3>
@@ -404,25 +404,10 @@
                 </div>
               </header>
               <ul class="files">
-                <li class="file" data-asset="appimage">
+                <li class="file">
                   <a class="file-link" href="https://github.com/vcostin/keywhere/releases/latest">
-                    <span class="file-kind">AppImage <span class="tag tag-accent">recommended</span></span>
-                    <span class="file-desc">Any distribution. Updates itself from the app.</span>
-                    <span class="file-name" data-name>Keywhere-&lt;version&gt;-x86_64.AppImage</span>
-                  </a>
-                </li>
-                <li class="file" data-asset="deb">
-                  <a class="file-link" href="https://github.com/vcostin/keywhere/releases/latest">
-                    <span class="file-kind">.deb</span>
-                    <span class="file-desc">Debian, Ubuntu 22.04+.</span>
-                    <span class="file-name" data-name>keywhere_&lt;version&gt;-1_amd64.deb</span>
-                  </a>
-                </li>
-                <li class="file" data-asset="rpm">
-                  <a class="file-link" href="https://github.com/vcostin/keywhere/releases/latest">
-                    <span class="file-kind">.rpm</span>
-                    <span class="file-desc">Fedora, openSUSE.</span>
-                    <span class="file-name" data-name>keywhere-&lt;version&gt;-1.x86_64.rpm</span>
+                    <span class="file-kind">Latest release</span>
+                    <span class="file-desc">The files for Linux are on GitHub Releases.</span>
                   </a>
                 </li>
               </ul>
@@ -449,18 +434,10 @@
                 </div>
               </header>
               <ul class="files">
-                <li class="file" data-asset="mac-arm64">
+                <li class="file">
                   <a class="file-link" href="https://github.com/vcostin/keywhere/releases/latest">
-                    <span class="file-kind">Apple silicon</span>
-                    <span class="file-desc">M1 and newer.</span>
-                    <span class="file-name" data-name>Keywhere-&lt;version&gt;-macos-arm64.dmg</span>
-                  </a>
-                </li>
-                <li class="file" data-asset="mac-x64">
-                  <a class="file-link" href="https://github.com/vcostin/keywhere/releases/latest">
-                    <span class="file-kind">Intel</span>
-                    <span class="file-desc">Older Intel Macs.</span>
-                    <span class="file-name" data-name>Keywhere-&lt;version&gt;-macos-x64.dmg</span>
+                    <span class="file-kind">Latest release</span>
+                    <span class="file-desc">The files for macOS are on GitHub Releases.</span>
                   </a>
                 </li>
               </ul>
@@ -482,19 +459,18 @@
                 </div>
               </header>
               <ul class="files">
-                <li class="file" data-asset="win-x64">
+                <li class="file">
                   <a class="file-link" href="https://github.com/vcostin/keywhere/releases/latest">
-                    <span class="file-kind">Portable .exe</span>
-                    <span class="file-desc">Windows 10/11. One file, nothing to install.</span>
-                    <span class="file-name" data-name>Keywhere-&lt;version&gt;-windows-x64-portable.exe</span>
+                    <span class="file-kind">Latest release</span>
+                    <span class="file-desc">The files for Windows are on GitHub Releases.</span>
                   </a>
                 </li>
               </ul>
               <details class="howto">
                 <summary>First start</summary>
-                <p>Put the file anywhere, even on a USB stick, and run it. Settings go to <code>%APPDATA%\keywhere</code>.</p>
-                <p>SmartScreen warns on the first start: choose <strong>More info</strong> → <strong>Run anyway</strong>. Or unblock it in PowerShell first:</p>
-                <pre class="cmd"><code>Unblock-File .\Keywhere-*-windows-x64-portable.exe</code></pre>
+                <p>Run the installer, or put the portable <code>.exe</code> anywhere, even on a USB stick, and run it. Settings go to <code>%APPDATA%\keywhere</code>.</p>
+                <p>SmartScreen warns on the first start: choose <strong>More info</strong> → <strong>Run anyway</strong>. Or unblock the file in PowerShell first:</p>
+                <pre class="cmd"><code>Unblock-File .\Keywhere-*-windows-x64*</code></pre>
               </details>
             </article>
           </div>
@@ -513,6 +489,10 @@
               <li><a href="https://github.com/vcostin/keywhere/releases">All releases and notes</a></li>
               <li><a href="https://github.com/vcostin/keywhere#build">Build from source</a></li>
             </ul>
+            <details class="other-files" id="other-files" hidden>
+              <summary>Other files in this release</summary>
+              <ul></ul>
+            </details>
           </div>
         </div>
       </section>
