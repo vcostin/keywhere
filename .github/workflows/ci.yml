@@ -1,9 +1,15 @@
 name: CI
 
+# Checks for pull requests (main only changes through PRs, so a second run
+# after merging adds nothing). Release builds run from release.yml on tags.
 on:
-  push:
-    branches: [main]
   pull_request:
+  workflow_dispatch:
+
+# A new push to the same PR cancels its run in progress.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -12,8 +18,10 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  core:
-    name: core tests (${{ matrix.os }})
+  # One machine per OS. Steps run in order and stop at the first failure,
+  # so the app is never checked when the core engine's tests or lints fail.
+  checks:
+    name: checks (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
@@ -25,22 +33,13 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.95.0
         with:
           components: clippy
-      - run: cargo test --locked --release -p keywhere-core
-      - run: cargo clippy --locked --release -p keywhere-core --all-targets -- -D warnings
+      - uses: Swatinem/rust-cache@v2
 
-  app:
-    name: app build (${{ matrix.os }})
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v5
-      # Same compiler as rust-toolchain.toml (bump both together).
-      - uses: dtolnay/rust-toolchain@1.95.0
-        with:
-          components: clippy
+      - name: Core tests
+        run: cargo test --locked --release -p keywhere-core
+      - name: Core lints
+        run: cargo clippy --locked --release -p keywhere-core --all-targets -- -D warnings
+
       - name: Linux GPUI dependencies
         if: runner.os == 'Linux'
         run: |
@@ -48,27 +47,25 @@ jobs:
           sudo apt-get install -y libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev \
             libx11-xcb-dev libxcb1-dev libxcb-shape0-dev libxcb-xfixes0-dev libfontconfig-dev \
             libfreetype-dev libvulkan-dev libzstd-dev libasound2-dev clang
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo test --locked --release -p keywhere
-      - run: cargo clippy --locked --release -p keywhere --all-targets --features devtools -- -D warnings
+      - name: App tests
+        run: cargo test --locked --release -p keywhere
+      - name: App lints
+        run: cargo clippy --locked --release -p keywhere --all-targets --features devtools -- -D warnings
 
-  audit:
+  supply-chain:
+    name: supply chain (audit, deny)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
       - uses: taiki-e/install-action@v2
         with:
-          tool: cargo-audit
+          tool: cargo-audit,cargo-deny
       # Fails on vulnerabilities; "unmaintained"/"unsound" warnings (all
       # transitive via gpui today) are reported but don't fail the build.
-      - run: cargo audit
-
-  deny:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-      - uses: taiki-e/install-action@v2
-        with:
-          tool: cargo-deny
+      - name: cargo audit
+        run: cargo audit
       # crates.io only, license allowlist, one version of each crypto crate.
-      - run: cargo deny --locked check
+      # Runs even if audit failed, so both reports are always visible.
+      - name: cargo deny
+        if: success() || failure()
+        run: cargo deny --locked check
