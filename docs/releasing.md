@@ -110,11 +110,25 @@ The release's `platforms` jobs also build unsigned preview packages:
   embeds the icon (`packaging/windows/keywhere.ico`, rendered from the logo) and version info.
   The script fails if the exe imports VCRUNTIME140.dll or its version resource is wrong. The
   exe isn't code-signed, so SmartScreen warns.
+* `packaging/windows/build-installers.ps1` wraps that exe in two installers:
+  * `Keywhere-<v>-windows-x64-setup.exe` (NSIS, `keywhere.nsi`): per-user, into
+    `%LOCALAPPDATA%\Programs\Keywhere`, no admin rights. It adds a Start menu shortcut, an
+    uninstaller and "Open with" for `.psafe3`, and becomes the default app only if no other
+    program is. That folder is the user's own, so the in-app updater replaces `Keywhere.exe`
+    there, and the app refreshes the version shown in Settings → Apps.
+  * `Keywhere-<v>-windows-x64.msi` (WiX v5, pinned, `keywhere.wxs`): per-machine, in Program
+    Files. Users can't write there, so the app only shows a notice; the next MSI upgrades it
+    (MajorUpgrade, with a fixed UpgradeCode). It never takes over the default app for `.psafe3`.
+
+  NSIS comes with GitHub's Windows images (Chocolatey is the fallback); WiX is installed as a
+  pinned `dotnet` tool.
 
 `build-app.sh` also writes `Keywhere-<v>-macos-<arch>.app.zip` (the same bundle, zipped with
-`ditto`) for the in-app updater. The Linux job adds all five files to `SHA256SUMS` and the
-release, and `make-update-manifest.sh` lists the `.app.zip` files and the portable exe in
-`latest.json` (`macos-aarch64`, `macos-x86_64`, `windows-x86_64`) next to the AppImage. To build them without a release, run the
+`ditto`) for the in-app updater. The release gets seven macOS/Windows files (two `.dmg`, two
+`.app.zip`, the portable exe, setup exe and MSI). The Linux job adds them to `SHA256SUMS` and
+the release, and `make-update-manifest.sh` lists the `.app.zip` files and the portable exe in
+`latest.json` (`macos-aarch64`, `macos-x86_64`, `windows-x86_64`) next to the AppImage. To
+build them without a release, run the
 **Preview packages** workflow from the Actions tab. It also runs on PRs that change these
 scripts.
 

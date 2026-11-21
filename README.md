@@ -28,9 +28,14 @@ Works with files from Password Safe and Password Gorilla. No cloud account, no s
   ```
 
   (or open it once and choose System Settings → Privacy & Security → **Open Anyway**).
-* Windows (`Keywhere-*-windows-x64-portable.exe`): a single program, nothing to install. Put it
-  anywhere (even a USB stick) and run it; at the SmartScreen warning choose **More info → Run
-  anyway**. Settings go to `%APPDATA%\keywhere`.
+* Windows, pick one; at the SmartScreen warning choose **More info → Run anyway**. Settings go
+  to `%APPDATA%\keywhere`.
+  * `Keywhere-*-windows-x64-portable.exe`: a single program, nothing to install. Put it
+    anywhere (even a USB stick) and run it.
+  * `Keywhere-*-windows-x64-setup.exe`: installs for your user (no admin rights), with a Start
+    menu entry and an uninstaller.
+  * `Keywhere-*-windows-x64.msi`: installs for all users in Program Files (admin rights);
+    install the next MSI to update.
 
 `SHA256SUMS` on the release lists the checksums: check the file before you allow it to run.
 

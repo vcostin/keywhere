@@ -1,0 +1,44 @@
+<!--
+  Keywhere per-machine MSI (WiX v5). Built by build-installers.ps1:
+    wix build -arch x64 -d Version=0.1.3 -d Exe=... -d Icon=... -d License=... -o out.msi keywhere.wxs
+
+  Installs into Program Files for all users (admin rights). Program Files
+  isn't writable by users, so Keywhere doesn't replace itself there: it
+  shows a notice when a new version is out, and the next MSI upgrades it
+  (MajorUpgrade). Adds a Start menu shortcut and offers Keywhere in
+  "Open with" for .psafe3 files without taking over the default app.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="Keywhere" Manufacturer="Keywhere" Version="$(Version)"
+           UpgradeCode="d1e5575d-4c08-433c-b3d3-cfe932c78dd1" Scope="perMachine" Compressed="yes">
+    <MajorUpgrade DowngradeErrorMessage="A newer version of Keywhere is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <Icon Id="KeywhereIcon" SourceFile="$(Icon)" />
+    <Property Id="ARPPRODUCTICON" Value="KeywhereIcon" />
+    <Property Id="ARPURLINFOABOUT" Value="https://github.com/vcostin/keywhere" />
+    <Property Id="ARPNOMODIFY" Value="1" />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="Keywhere">
+        <Component Id="KeywhereExe">
+          <File Id="KeywhereExe" Source="$(Exe)" Name="Keywhere.exe" KeyPath="yes" />
+          <RegistryValue Root="HKLM" Key="Software\Classes\Keywhere.psafe3" Value="Password Safe database" Type="string" />
+          <RegistryValue Root="HKLM" Key="Software\Classes\Keywhere.psafe3\DefaultIcon" Value="[INSTALLFOLDER]Keywhere.exe,0" Type="string" />
+          <RegistryValue Root="HKLM" Key="Software\Classes\Keywhere.psafe3\shell\open\command" Value="&quot;[INSTALLFOLDER]Keywhere.exe&quot; &quot;%1&quot;" Type="string" />
+          <RegistryValue Root="HKLM" Key="Software\Classes\.psafe3\OpenWithProgids" Name="Keywhere.psafe3" Value="" Type="string" />
+        </Component>
+        <Component Id="License">
+          <File Id="License" Source="$(License)" Name="LICENSE.txt" KeyPath="yes" />
+        </Component>
+      </Directory>
+    </StandardDirectory>
+
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Component Id="StartMenuShortcut">
+        <Shortcut Id="KeywhereShortcut" Name="Keywhere" Target="[INSTALLFOLDER]Keywhere.exe" WorkingDirectory="INSTALLFOLDER" />
+        <RegistryValue Root="HKLM" Key="Software\Keywhere" Name="StartMenuShortcut" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+    </StandardDirectory>
+  </Package>
+</Wix>

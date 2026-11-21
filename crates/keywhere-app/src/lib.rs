@@ -792,6 +792,8 @@ fn run_inner(path: Option<PathBuf>, preunlocked: Preunlocked, select: Option<Str
             sys::instance::listen(tx.clone());
         }
         sys::watch_session(tx.clone());
+        #[cfg(windows)]
+        sys::windows::refresh_installed_version();
         let tray = sys::Tray::start(tx);
         cx.set_global(AppState {
             path: path.clone(),

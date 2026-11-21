@@ -29,10 +29,17 @@ notification area) and lock with the screen lock and before sleep:
   \`\`\`
 
   Or open it once, then System Settings → Privacy & Security → Open Anyway.
-* **Keywhere-$V-windows-x64-portable.exe**: Windows 10/11. A single
-  program, nothing to install: put it anywhere and run it (settings go to
-  \`%APPDATA%\\keywhere\`). SmartScreen warns on first start: "More info" →
-  "Run anyway" (or run \`Unblock-File\` on it in PowerShell first).
+* Windows 10/11, pick one:
+  * **Keywhere-$V-windows-x64-portable.exe**: a single program, nothing to
+    install. Put it anywhere and run it (settings go to
+    \`%APPDATA%\\keywhere\`). Updates itself.
+  * **Keywhere-$V-windows-x64-setup.exe**: installs for your user, no admin
+    rights, with a Start menu entry and an uninstaller. Updates itself.
+  * **Keywhere-$V-windows-x64.msi**: installs for all users in Program Files
+    (admin rights). Install the next MSI to update.
+
+  SmartScreen warns on first start: "More info" → "Run anyway" (or run
+  \`Unblock-File\` on the file in PowerShell first).
 
 The \`*.app.zip\` files are for the in-app updater on macOS; download the
 .dmg instead. Checksums are in \`SHA256SUMS\`: check a preview file against
