@@ -1,10 +1,14 @@
 //! Windows: lock when the session locks (Win+L, screen saver with password),
 //! when the user switches away (fast user switching, RDP disconnect), and
-//! before the PC sleeps or hibernates.
+//! before the PC sleeps or hibernates, or when the display turns off.
 //!
 //! A hidden top-level window on its own thread receives
 //! `WM_WTSSESSION_CHANGE` (after `WTSRegisterSessionNotification`) and the
 //! `WM_POWERBROADCAST` broadcast. It is never shown.
+//!
+//! The display-off lock matters on Modern Standby (S0ix) laptops: they
+//! often never send `PBT_APMSUSPEND`, but the console display always goes
+//! off first (`GUID_CONSOLE_DISPLAY_STATE` = 0).
 
 use std::sync::OnceLock;
 use std::thread;
@@ -12,13 +16,16 @@ use std::time::{Duration, Instant};
 
 use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
+use windows_sys::Win32::System::Power::{RegisterPowerSettingNotification, POWERBROADCAST_SETTING};
 use windows_sys::Win32::System::RemoteDesktop::{
     WTSRegisterSessionNotification, NOTIFY_FOR_THIS_SESSION,
 };
+use windows_sys::Win32::System::SystemServices::GUID_CONSOLE_DISPLAY_STATE;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DispatchMessageW, GetMessageW, RegisterClassW,
-    TranslateMessage, MSG, PBT_APMSUSPEND, WM_POWERBROADCAST, WM_WTSSESSION_CHANGE, WNDCLASSW,
-    WS_OVERLAPPED, WTS_CONSOLE_DISCONNECT, WTS_REMOTE_DISCONNECT, WTS_SESSION_LOCK,
+    TranslateMessage, DEVICE_NOTIFY_WINDOW_HANDLE, MSG, PBT_APMSUSPEND, PBT_POWERSETTINGCHANGE,
+    WM_POWERBROADCAST, WM_WTSSESSION_CHANGE, WNDCLASSW, WS_OVERLAPPED, WTS_CONSOLE_DISCONNECT,
+    WTS_REMOTE_DISCONNECT, WTS_SESSION_LOCK,
 };
 
 use super::{EventTx, SysEvent};
@@ -87,6 +94,17 @@ unsafe fn run() -> Result<(), &'static str> {
     if unsafe { WTSRegisterSessionNotification(hwnd, NOTIFY_FOR_THIS_SESSION) } == 0 {
         eprintln!("keywhere: no session-lock notifications (sleep lock still works)");
     }
+    // SAFETY: `hwnd` is our live window; the GUID is a static constant.
+    let display = unsafe {
+        RegisterPowerSettingNotification(
+            hwnd,
+            &GUID_CONSOLE_DISPLAY_STATE,
+            DEVICE_NOTIFY_WINDOW_HANDLE,
+        )
+    };
+    if display.is_null() {
+        eprintln!("keywhere: no display-off notifications");
+    }
     // SAFETY: standard message loop for windows owned by this thread.
     unsafe {
         let mut msg: MSG = std::mem::zeroed();
@@ -106,10 +124,33 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
             }
         }
         WM_POWERBROADCAST if wparam as u32 == PBT_APMSUSPEND => lock_for_sleep(),
+        WM_POWERBROADCAST if wparam as u32 == PBT_POWERSETTINGCHANGE => {
+            // SAFETY: for PBT_POWERSETTINGCHANGE, lParam points to a
+            // POWERBROADCAST_SETTING valid for the duration of the message.
+            let setting = unsafe { (lparam as *const POWERBROADCAST_SETTING).as_ref() };
+            if let (Some(s), Some(tx)) = (setting, TX.get()) {
+                // SAFETY: `Data` has `DataLength` bytes.
+                let data =
+                    unsafe { std::slice::from_raw_parts(s.Data.as_ptr(), s.DataLength as usize) };
+                if display_turned_off(&s.PowerSetting, data) {
+                    let _ = tx.unbounded_send(SysEvent::Lock);
+                }
+            }
+        }
         _ => {}
     }
     // SAFETY: forwarding the unchanged message to the default procedure.
     unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) }
+}
+
+/// `GUID_CONSOLE_DISPLAY_STATE` with a DWORD 0 (off; 1 = on, 2 = dimmed).
+fn display_turned_off(setting: &windows_sys::core::GUID, data: &[u8]) -> bool {
+    let g = GUID_CONSOLE_DISPLAY_STATE;
+    let same = setting.data1 == g.data1
+        && setting.data2 == g.data2
+        && setting.data3 == g.data3
+        && setting.data4 == g.data4;
+    same && data.len() >= 4 && u32::from_le_bytes([data[0], data[1], data[2], data[3]]) == 0
 }
 
 /// Windows gives PBT_APMSUSPEND handlers about two seconds: ask the app to
@@ -124,6 +165,9 @@ fn lock_for_sleep() {
     while super::lock_ack() == before && Instant::now() < deadline {
         thread::sleep(Duration::from_millis(20));
     }
+    // As on Linux: give the locked screen time to replace the last frames
+    // (the app's frame flush runs after its ack).
+    thread::sleep(Duration::from_millis(300));
 }
 
 /// Process hardening, the Windows counterpart of the Linux
@@ -220,6 +264,18 @@ unsafe fn restrict_process_access() -> Result<(), &'static str> {
 mod tests {
     use super::*;
     use windows_sys::Win32::UI::WindowsAndMessaging::{WTS_SESSION_LOGON, WTS_SESSION_UNLOCK};
+
+    #[test]
+    fn display_off_only() {
+        let g = GUID_CONSOLE_DISPLAY_STATE;
+        assert!(display_turned_off(&g, &0u32.to_le_bytes()));
+        assert!(!display_turned_off(&g, &1u32.to_le_bytes()));
+        assert!(!display_turned_off(&g, &2u32.to_le_bytes()));
+        assert!(!display_turned_off(&g, &[0]));
+        let mut other = g;
+        other.data1 ^= 1;
+        assert!(!display_turned_off(&other, &0u32.to_le_bytes()));
+    }
 
     #[test]
     fn locks_on_lock_and_switch_away_only() {

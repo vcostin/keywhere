@@ -112,5 +112,6 @@ in-app updater only replaces AppImages. To build them without a release, run the
 **Preview packages** workflow from the Actions tab. It also runs on PRs that change these
 scripts.
 
-They stay "preview" until macOS and Windows have lock-on-sleep or screen lock, process
-hardening, screen-capture exclusion, and real code signing.
+They stay "preview" until they are code-signed (Apple Developer ID plus notarization, and
+Windows code signing), have been tested on real machines, and have a tray and single-instance
+handling like Linux.

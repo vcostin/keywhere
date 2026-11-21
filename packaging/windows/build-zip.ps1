@@ -22,8 +22,10 @@ This build is not code-signed yet: Windows SmartScreen may say it
 "protected your PC". Choose "More info" > "Run anyway" only if the zip's
 SHA-256 matches SHA256SUMS on the release page.
 
-Not yet on Windows: locking when the screen locks or the PC sleeps, and
-in-app updates. Lock with Ctrl+L before you walk away.
+Keywhere locks the vault when you lock Windows (Win+L), switch user, the
+display turns off, or the PC sleeps. Not yet on Windows: a tray icon,
+opening a second vault in the running app, and in-app updates (download
+new versions from the release page).
 "@ | Set-Content -Encoding utf8 (Join-Path $work 'README.txt')
 
 New-Item -ItemType Directory -Force dist | Out-Null

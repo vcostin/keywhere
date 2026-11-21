@@ -37,19 +37,23 @@ jobs:
         run: cargo test --locked --release -p keywhere
       - name: App lints
         run: cargo clippy --locked --release -p keywhere --all-targets --features devtools -- -D warnings
-      # Unsigned preview packages (see docs/releasing.md).
+      # Unsigned preview packages (see docs/releasing.md). Best effort: a
+      # packaging failure leaves them out of the release instead of
+      # blocking the Linux packages (the tests above still gate it).
       - name: Preview package (macOS)
         if: runner.os == 'macOS'
+        continue-on-error: true
         run: packaging/macos/build-app.sh
       - name: Preview package (Windows)
         if: runner.os == 'Windows'
+        continue-on-error: true
         shell: pwsh
         run: packaging/windows/build-zip.ps1
       - uses: actions/upload-artifact@v4
         with:
           name: preview-${{ runner.os }}
           path: dist/*-preview.zip
-          if-no-files-found: error
+          if-no-files-found: warn
 
   linux:
     needs: platforms
@@ -117,6 +121,7 @@ jobs:
             "zypper -n --quiet install --allow-unsigned-rpm $RPM && keywhere --version | grep '^Keywhere $V '"
 
       - name: macOS and Windows preview packages
+        continue-on-error: true
         uses: actions/download-artifact@v4
         with:
           pattern: preview-*
@@ -149,7 +154,15 @@ jobs:
           rsign verify -p packaging/keywhere-update.pub -x dist/latest.json.minisig dist/latest.json
 
       - name: Checksums
-        run: cd dist && sha256sum Keywhere-*.AppImage keywhere_*.deb keywhere-*.rpm Keywhere-*-preview.zip latest.json latest.json.minisig > SHA256SUMS && cat SHA256SUMS
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          cd dist
+          previews=(Keywhere-*-preview.zip)
+          [ ${#previews[@]} -eq 2 ] || echo "::warning::${#previews[@]} of 2 macOS/Windows preview packages built"
+          sha256sum Keywhere-*.AppImage keywhere_*.deb keywhere-*.rpm "${previews[@]}" \
+            latest.json latest.json.minisig > SHA256SUMS
+          cat SHA256SUMS
 
       - name: Release notes
         run: packaging/release-notes.sh "$GITHUB_REF_NAME" | tee dist/NOTES.md
@@ -168,9 +181,11 @@ jobs:
           latest=false
           [ "$highest" = "$GITHUB_REF_NAME" ] && latest=true
           V=${{ steps.version.outputs.version }}
+          shopt -s nullglob
+          previews=(dist/Keywhere-*-preview.zip)
           gh release create "$GITHUB_REF_NAME" \
             "dist/Keywhere-$V-x86_64.AppImage" "dist/keywhere_${V}-1_amd64.deb" \
-            "dist/keywhere-${V}-1.x86_64.rpm" dist/Keywhere-*-preview.zip dist/latest.json dist/latest.json.minisig dist/SHA256SUMS \
+            "dist/keywhere-${V}-1.x86_64.rpm" "${previews[@]}" dist/latest.json dist/latest.json.minisig dist/SHA256SUMS \
             --repo "$GITHUB_REPOSITORY" \
             --title "Keywhere $V" \
             --notes-file dist/NOTES.md \

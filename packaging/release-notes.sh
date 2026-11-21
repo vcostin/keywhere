@@ -15,8 +15,9 @@ cat <<NOTES
 * **keywhere_$V-1_amd64.deb**: Debian, Ubuntu 22.04+.
 * **keywhere-$V-1.x86_64.rpm**: Fedora, openSUSE.
 
-**Preview, unsigned** (not code-signed or notarized yet; no lock on screen
-lock or sleep yet, so lock with Ctrl+L; no in-app updates):
+**Preview, unsigned** (not code-signed or notarized yet; no tray icon and
+no in-app updates yet). They lock with the screen lock and before sleep,
+like the Linux build:
 
 * **Keywhere-$V-macos-arm64-preview.zip**: Apple silicon Macs. macOS will
   refuse to open it at first: right-click Keywhere.app → Open, or allow it in
