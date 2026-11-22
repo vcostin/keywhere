@@ -957,6 +957,7 @@ kbd {
   align-items: start;
 }
 .platform {
+  position: relative;
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: var(--radius);
@@ -999,10 +1000,14 @@ kbd {
   gap: 8px;
   flex-wrap: wrap;
 }
+/* Sits on the card's top border, so it never changes the header's height and the three
+   file lists stay level. Opaque, because the border runs behind it. */
 .yours-badge {
-  margin-left: auto;
-  align-self: flex-start;
+  position: absolute;
+  top: -11px;
+  right: 18px;
   white-space: nowrap;
+  background: color-mix(in srgb, var(--ok) 16%, var(--panel));
 }
 .tag {
   display: inline-block;
@@ -1182,15 +1187,19 @@ kbd {
   background: var(--code-bg);
   border: 1px solid var(--line);
   border-radius: 8px;
-  padding: 10px 44px 10px 12px;
-  overflow-x: auto;
+  padding: 0;
+  overflow: hidden;
   font-size: 0.8rem;
   line-height: 1.55;
 }
+/* The code scrolls, not the pre, so the copy button stays pinned to the right edge. */
 .cmd code {
+  display: block;
+  overflow-x: auto;
   background: none;
   border: 0;
-  padding: 0;
+  margin-right: 40px; /* scroll area stops short of the copy button */
+  padding: 10px 4px 10px 12px;
   font-size: inherit;
   overflow-wrap: normal;
   white-space: pre;
@@ -1247,7 +1256,16 @@ kbd {
   margin-bottom: 12px;
 }
 .verify .cmd {
-  margin: 0;
+  margin: 0 0 10px;
+}
+.verify .cmd:last-child {
+  margin-bottom: 0;
+}
+.verify .cmd-label {
+  margin: 0 0 4px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--muted);
 }
 .verify-links {
   list-style: none;
@@ -1444,6 +1462,10 @@ kbd {
   }
   .platforms {
     max-width: 620px;
+  }
+  /* One column: the visitor's own platform comes first. */
+  .platform.is-yours {
+    order: -1;
   }
 }
 

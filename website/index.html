@@ -480,10 +480,15 @@
             <div class="verify-text">
               <h3>Check before you run</h3>
               <p>
-                Every release lists the SHA‑256 of each file in <code>SHA256SUMS</code>. Check a download
-                against it before you allow it to run, especially the unsigned previews.
+                Every release lists the SHA‑256 of each file in <code>SHA256SUMS</code>. Save it next to your
+                download and check before you allow it to run, especially the unsigned previews.
               </p>
+              <p class="cmd-label">Linux</p>
               <pre class="cmd"><code>sha256sum -c SHA256SUMS --ignore-missing</code></pre>
+              <p class="cmd-label">macOS</p>
+              <pre class="cmd"><code>shasum -a 256 -c SHA256SUMS --ignore-missing</code></pre>
+              <p class="cmd-label">Windows (PowerShell)</p>
+              <pre class="cmd"><code>Get-ChildItem Keywhere-*-windows-* | ForEach-Object { if (Select-String -Quiet -SimpleMatch (Get-FileHash $_.FullName).Hash SHA256SUMS) { "OK   $($_.Name)" } else { "FAIL $($_.Name)" } }</code></pre>
             </div>
             <ul class="verify-links">
               <li><a id="sums-link" href="https://github.com/vcostin/keywhere/releases/latest">SHA256SUMS</a></li>

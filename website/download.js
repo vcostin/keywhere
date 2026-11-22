@@ -186,10 +186,15 @@ function setCta(text, linkText, target) {
   if (!linkText) return ctaStatus.replaceChildren(text);
   const a = el("a", "", linkText);
   a.href = `#${target}`;
+  opensHowto(a, target);
+  ctaStatus.replaceChildren(text, a, ".");
+}
+
+/** A link to a platform card also opens that card's install / first-start notes. */
+function opensHowto(link, target) {
   const card = document.getElementById(target);
   const howto = card?.classList.contains("platform") ? card.querySelector(".howto") : null;
-  if (howto) a.addEventListener("click", () => (howto.open = true));
-  ctaStatus.replaceChildren(text, a, ".");
+  if (howto) link.addEventListener("click", () => (howto.open = true));
 }
 
 function fallback(message) {
@@ -282,6 +287,7 @@ function renderPrimary(byType, version) {
     else setCta("Unsigned preview: ", "other Windows files and first start", "dl-windows");
   } else if (hasAny) {
     primary.href = `#dl-${os}`;
+    opensHowto(primary, `dl-${os}`);
     primaryLabel.textContent = `Download for ${name}`;
     primaryMeta.textContent = os === "macos" ? `Apple silicon or Intel · ${version}` : `Version ${version}`;
     if (os === "linux") setCta("", "All Linux downloads", "dl-linux");
