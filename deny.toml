@@ -25,10 +25,18 @@ exceptions = [
 multiple-versions = "allow"
 wildcards = "deny"
 allow-wildcard-paths = true
-# One version of each crate that touches Keywhere's secrets. (sha2 is not
-# listed: gpui -> rust-embed-utils uses 0.11 for asset hashing, while all of
-# Keywhere's crypto is on 0.10; collapse it when gpui moves.)
+# One version of each crate that touches Keywhere's secrets.
+#
+# sha2 is the exception, and it can't be avoided today: gpui 0.2.2 ->
+# gpui_util -> rust-embed -> rust-embed-utils 8.14 needs sha2 0.11 to hash
+# the bundled UI assets (fonts, icons; nothing secret). Every Keywhere crate
+# (keywhere-core's key stretching, HMAC and v2 code, the app's clipboard and
+# update checks) uses 0.10, as do hmac 0.12 and gpui's own users. The
+# `wrappers` rule below makes that a check, not a promise: anything other
+# than rust-embed-utils depending on sha2 0.11 fails `cargo deny check`.
+# Drop the rule and pin sha2 like the others once gpui moves to one version.
 deny = [
+    { crate = "sha2@0.11", wrappers = ["rust-embed-utils"] },
     { crate = "hmac", deny-multiple-versions = true },
     { crate = "zeroize", deny-multiple-versions = true },
     { crate = "subtle", deny-multiple-versions = true },
