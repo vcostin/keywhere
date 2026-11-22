@@ -18,6 +18,23 @@ updates:
     ignore:
       # Vendored with Keywhere patches (third_party/gpui); bumped by hand.
       - dependency-name: gpui
+      # RustCrypto's cipher 0.5 / digest 0.11 generation. gpui 0.2.2 (via
+      # oo7 0.5 and gpui_http_client) stays on cbc 0.1, hmac 0.12 and sha2
+      # 0.10, so moving Keywhere alone would put two versions of these in
+      # the build, which deny.toml refuses. Move them together, by hand,
+      # once gpui does.
+      - dependency-name: twofish
+        update-types: ["version-update:semver-major"]
+      - dependency-name: blowfish
+        update-types: ["version-update:semver-major"]
+      - dependency-name: cbc
+        update-types: ["version-update:semver-major"]
+      - dependency-name: sha1
+        update-types: ["version-update:semver-major"]
+      - dependency-name: sha2
+        update-types: ["version-update:semver-major"]
+      - dependency-name: hmac
+        update-types: ["version-update:semver-major"]
 
   # Fuzz targets (own workspace and lockfile, see fuzz/README.md).
   - package-ecosystem: cargo
