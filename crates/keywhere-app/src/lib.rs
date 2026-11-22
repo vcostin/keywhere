@@ -338,9 +338,19 @@ impl Shell {
         if self.settings.is_some() {
             return;
         }
-        let v = cx.new(|cx| settings_view::SettingsView::new(window, cx));
+        let can_change_password = match &self.screen {
+            Screen::Vault(b) => b.read(cx).can_change_password(),
+            Screen::Unlock(_) => false,
+        };
+        let v = cx.new(|cx| settings_view::SettingsView::new(can_change_password, window, cx));
         cx.subscribe_in(&v, window, |this, _, ev, window, cx| match ev {
             settings_view::SettingsEvent::Close => this.close_settings(window, cx),
+            settings_view::SettingsEvent::ChangeMasterPassword => {
+                this.close_settings(window, cx);
+                if let Screen::Vault(b) = &this.screen {
+                    b.update(cx, |b, cx| b.open_change_password(window, cx));
+                }
+            }
         })
         .detach();
         self.settings = Some(v);
@@ -787,6 +797,7 @@ fn run_inner(path: Option<PathBuf>, preunlocked: Preunlocked, select: Option<Str
             KeyBinding::new("secondary-n", NewEntry, Some("Browser")),
             KeyBinding::new("secondary-e", EditEntry, Some("Browser")),
             KeyBinding::new("secondary-d", DuplicateEntry, Some("Browser")),
+            KeyBinding::new("secondary-shift-p", ChangeMasterPassword, Some("Browser")),
             KeyBinding::new(
                 "delete",
                 DeleteEntry,

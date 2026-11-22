@@ -451,7 +451,7 @@ fn already_exists(path: &Path) -> SharedString {
 }
 
 /// Rough strength label for a new master password (UI hint only).
-fn strength_hint(pw: &str) -> Option<(String, bool)> {
+pub(crate) fn strength_hint(pw: &str) -> Option<(String, bool)> {
     if pw.is_empty() {
         return None;
     }
