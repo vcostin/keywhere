@@ -49,3 +49,10 @@ path = "fuzz_targets/psafe2_decode.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "psafe3_tamper"
+path = "fuzz_targets/psafe3_tamper.rs"
+test = false
+doc = false
+bench = false
