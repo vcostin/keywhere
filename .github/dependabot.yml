@@ -19,6 +19,18 @@ updates:
       # Vendored with Keywhere patches (third_party/gpui); bumped by hand.
       - dependency-name: gpui
 
+  # Fuzz targets (own workspace and lockfile, see fuzz/README.md).
+  - package-ecosystem: cargo
+    directory: /fuzz
+    schedule:
+      interval: weekly
+      day: monday
+    commit-message:
+      prefix: "Dependencies (fuzz):"
+    groups:
+      fuzz:
+        patterns: ["*"]
+
   - package-ecosystem: github-actions
     directory: /
     schedule:
