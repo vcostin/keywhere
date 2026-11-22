@@ -58,7 +58,7 @@ cargo run --release -p keywhere -- path/to/vault.psafe3
 | `Ctrl+U` | Open website |
 | `Ctrl+N` / `Ctrl+E` / `Ctrl+D` | New / edit / duplicate entry |
 | `Delete` | Delete entry (asks first) |
-| `Enter` / `Ctrl+Enter` in editor | Save (`Esc` cancels) |
+| `Enter` / `Ctrl+Enter` in editor | Save (in notes `Enter` is a new line; `Esc` cancels) |
 | `Ctrl+L` | Lock (also automatic after 5 min idle) |
 | `Ctrl+,` | Settings |
 | `Ctrl+Q` | Quit |
@@ -92,7 +92,8 @@ The gear button (or `Ctrl+,` / `⌘,`) opens **Settings**: auto‑lock time (1�
 clipboard clear time (5–120 s), what closing the window does (lock and hide — the default — or
 hide and keep unlocked), the **theme** (System, Dark — the default —, Light) and the **language**
 (System, English, Română). Settings apply immediately and are stored in
-`~/.config/keywhere/settings` (never secrets). Translations live in
+`settings` under `~/.config/keywhere/` (Linux), `~/Library/Application Support/keywhere/` (macOS)
+or `%APPDATA%\keywhere\` (Windows); never secrets. Translations live in
 `crates/keywhere-app/src/i18n.rs`; adding a language is one column there.
 
 ### Updates
