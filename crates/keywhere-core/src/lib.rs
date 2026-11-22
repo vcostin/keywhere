@@ -1025,9 +1025,17 @@ mod tests {
             rlim_cur: 0,
             rlim_max: old.rlim_max,
         };
+        // Restores the limit even if decrypt panics.
+        struct Restore(libc::rlimit);
+        impl Drop for Restore {
+            fn drop(&mut self) {
+                unsafe { libc::setrlimit(libc::RLIMIT_MEMLOCK, &self.0) };
+            }
+        }
         unsafe { libc::setrlimit(libc::RLIMIT_MEMLOCK, &zero) };
+        let restore = Restore(old);
         let v = Vault::decrypt(FIXTURE, b"test123");
-        unsafe { libc::setrlimit(libc::RLIMIT_MEMLOCK, &old) };
+        drop(restore);
         assert!(!v.expect("decrypt").key_in_locked_memory());
     }
 

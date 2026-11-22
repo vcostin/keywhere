@@ -275,7 +275,11 @@ impl Shell {
             }
         })
         .detach();
+        // Replacing the screen drops the previous Browser (which clears the
+        // memlock state), so record the new vault's state only afterwards.
+        let locked = b.read(cx).vault().key_in_locked_memory();
         self.screen = Screen::Vault(b);
+        memlock::record(locked);
         self.last_input = Instant::now();
         set_tray(sys::TrayState::Unlocked, cx);
         cx.notify();
