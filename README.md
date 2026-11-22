@@ -47,8 +47,14 @@ From source:
 cargo run --release -p keywhere -- path/to/vault.psafe3
 ```
 
+**First vault:** on the unlock screen choose **Create new vault…** (or press `Ctrl+N`), pick a
+file name, and type the new master password twice (at least 8 characters). The new vault opens
+straight away, empty. Keywhere never replaces an existing file. **Nobody can recover a forgotten
+master password, Keywhere included**, so write it down and keep it somewhere safe.
+
 | Shortcut (Ctrl → ⌘ on macOS) | Action |
 |---|---|
+| `Ctrl+N` on the unlock screen | Create a new vault |
 | `Ctrl+F` / `Ctrl+K` | Search |
 | `↑` `↓` | Move selection |
 | `Enter` in search | Copy password |
@@ -131,7 +137,7 @@ Keywhere keeps the format you already have and adds a calm, keyboard‑first UI 
 
 ## Features (roadmap: [docs/PLAN.md](docs/PLAN.md))
 
-- Open/save `.psafe3` files, interoperable with Password Safe 1.x and Password Gorilla; open and
+- Create, open and save `.psafe3` files, interoperable with Password Safe 1.x and Password Gorilla; open and
   save Password Gorilla v2 `.dat` files, with an upgrade to v3
 - Three‑pane browser: smart views (favorites, weak, reused, expiring), group tree, instant search,
   detail card

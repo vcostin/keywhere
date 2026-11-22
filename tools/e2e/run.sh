@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 # End-to-end test of a built Keywhere binary on a virtual X display.
 #
-#   tools/e2e/run.sh <keywhere binary> <e2e_vault helper>
+#   tools/e2e/run.sh <keywhere binary> <e2e_vault helper> <e2e_portal helper>
 #
-# The helper is `cargo build --release -p keywhere-core --example e2e_vault`.
+# The helpers are `cargo build --release -p keywhere-core --example e2e_vault`
+# and `cargo build --release -p keywhere --example e2e_portal` (a stand-in for
+# the desktop portal's file dialogs, answering with a path the test picks).
 # Needs Xvfb, xdotool, xclip, dbus-run-session and a Vulkan driver (Mesa
 # lavapipe works). Everything runs in a throw-away HOME, so it never touches
 # the real settings, vaults or clipboard of the machine.
@@ -17,7 +19,11 @@
 #   6. a second `keywhere other.psafe3` hands the file to the running app,
 #      both while locked and while unlocked (Enter on "Lock and open");
 #   7. a new entry is saved: the core library reads it back, and the
-#      `.ibak` backup exists.
+#      `.ibak` backup exists;
+#   8. Ctrl+N on the unlock screen creates a new vault: it never replaces an
+#      existing file, it gets the `.psafe3` extension, it opens straight away,
+#      locks and unlocks again with the new master password, and an entry
+#      added to it is saved.
 set -euo pipefail
 
 if [ -z "${KEYWHERE_E2E_INNER:-}" ]; then
@@ -27,6 +33,7 @@ fi
 
 APP=$(realpath "$1")
 VAULT_TOOL=$(realpath "$2")
+PORTAL=$(realpath "$3")
 
 W=$(mktemp -d)
 LOG=$W/keywhere.log
@@ -135,20 +142,43 @@ unlock_with() {
     key Return
 }
 
+# Start Keywhere (arguments passed on) and wait for its window.
+start_app() {
+    local win=""
+    "$APP" "$@" >>"$LOG" 2>&1 &
+    APP_PID=$!
+    pids+=("$APP_PID")
+    for _ in $(seq 300); do
+        alive || die "keywhere exited during startup"
+        win=$(xdotool search --classname keywhere 2>/dev/null | tail -n1 || true)
+        [ -n "$win" ] && break
+        sleep 0.1
+    done
+    [ -n "$win" ] || die "no window after 30 s"
+    sleep 2
+    alive || die "keywhere exited after showing its window"
+}
+
+# Wait up to $1 seconds for file $2 to exist (or, with $3 = gone, to vanish).
+wait_file() {
+    local end=$((SECONDS + $1))
+    while [ "$SECONDS" -lt "$end" ]; do
+        if [ "${3:-}" = gone ]; then [ ! -e "$2" ] && return 0; else [ -e "$2" ] && return 0; fi
+        sleep 0.5
+    done
+    return 1
+}
+
+quit_app() {
+    key ctrl+q
+    for _ in $(seq 100); do alive || break; sleep 0.1; done
+    if alive; then
+        fail "Ctrl+Q did not quit"
+    fi
+}
+
 # ---- 1. startup ------------------------------------------------------------
-"$APP" "$MAIN" >"$LOG" 2>&1 &
-APP_PID=$!
-pids+=("$APP_PID")
-win=""
-for _ in $(seq 300); do
-    alive || die "keywhere exited during startup"
-    win=$(xdotool search --classname keywhere 2>/dev/null | tail -n1 || true)
-    [ -n "$win" ] && break
-    sleep 0.1
-done
-[ -n "$win" ] || die "no window after 30 s"
-sleep 2
-alive || die "keywhere exited after showing its window"
+start_app "$MAIN"
 pass "starts and shows its window"
 focus_app
 
@@ -246,11 +276,7 @@ sleep 1
 type_text "Added by e2e"
 key Return
 sleep 2
-key ctrl+q
-for _ in $(seq 100); do alive || break; sleep 0.1; done
-if alive; then
-    fail "Ctrl+Q did not quit"
-fi
+quit_app
 titles=$(KEYWHERE_PASSWORD=$MAIN_PW "$VAULT_TOOL" titles "$MAIN" || true)
 if printf '%s\n' "$titles" | grep -qx "Added by e2e" && printf '%s\n' "$titles" | grep -qx "Main"; then
     pass "a new entry is saved, and the core library reads it back"
@@ -263,10 +289,116 @@ else
     fail "no .ibak backup next to the vault"
 fi
 
+# ---- 8. create a new vault -------------------------------------------------
+# The fake portal answers each file dialog with the path in $ANSWER.
+ANSWER=$W/portal-answer
+: >"$ANSWER"
+"$PORTAL" "$ANSWER" >>"$W/portal.log" 2>&1 &
+pids+=($!)
+sleep 1
+NEW_PW=e2e-new-master-pw
+NEW=$W/vaults/created.psafe3
+
+# Starts on the unlock screen of the last vault (main.psafe3).
+start_app
+focus_app
+
+# Wait up to $1 seconds for the fake portal to log a SaveFile answer of $2.
+wait_dialog() {
+    local end=$((SECONDS + $1))
+    while [ "$SECONDS" -lt "$end" ]; do
+        grep -qxF "e2e_portal: SaveFile -> $2" "$W/portal.log" 2>/dev/null && return 0
+        sleep 0.5
+    done
+    return 1
+}
+
+# 8a. An existing file is never replaced, even if the dialog said "replace".
+# The app must stay on the unlock screen (the passwords typed below then
+# only make a failed unlock attempt); a create form would overwrite main.
+main_sum=$(sha256sum "$MAIN" | cut -d' ' -f1)
+echo "$MAIN" >"$ANSWER"
+key ctrl+n
+wait_dialog 10 "$MAIN" || die "Ctrl+N on the unlock screen did not open the save dialog"
+sleep 1
+type_text "$NEW_PW"
+key Return
+type_text "$NEW_PW"
+key Return
+sleep 4
+if [ "$(sha256sum "$MAIN" | cut -d' ' -f1)" = "$main_sum" ] &&
+    KEYWHERE_PASSWORD=$MAIN_PW "$VAULT_TOOL" titles "$MAIN" >/dev/null; then
+    pass "creating a vault over an existing file leaves the file alone"
+else
+    fail "creating a vault over main.psafe3 changed it"
+fi
+
+# 8b. A new name without extension: created as created.psafe3 and opened.
+focus_app
+echo "$W/vaults/created" >"$ANSWER"
+key ctrl+n
+wait_dialog 10 "$W/vaults/created" || die "the second Ctrl+N did not open the save dialog"
+sleep 1
+: >"$ANSWER" # any further dialog is cancelled
+type_text "$NEW_PW"
+key Return
+type_text "$NEW_PW"
+key Return
+if wait_file 30 "$NEW" && wait_file 10 "${NEW%.psafe3}.plk" &&
+    KEYWHERE_PASSWORD=$NEW_PW "$VAULT_TOOL" titles "$NEW" >/dev/null; then
+    pass "Ctrl+N creates created.psafe3, and it opens straight away"
+else
+    die "the new vault was not created and opened ($(ls "$W/vaults" | tr '\n' ' '))"
+fi
+if [ -e "$W/vaults/created" ]; then
+    fail "a file without the .psafe3 extension was created too"
+fi
+mode=$(stat -c %a "$NEW")
+if [ "$mode" = 600 ]; then
+    pass "the new vault file is owner-only"
+else
+    fail "the new vault file has mode $mode"
+fi
+
+# 8c. Lock, unlock with the new master password, add an entry, quit.
+focus_app
+key ctrl+l
+if wait_file 10 "${NEW%.psafe3}.plk" gone; then
+    pass "the new vault locks"
+else
+    fail "Ctrl+L did not lock the new vault"
+fi
+focus_app
+unlock_with "$NEW_PW"
+if wait_file 30 "${NEW%.psafe3}.plk"; then
+    pass "the new vault unlocks again with its master password"
+else
+    die "the new vault did not unlock again"
+fi
+key ctrl+n
+sleep 1
+type_text "In the new vault"
+key Return
+sleep 2
+quit_app
+titles=$(KEYWHERE_PASSWORD=$NEW_PW "$VAULT_TOOL" titles "$NEW" || true)
+if [ "$titles" = "In the new vault" ]; then
+    pass "an entry added to the new vault is saved"
+else
+    fail "the new vault holds: $(echo "$titles" | tr '\n' ',')"
+fi
+if [ "$(cat "$XDG_CONFIG_HOME/keywhere/last-vault" 2>/dev/null)" = "$NEW" ]; then
+    pass "the new vault is remembered as the current one"
+else
+    fail "last-vault is not the new vault"
+fi
+
 if [ "$failures" -gt 0 ]; then
     echo "$failures check(s) failed"
     echo "--- keywhere log ---"
     cat "$LOG" || true
+    echo "--- portal log ---"
+    cat "$W/portal.log" 2>/dev/null || true
     exit 1
 fi
 echo "all end-to-end checks passed"

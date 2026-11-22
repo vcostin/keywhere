@@ -113,8 +113,9 @@ jobs:
       - name: End-to-end test of the AppImage
         run: |
           cargo build --locked --release -p keywhere-core --example e2e_vault
+          cargo build --locked --release -p keywhere --example e2e_portal
           tools/e2e/run.sh "dist/Keywhere-${{ steps.version.outputs.version }}-x86_64.AppImage" \
-            target/release/examples/e2e_vault
+            target/release/examples/e2e_vault target/release/examples/e2e_portal
 
       - name: Build .deb and .rpm
         run: packaging/linux/build-packages.sh

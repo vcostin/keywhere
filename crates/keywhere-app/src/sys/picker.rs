@@ -1,11 +1,13 @@
-//! "Open another vault…" file dialog on Linux, through a helper process.
+//! "Open another vault…" / "Create new vault…" file dialogs on Linux,
+//! through a helper process.
 //!
 //! Release builds mark Keywhere non-dumpable (`PR_SET_DUMPABLE=0`) so other
 //! processes can't read its memory. A side effect: xdg-desktop-portal can't
 //! open `/proc/<pid>/root` to identify the caller and refuses every request
 //! ("Portal operation not allowed"). Instead of weakening that, the dialog is
-//! requested by a short-lived `keywhere --pick-vault` child: a fresh process
-//! (exec resets dumpable), holding no secrets, which prints the chosen path.
+//! requested by a short-lived `keywhere --pick-vault` (or `--pick-new-vault`)
+//! child: a fresh process (exec resets dumpable), holding no secrets, which
+//! prints the chosen path.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -14,12 +16,31 @@ use std::process::{Command, Stdio};
 use zbus::zvariant::{OwnedObjectPath, OwnedValue, Value};
 
 pub const PICK_ARG: &str = "--pick-vault";
+/// Save dialog for a new vault: `--pick-new-vault <title> <accept> <name> [<folder>]`.
+pub const PICK_NEW_ARG: &str = "--pick-new-vault";
 
 /// Parent side (blocking; run it off the UI thread). `Ok(None)` = cancelled.
 pub fn pick_vault(title: &str, accept: &str) -> Result<Option<PathBuf>, String> {
+    run_helper(&[PICK_ARG, title, accept])
+}
+
+/// Save dialog for a new vault file, suggesting `name` in `folder`.
+/// `Ok(None)` = cancelled. The portal may already have asked about
+/// replacing an existing file; the caller still refuses to replace one.
+pub fn pick_new_vault(
+    title: &str,
+    accept: &str,
+    name: &str,
+    folder: Option<&std::path::Path>,
+) -> Result<Option<PathBuf>, String> {
+    let folder = folder.and_then(|f| f.to_str()).unwrap_or("");
+    run_helper(&[PICK_NEW_ARG, title, accept, name, folder])
+}
+
+fn run_helper(args: &[&str]) -> Result<Option<PathBuf>, String> {
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
     let mut child = Command::new(exe)
-        .args([PICK_ARG, title, accept])
+        .args(args)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -53,12 +74,24 @@ pub fn pick_vault(title: &str, accept: &str) -> Result<Option<PathBuf>, String> 
     }
 }
 
-/// Child side: `keywhere --pick-vault <title> <accept label>`. Prints the
-/// chosen path and exits 0, exits 1 on cancel, 2 (message on stderr) on error.
-pub fn run_child(args: &[String]) -> ! {
-    let title = args.first().map(String::as_str).unwrap_or("Open vault");
-    let accept = args.get(1).map(String::as_str).unwrap_or("Open");
-    match open_file(title, accept) {
+/// Child side: `keywhere --pick-vault <title> <accept label>`, or
+/// `keywhere --pick-new-vault <title> <accept label> <name> [<folder>]` (`save`).
+/// Prints the chosen path and exits 0, exits 1 on cancel, 2 (message on
+/// stderr) on error.
+pub fn run_child(args: &[String], save: bool) -> ! {
+    let arg = |i: usize, default: &'static str| args.get(i).map(String::as_str).unwrap_or(default);
+    let r = if save {
+        let folder = Some(arg(3, "")).filter(|f| !f.is_empty());
+        choose(
+            "SaveFile",
+            arg(0, "Create new vault"),
+            arg(1, "Create"),
+            Some((arg(2, "Keywhere.psafe3"), folder)),
+        )
+    } else {
+        choose("OpenFile", arg(0, "Open vault"), arg(1, "Open"), None)
+    };
+    match r {
         Ok(Some(p)) => {
             println!("{}", p.display());
             std::process::exit(0)
@@ -71,9 +104,15 @@ pub fn run_child(args: &[String]) -> ! {
     }
 }
 
-/// org.freedesktop.portal.FileChooser.OpenFile, waiting for the Response
-/// signal on the request object.
-fn open_file(title: &str, accept: &str) -> Result<Option<PathBuf>, String> {
+/// org.freedesktop.portal.FileChooser.OpenFile or SaveFile (with `save`:
+/// suggested file name and folder), waiting for the Response signal on the
+/// request object.
+fn choose(
+    method: &str,
+    title: &str,
+    accept: &str,
+    save: Option<(&str, Option<&str>)>,
+) -> Result<Option<PathBuf>, String> {
     let err = |e: zbus::Error| e.to_string();
     let conn = zbus::blocking::Connection::session().map_err(err)?;
     let token = format!("keywhere{}", std::process::id());
@@ -110,14 +149,27 @@ fn open_file(title: &str, accept: &str) -> Result<Option<PathBuf>, String> {
     options.insert("handle_token", Value::from(token.as_str()));
     options.insert("accept_label", Value::from(accept));
     options.insert("modal", Value::from(true));
-    options.insert("multiple", Value::from(false));
     options.insert("filters", Value::from(filters));
+    match save {
+        None => {
+            options.insert("multiple", Value::from(false));
+        }
+        Some((name, folder)) => {
+            options.insert("current_name", Value::from(name));
+            if let Some(folder) = folder {
+                // A NUL-terminated byte string ("ay"), as the portal spec says.
+                let mut bytes = folder.as_bytes().to_vec();
+                bytes.push(0);
+                options.insert("current_folder", Value::from(bytes));
+            }
+        }
+    }
     let reply = conn
         .call_method(
             Some("org.freedesktop.portal.Desktop"),
             "/org/freedesktop/portal/desktop",
             Some("org.freedesktop.portal.FileChooser"),
-            "OpenFile",
+            method,
             &("", title, options),
         )
         .map_err(err)?;

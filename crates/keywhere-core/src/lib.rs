@@ -645,6 +645,35 @@ impl Vault {
         r
     }
 
+    /// Write a new vault to a file that must not exist yet. Never replaces
+    /// anything: an existing file, directory or link (even a dangling one)
+    /// is an `AlreadyExists` I/O error, decided atomically by the OS
+    /// (`O_CREAT | O_EXCL`). The file is owner-only, fsync'd and read back
+    /// and decrypted before this returns; on any failure after it was
+    /// created (a short write, a full disk, a failed check) it is removed.
+    pub fn save_new(&mut self, path: &Path) -> Result<(), Error> {
+        let bytes = self.encrypt()?;
+        write_new_file(path, &bytes)?;
+        let result = (|| {
+            let on_disk = Zeroizing::new(fs::read(path)?);
+            match &self.key {
+                VaultKey::V3(k) => drop(psafe3::decode_with_key(&on_disk, k)?),
+                VaultKey::V2 { key, .. } => drop(psafe2::decode_with_key(&on_disk, key)?),
+            }
+            if let Some(dir) = path.parent() {
+                if let Ok(d) = fs::File::open(dir) {
+                    let _ = d.sync_all();
+                }
+            }
+            self.disk_hash = Some(Sha256::digest(&on_disk[..]).into());
+            Ok(())
+        })();
+        if result.is_err() {
+            let _ = fs::remove_file(path);
+        }
+        result
+    }
+
     /// Like [`Vault::save`] but replaces whatever is on disk (user confirmed).
     pub fn save_overwrite(&mut self, path: &Path) -> Result<(), Error> {
         self.save_inner(path, false)
@@ -873,6 +902,8 @@ fn temp_path(path: &Path) -> Result<PathBuf, Error> {
 }
 
 /// Create a brand-new file (fails if it exists), owner-only on Unix, fsync'd.
+/// If writing fails after the file was created, it is removed again (a file
+/// that already existed is never touched).
 fn write_new_file(path: &Path, data: &[u8]) -> Result<(), Error> {
     let mut opts = fs::OpenOptions::new();
     opts.write(true).create_new(true);
@@ -882,9 +913,12 @@ fn write_new_file(path: &Path, data: &[u8]) -> Result<(), Error> {
         opts.mode(0o600);
     }
     let mut f = opts.open(path)?;
-    f.write_all(data)?;
-    f.sync_all()?;
-    Ok(())
+    let r = f.write_all(data).and_then(|()| f.sync_all());
+    if r.is_err() {
+        drop(f);
+        let _ = fs::remove_file(path);
+    }
+    Ok(r?)
 }
 
 #[cfg(test)]
@@ -936,6 +970,48 @@ mod tests {
             .file_type()
             .is_symlink());
         assert_eq!(Vault::open(&real, b"pw-for-test").unwrap().records.len(), 1);
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn save_new_creates_but_never_replaces() {
+        let dir = std::env::temp_dir().join(format!("kw-new-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("new.psafe3");
+        let mut v = Vault::create(b"pw-for-test").unwrap();
+        v.save_new(&path).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = fs::metadata(&path).unwrap().permissions().mode();
+            assert_eq!(mode & 0o777, 0o600);
+        }
+        // Opens with the same password, empty; later saves don't conflict.
+        assert!(Vault::open(&path, b"pw-for-test")
+            .unwrap()
+            .records
+            .is_empty());
+        v.records.push(Record::new().unwrap());
+        v.save(&path).unwrap();
+
+        // A second new vault at the same path is refused; the file is untouched.
+        let before = fs::read(&path).unwrap();
+        let mut other = Vault::create(b"other").unwrap();
+        match other.save_new(&path) {
+            Err(Error::Io(e)) => assert_eq!(e.kind(), std::io::ErrorKind::AlreadyExists),
+            r => panic!("expected AlreadyExists, got {r:?}"),
+        }
+        assert_eq!(fs::read(&path).unwrap(), before);
+
+        // Nor through a link, even one pointing at nothing yet.
+        #[cfg(unix)]
+        {
+            let link = dir.join("link.psafe3");
+            std::os::unix::fs::symlink(dir.join("missing.psafe3"), &link).unwrap();
+            assert!(other.save_new(&link).is_err());
+            assert!(!dir.join("missing.psafe3").exists());
+        }
         fs::remove_dir_all(&dir).unwrap();
     }
 
