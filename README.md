@@ -3,7 +3,7 @@
 <p align="center">A modern, cross‑platform password manager for <b>Password Safe v3</b> (<code>.psafe3</code>) vaults.<br>
 Works with files from Password Safe and Password Gorilla. No cloud account, no subscription, no nags.</p>
 
-> **Status: v0.1.3, young but usable (M4 polish done, M5 packaging in progress).** The vault
+> **Status: v0.1.4, young but usable (M4 polish done, M5 packaging in progress).** The vault
 > engine is tested against Password Safe and Password Gorilla; the app unlocks, browses, searches,
 > copies, adds, edits, duplicates and deletes entries, generates passwords, and shows weak, reused
 > and expiring passwords. Linux is the reference platform; macOS and Windows are unsigned previews.
