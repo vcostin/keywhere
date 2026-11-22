@@ -303,11 +303,24 @@ NEW=$W/vaults/created.psafe3
 start_app
 focus_app
 
+# Wait up to $1 seconds for the fake portal to log a SaveFile answer of $2.
+wait_dialog() {
+    local end=$((SECONDS + $1))
+    while [ "$SECONDS" -lt "$end" ]; do
+        grep -qxF "e2e_portal: SaveFile -> $2" "$W/portal.log" 2>/dev/null && return 0
+        sleep 0.5
+    done
+    return 1
+}
+
 # 8a. An existing file is never replaced, even if the dialog said "replace".
+# The app must stay on the unlock screen (the passwords typed below then
+# only make a failed unlock attempt); a create form would overwrite main.
 main_sum=$(sha256sum "$MAIN" | cut -d' ' -f1)
 echo "$MAIN" >"$ANSWER"
 key ctrl+n
-sleep 2
+wait_dialog 10 "$MAIN" || die "Ctrl+N on the unlock screen did not open the save dialog"
+sleep 1
 type_text "$NEW_PW"
 key Return
 type_text "$NEW_PW"
@@ -324,7 +337,8 @@ fi
 focus_app
 echo "$W/vaults/created" >"$ANSWER"
 key ctrl+n
-sleep 2
+wait_dialog 10 "$W/vaults/created" || die "the second Ctrl+N did not open the save dialog"
+sleep 1
 : >"$ANSWER" # any further dialog is cancelled
 type_text "$NEW_PW"
 key Return

@@ -649,7 +649,8 @@ impl Vault {
     /// anything: an existing file, directory or link (even a dangling one)
     /// is an `AlreadyExists` I/O error, decided atomically by the OS
     /// (`O_CREAT | O_EXCL`). The file is owner-only, fsync'd and read back
-    /// and decrypted before this returns; on any failure it is removed.
+    /// and decrypted before this returns; on any failure after it was
+    /// created (a short write, a full disk, a failed check) it is removed.
     pub fn save_new(&mut self, path: &Path) -> Result<(), Error> {
         let bytes = self.encrypt()?;
         write_new_file(path, &bytes)?;
@@ -901,6 +902,8 @@ fn temp_path(path: &Path) -> Result<PathBuf, Error> {
 }
 
 /// Create a brand-new file (fails if it exists), owner-only on Unix, fsync'd.
+/// If writing fails after the file was created, it is removed again (a file
+/// that already existed is never touched).
 fn write_new_file(path: &Path, data: &[u8]) -> Result<(), Error> {
     let mut opts = fs::OpenOptions::new();
     opts.write(true).create_new(true);
@@ -910,9 +913,12 @@ fn write_new_file(path: &Path, data: &[u8]) -> Result<(), Error> {
         opts.mode(0o600);
     }
     let mut f = opts.open(path)?;
-    f.write_all(data)?;
-    f.sync_all()?;
-    Ok(())
+    let r = f.write_all(data).and_then(|()| f.sync_all());
+    if r.is_err() {
+        drop(f);
+        let _ = fs::remove_file(path);
+    }
+    Ok(r?)
 }
 
 #[cfg(test)]

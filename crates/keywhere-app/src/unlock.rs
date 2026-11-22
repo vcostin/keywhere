@@ -36,6 +36,9 @@ pub struct UnlockView {
     failures: u32,
     /// Filled on success; taken by the shell.
     pub result: Option<Vault>,
+    /// A vault opened from the file manager while a new one was being
+    /// written: shown next if creating fails, else taken by the shell.
+    pub queued_open: Option<PathBuf>,
 }
 
 impl EventEmitter<UnlockEvent> for UnlockView {}
@@ -92,6 +95,7 @@ impl UnlockView {
             busy: false,
             failures: 0,
             result: None,
+            queued_open: None,
         }
     }
 
@@ -210,7 +214,9 @@ impl UnlockView {
     /// opened from the file manager while Keywhere is running).
     pub fn set_path(&mut self, p: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
         if self.busy && self.creating.is_some() {
-            return; // a new vault is being written; it opens next
+            // A new vault is being written; decide once that is done.
+            self.queued_open = Some(p);
+            return;
         }
         self.leave_create(cx);
         config::remember_vault(&p);
@@ -372,6 +378,11 @@ impl UnlockView {
                             .into(),
                         });
                         window.focus(&this.password.focus_handle(cx));
+                        if let Some(p) = this.queued_open.take() {
+                            let err = this.error.take();
+                            this.set_path(p, window, cx);
+                            this.error = err;
+                        }
                     }
                 }
                 cx.notify();

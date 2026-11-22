@@ -243,13 +243,20 @@ impl Shell {
         let view = cx.new(|cx| UnlockView::new(path, window, cx));
         cx.subscribe_in(&view, window, |this, view, ev, window, cx| match ev {
             UnlockEvent::Unlocked => {
-                let (vault, path) = view.update(cx, |v, _| (v.result.take(), v.path.clone()));
+                let (vault, path, queued) = view.update(cx, |v, _| {
+                    (v.result.take(), v.path.clone(), v.queued_open.take())
+                });
                 if let (Some(vault), Some(path)) = (vault, path) {
                     config::remember_vault(&path);
                     if cx.has_global::<AppState>() {
                         cx.global_mut::<AppState>().path = Some(path.clone());
                     }
                     this.show_vault(path, vault, None, window, cx);
+                    // Opened from the file manager while the new vault was
+                    // being created: ask, as for any open while unlocked.
+                    if let Some(p) = queued {
+                        this.request_open(p, window, cx);
+                    }
                 }
             }
         })
