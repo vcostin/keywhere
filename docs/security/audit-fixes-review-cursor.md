@@ -196,8 +196,9 @@ references are to `main` at `a8296f4`.
 | KW-M6: macOS / Windows session lock | Not fixed (documented) | **Resolved, with a residual.** Windows locks on `WTS_SESSION_LOCK`, user switch, `PBT_APMSUSPEND` and display off; macOS on screen-locked, screens-did-sleep, session-resign-active and will-sleep. Residual: macOS will-sleep is not a barrier (the Mac may sleep before the lock has painted); an IOKit sleep handshake is still to do. | `5cf661c` (#11) ([sys/windows.rs](../../crates/keywhere-app/src/sys/windows.rs), [sys/macos.rs](../../crates/keywhere-app/src/sys/macos.rs)) |
 | KW-L7: Windows / macOS process hardening | Not fixed (documented) | **Resolved.** Windows: no error-report dumps, and a process DACL that denies same-user memory access, thread injection and handle duplication. macOS: `RLIMIT_CORE=0` and, in release builds, `PT_DENY_ATTACH`. Both also exclude the window from screen capture. | `5cf661c` (#11) (`harden_process` in [lib.rs](../../crates/keywhere-app/src/lib.rs), [sys/windows.rs](../../crates/keywhere-app/src/sys/windows.rs), [sys/capture.rs](../../crates/keywhere-app/src/sys/capture.rs)) |
 | Memory table: macOS/Windows sleep/lock hooks | Not done | **Resolved** as KW-M6 above. | `5cf661c` (#11) |
+| N2: `mlock` / `madvise` errors ignored | Low, open | **Resolved.** `LockedKey` records whether `mlock` succeeded; when the key isn't locked (failed `mlock`, Windows, v2 vaults) the app logs one warning and shows a note under Settings → Security. Unlocking is never blocked. | #25 ([psafe3.rs](../../crates/keywhere-core/src/psafe3.rs), [memlock.rs](../../crates/keywhere-app/src/memlock.rs)) |
 
-Still open, unchanged: N2 (`mlock` failure is silent), N3 (never-saved edits are dropped on
+Still open, unchanged: N3 (never-saved edits are dropped on
 lock), KW-L6 (stale `.plk` reclaimed without asking), KW-M5 / F10 (two `sha2` versions; full
 vendored gpui), F8 / F9 residuals. [SECURITY.md](../../SECURITY.md#accepted-residuals) lists
 the accepted ones.
