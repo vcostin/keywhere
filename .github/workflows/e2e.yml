@@ -10,6 +10,7 @@ on:
     paths:
       - "tools/e2e/**"
       - "crates/keywhere-core/examples/e2e_vault.rs"
+      - "crates/keywhere-app/examples/e2e_portal.rs"
       - ".github/workflows/e2e.yml"
   workflow_dispatch:
 
@@ -45,5 +46,8 @@ jobs:
         run: |
           cargo build --locked --release -p keywhere
           cargo build --locked --release -p keywhere-core --example e2e_vault
+          cargo build --locked --release -p keywhere --example e2e_portal
       - name: End-to-end test
-        run: tools/e2e/run.sh target/release/keywhere target/release/examples/e2e_vault
+        run: |
+          tools/e2e/run.sh target/release/keywhere target/release/examples/e2e_vault \
+            target/release/examples/e2e_portal

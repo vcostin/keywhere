@@ -11,9 +11,13 @@ fn main() {
     }
     // File-dialog helper (see sys/picker.rs): no GUI, no vault, no hardening.
     #[cfg(target_os = "linux")]
-    if arg.as_deref() == Some(keywhere::sys::picker::PICK_ARG) {
-        let rest: Vec<String> = std::env::args().skip(2).collect();
-        keywhere::sys::picker::run_child(&rest);
+    {
+        use keywhere::sys::picker::{run_child, PICK_ARG, PICK_NEW_ARG};
+        let save = arg.as_deref() == Some(PICK_NEW_ARG);
+        if save || arg.as_deref() == Some(PICK_ARG) {
+            let rest: Vec<String> = std::env::args().skip(2).collect();
+            run_child(&rest, save);
+        }
     }
     if arg.as_deref() == Some("--after-update") {
         // Started by the updater: let the old process exit first.
