@@ -155,6 +155,7 @@ protects and what it can't: [SECURITY.md](SECURITY.md). Please report vulnerabil
 
 ```sh
 cargo test -p keywhere-core      # vault engine tests
+cargo +nightly fuzz list         # in fuzz/: fuzz targets, see fuzz/README.md
 cargo run --release -p keywhere  # desktop app (Linux needs wayland/x11, xkbcommon, vulkan dev libs)
 ```
 

@@ -294,8 +294,27 @@ fn parse_authenticated(
         .decrypt_padded_mut::<NoPadding>(&mut plain)
         .map_err(|_| ())?;
 
-    // Walk the TLV stream once, collecting (kind, start, end) spans only.
-    let mut spans: Vec<(u8, usize, usize)> = Vec::new();
+    let spans = field_spans(&plain)?;
+
+    // Authenticate before materialising any field.
+    let mut mac = <Hmac<Sha256> as Mac>::new_from_slice(l).expect("hmac key");
+    for &(_, a, b) in &spans {
+        mac.update(&plain[a..b]);
+    }
+    let computed = mac.finalize().into_bytes();
+    if !bool::from(computed.as_slice().ct_eq(stored_mac)) {
+        return Err(());
+    }
+    assemble(&plain, spans)
+}
+
+/// A field as (type, payload start, payload end) inside the plaintext.
+type Span = (u8, usize, usize);
+
+/// Walk the decrypted TLV stream once, collecting spans only (no field is
+/// built here). Every bound is checked before it is used.
+fn field_spans(plain: &[u8]) -> Result<Vec<Span>, ()> {
+    let mut spans: Vec<Span> = Vec::new();
     let mut pos = 0usize;
     while pos < plain.len() {
         if plain.len() - pos < BLOCK || spans.len() >= MAX_FIELDS {
@@ -313,17 +332,24 @@ fn parse_authenticated(
         spans.push((plain[pos + 4], start, end));
         pos += (5 + len).max(BLOCK).div_ceil(BLOCK) * BLOCK;
     }
+    Ok(spans)
+}
 
-    // Authenticate before materialising any field.
-    let mut mac = <Hmac<Sha256> as Mac>::new_from_slice(l).expect("hmac key");
-    for &(_, a, b) in &spans {
-        mac.update(&plain[a..b]);
-    }
-    let computed = mac.finalize().into_bytes();
-    if !bool::from(computed.as_slice().ct_eq(stored_mac)) {
+/// Build the header and records from spans. Only called once the HMAC over
+/// those spans has verified.
+///
+/// The HMAC covers payloads, not type bytes (format v3), and flipping IV
+/// bits changes the first field's type without touching the HMAC. An END
+/// field with a payload is therefore refused: otherwise turning the version
+/// field into END would silently drop it and move the rest of the header
+/// into a bogus record. Writers never put data in END.
+fn assemble(plain: &[u8], spans: Vec<Span>) -> Result<Parsed, ()> {
+    if spans
+        .iter()
+        .any(|&(kind, a, b)| kind == END_OF_ENTRY && a != b)
+    {
         return Err(());
     }
-
     let mut it = spans.into_iter();
     let mut header = Vec::new();
     let mut saw_header_end = false;
@@ -356,6 +382,20 @@ fn parse_authenticated(
         return Err(());
     }
     Ok((header, records))
+}
+
+/// Fuzzing only (`cargo fuzz` builds with `--cfg fuzzing`): run the
+/// plaintext parser on bytes that never went through decryption or the HMAC.
+/// Not compiled into any normal build; the real path always authenticates
+/// first (see `parse_authenticated`).
+#[cfg(fuzzing)]
+#[doc(hidden)]
+pub fn fuzz_parse_plaintext(plain: &[u8]) -> Option<(Vec<Field>, Vec<Vec<Field>>)> {
+    if !plain.len().is_multiple_of(BLOCK) {
+        return None;
+    }
+    let spans = field_spans(plain).ok()?;
+    assemble(plain, spans).ok()
 }
 
 fn push_field(

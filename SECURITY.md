@@ -109,6 +109,9 @@ and which residuals were accepted; this file describes the current behaviour and
 * Another program running as you can still send `show`, `hide`, `lock` or `quit` to the running
   instance over its private socket.
 * A planted v2 file opens editable if this machine never opened the v3 vault at that path.
+* The v3 HMAC covers field contents, not field type bytes, so someone who can edit the file can
+  change the type of its first header field through the IV without being detected. Contents
+  can't be changed, and turning that field into an end-of-entry marker is refused.
 
 ## Platform status
 
