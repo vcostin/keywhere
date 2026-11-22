@@ -1039,6 +1039,37 @@ mod tests {
         assert!(!v.expect("decrypt").key_in_locked_memory());
     }
 
+    /// Found by the psafe3_tamper fuzz target: the HMAC doesn't cover type
+    /// bytes, so flipping an IV bit can turn the version field (2-byte
+    /// payload) into END. That must not decode into a different header.
+    #[test]
+    fn end_field_with_payload_is_rejected() {
+        let key = psafe3::KeyMaterial::derive(b"pw", 0).unwrap();
+        let db = psafe3::RawDb {
+            iterations: key.iterations,
+            header: vec![
+                psafe3::Field {
+                    kind: hdr::VERSION,
+                    data: vec![0x0f, 0x03],
+                },
+                psafe3::Field {
+                    kind: 0x06,
+                    data: b"x".to_vec(),
+                },
+            ],
+            records: vec![],
+        };
+        let mut file = psafe3::encode(&db, &key).unwrap();
+        assert!(psafe3::decode_with_key(&file, &key).is_ok());
+        // IV is bytes 136..152; byte 4 of the first plaintext block is the
+        // first field's type. VERSION (0x00) -> END (0xff).
+        file[136 + 4] ^= 0xff;
+        assert!(matches!(
+            psafe3::decode_with_key(&file, &key),
+            Err(Error::Integrity)
+        ));
+    }
+
     #[test]
     fn wrong_password_rejected() {
         assert!(matches!(

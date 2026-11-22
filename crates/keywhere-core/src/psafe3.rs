@@ -337,7 +337,19 @@ fn field_spans(plain: &[u8]) -> Result<Vec<Span>, ()> {
 
 /// Build the header and records from spans. Only called once the HMAC over
 /// those spans has verified.
+///
+/// The HMAC covers payloads, not type bytes (format v3), and flipping IV
+/// bits changes the first field's type without touching the HMAC. An END
+/// field with a payload is therefore refused: otherwise turning the version
+/// field into END would silently drop it and move the rest of the header
+/// into a bogus record. Writers never put data in END.
 fn assemble(plain: &[u8], spans: Vec<Span>) -> Result<Parsed, ()> {
+    if spans
+        .iter()
+        .any(|&(kind, a, b)| kind == END_OF_ENTRY && a != b)
+    {
+        return Err(());
+    }
     let mut it = spans.into_iter();
     let mut header = Vec::new();
     let mut saw_header_end = false;
