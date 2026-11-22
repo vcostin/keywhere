@@ -27,7 +27,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7.0.1
       # Same compiler as rust-toolchain.toml (bump both together).
-      - uses: dtolnay/rust-toolchain@1.120.0
+      - uses: dtolnay/rust-toolchain@1.95.0
         with:
           components: clippy, rustfmt
       # Same key as cache-warm.yml, so a new PR starts from main's cache.

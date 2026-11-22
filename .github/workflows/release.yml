@@ -25,7 +25,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7.0.1
-      - uses: dtolnay/rust-toolchain@1.120.0
+      - uses: dtolnay/rust-toolchain@1.95.0
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
@@ -78,7 +78,7 @@ jobs:
       version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@v7.0.1
-      - uses: dtolnay/rust-toolchain@1.120.0
+      - uses: dtolnay/rust-toolchain@1.95.0
         with:
           components: clippy
 
@@ -152,7 +152,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7.0.1
       # Same toolchain as the build jobs; needed for cargo install --locked.
-      - uses: dtolnay/rust-toolchain@1.120.0
+      - uses: dtolnay/rust-toolchain@1.95.0
 
       - name: Linux packages
         uses: actions/download-artifact@v8
