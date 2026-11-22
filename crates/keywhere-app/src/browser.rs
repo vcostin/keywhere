@@ -113,6 +113,7 @@ impl Drop for Browser {
     fn drop(&mut self) {
         // Lock, idle lock, sleep, quit: every way out of the unlocked view.
         self.rescue_unsaved();
+        crate::memlock::clear();
     }
 }
 
@@ -236,7 +237,7 @@ impl Browser {
         }
     }
 
-    fn vault(&self) -> &Vault {
+    pub(crate) fn vault(&self) -> &Vault {
         self.vault.as_ref().expect("vault taken")
     }
 
@@ -653,6 +654,8 @@ impl Browser {
                 )
             }
         }
+        // The v3 key is a fresh one (and, unlike v2, can be locked in RAM).
+        crate::memlock::record(self.vault().key_in_locked_memory());
         // Switch to the new file: release the v2 lock, take the v3 one.
         self.vault_lock = None;
         self.path = new_path.clone();

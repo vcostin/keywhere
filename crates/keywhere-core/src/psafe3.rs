@@ -116,16 +116,20 @@ fn random<const N: usize>() -> Result<[u8; N], Error> {
 /// The stretched key, pinned in RAM: heap-boxed so it never moves,
 /// `mlock`ed (kept out of swap/zram) and excluded from core dumps where the
 /// OS allows; wiped and unlocked on drop. Failure to lock (RLIMIT_MEMLOCK)
-/// is not fatal: the key is still zeroized.
-pub struct LockedKey(Box<Zeroizing<[u8; 32]>>);
+/// is not fatal: the key is still zeroized, and [`LockedKey::locked`] says
+/// so, so the app can warn (audit N2). Windows doesn't lock it yet.
+pub struct LockedKey {
+    key: Box<Zeroizing<[u8; 32]>>,
+    locked: bool,
+}
 
 impl LockedKey {
     fn new(key: Zeroizing<[u8; 32]>) -> Self {
-        let b = Box::new(key);
+        let key = Box::new(key);
         #[cfg(unix)]
-        unsafe {
-            let ptr = b.as_ptr() as *const libc::c_void;
-            libc::mlock(ptr, 32);
+        let locked = unsafe {
+            let ptr = key.as_ptr() as *const libc::c_void;
+            let locked = libc::mlock(ptr, 32) == 0;
             #[cfg(target_os = "linux")]
             {
                 // madvise needs a page-aligned range: cover the key's page.
@@ -133,12 +137,20 @@ impl LockedKey {
                 let start = (ptr as usize) & !(page - 1);
                 libc::madvise(start as *mut libc::c_void, page, libc::MADV_DONTDUMP);
             }
-        }
-        LockedKey(b)
+            locked
+        };
+        #[cfg(not(unix))]
+        let locked = false;
+        LockedKey { key, locked }
     }
 
     fn get(&self) -> &[u8; 32] {
-        &self.0
+        &self.key
+    }
+
+    /// Did `mlock` succeed (the key can't be paged out)?
+    fn locked(&self) -> bool {
+        self.locked
     }
 }
 
@@ -147,10 +159,12 @@ impl Drop for LockedKey {
         // Zeroizing wipes the bytes when the box drops; unlock afterwards is
         // fine (the page stays resident until then).
         use zeroize::Zeroize;
-        self.0.zeroize();
+        self.key.zeroize();
         #[cfg(unix)]
-        unsafe {
-            libc::munlock(self.0.as_ptr() as *const libc::c_void, 32);
+        if self.locked {
+            unsafe {
+                libc::munlock(self.key.as_ptr() as *const libc::c_void, 32);
+            }
         }
     }
 }
@@ -177,6 +191,14 @@ impl KeyMaterial {
             iterations,
             p_prime: LockedKey::new(p_prime),
         })
+    }
+}
+
+impl KeyMaterial {
+    /// Is the stretched key locked in RAM (`mlock` succeeded)? False on
+    /// Windows, and wherever the memory-lock limit is too low.
+    pub fn in_locked_memory(&self) -> bool {
+        self.p_prime.locked()
     }
 }
 

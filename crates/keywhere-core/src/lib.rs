@@ -445,6 +445,16 @@ impl Vault {
         Ok(fixed)
     }
 
+    /// Is the key this vault keeps while unlocked locked in RAM? False when
+    /// `mlock` failed (e.g. a low RLIMIT_MEMLOCK), on Windows, and for v2
+    /// vaults (their key is zeroized but not locked). Never blocks unlocking.
+    pub fn key_in_locked_memory(&self) -> bool {
+        match &self.key {
+            VaultKey::V3(k) => k.in_locked_memory(),
+            VaultKey::V2 { .. } => false,
+        }
+    }
+
     pub fn format(&self) -> Format {
         match self.key {
             VaultKey::V3(_) => Format::V3,
@@ -980,6 +990,53 @@ mod tests {
         let v = Vault::decrypt(FIXTURE, b"test123").expect("decrypt");
         assert!(v.records.is_empty());
         assert!(v.header.iter().any(|f| f.kind == hdr::VERSION));
+    }
+
+    /// The memory-lock limit is per process: the two mlock tests take turns.
+    static MEMLOCK_TEST: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    #[test]
+    fn reports_whether_the_key_is_locked_in_ram() {
+        let _g = MEMLOCK_TEST.lock().unwrap_or_else(|e| e.into_inner());
+        let v = Vault::decrypt(FIXTURE, b"test123").expect("decrypt");
+        // Locking 32 bytes fits the usual RLIMIT_MEMLOCK on Unix.
+        #[cfg(unix)]
+        assert!(v.key_in_locked_memory());
+        #[cfg(not(unix))]
+        assert!(!v.key_in_locked_memory());
+    }
+
+    /// With no memory-lock allowance, unlocking still works and reports the
+    /// key as not locked (audit N2).
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn mlock_failure_is_reported_not_fatal() {
+        // Root (CAP_IPC_LOCK) ignores the limit; nothing to test there.
+        if unsafe { libc::geteuid() } == 0 {
+            return;
+        }
+        let _g = MEMLOCK_TEST.lock().unwrap_or_else(|e| e.into_inner());
+        let mut old = libc::rlimit {
+            rlim_cur: 0,
+            rlim_max: 0,
+        };
+        unsafe { libc::getrlimit(libc::RLIMIT_MEMLOCK, &mut old) };
+        let zero = libc::rlimit {
+            rlim_cur: 0,
+            rlim_max: old.rlim_max,
+        };
+        // Restores the limit even if decrypt panics.
+        struct Restore(libc::rlimit);
+        impl Drop for Restore {
+            fn drop(&mut self) {
+                unsafe { libc::setrlimit(libc::RLIMIT_MEMLOCK, &self.0) };
+            }
+        }
+        unsafe { libc::setrlimit(libc::RLIMIT_MEMLOCK, &zero) };
+        let restore = Restore(old);
+        let v = Vault::decrypt(FIXTURE, b"test123");
+        drop(restore);
+        assert!(!v.expect("decrypt").key_in_locked_memory());
     }
 
     #[test]
