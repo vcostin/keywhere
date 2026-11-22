@@ -67,8 +67,11 @@ impl UnlockView {
             }
             FieldEvent::Submit => this.unlock(window, cx),
             FieldEvent::Changed => {
-                // Also redraws the strength hint while creating.
-                this.error = None;
+                // Typing hides the error; a field emptied by the code
+                // (clear) keeps it. Also redraws the strength hint.
+                if !this.password.read(cx).text().is_empty() {
+                    this.error = None;
+                }
                 cx.notify();
             }
             FieldEvent::Escape => this.cancel_create(window, cx),
@@ -77,7 +80,7 @@ impl UnlockView {
         cx.subscribe_in(&confirm, window, |this, _, ev, window, cx| match ev {
             FieldEvent::Submit => this.create(window, cx),
             FieldEvent::Changed => {
-                if this.error.is_some() {
+                if this.error.is_some() && !this.confirm.read(cx).text().is_empty() {
                     this.error = None;
                     cx.notify();
                 }
@@ -381,6 +384,7 @@ impl UnlockView {
                         if let Some(p) = this.queued_open.take() {
                             let err = this.error.take();
                             this.set_path(p, window, cx);
+                            // Still say why the new vault isn't there.
                             this.error = err;
                         }
                     }
