@@ -25,7 +25,7 @@ jobs:
     name: checks
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7.0.1
       # Same compiler as rust-toolchain.toml (bump both together).
       - uses: dtolnay/rust-toolchain@1.95.0
         with:
@@ -57,7 +57,7 @@ jobs:
     name: supply chain (audit, deny)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7.0.1
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-audit,cargo-deny

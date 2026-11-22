@@ -24,7 +24,7 @@ jobs:
         os: [macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7.0.1
       - uses: dtolnay/rust-toolchain@1.95.0
         with:
           components: clippy
@@ -54,7 +54,7 @@ jobs:
         run: |
           packaging/windows/build-exe.ps1
           packaging/windows/build-installers.ps1
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: preview-${{ runner.os }}
           path: |
@@ -77,7 +77,7 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7.0.1
       - uses: dtolnay/rust-toolchain@1.95.0
         with:
           components: clippy
@@ -132,7 +132,7 @@ jobs:
           docker run --rm -v "$PWD/dist:/dist:ro" opensuse/tumbleweed sh -c \
             "zypper -n --quiet install --allow-unsigned-rpm $RPM && keywhere --version | grep '^Keywhere $V '"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: linux-packages
           path: |
@@ -150,19 +150,19 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7.0.1
       # Same toolchain as the build jobs; needed for cargo install --locked.
       - uses: dtolnay/rust-toolchain@1.95.0
 
       - name: Linux packages
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: linux-packages
           path: dist
 
       - name: macOS and Windows preview packages
         continue-on-error: true
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: preview-*
           path: dist

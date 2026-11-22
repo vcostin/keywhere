@@ -41,3 +41,7 @@ updates:
     groups:
       actions:
         patterns: ["*"]
+    ignore:
+      # Its tags are Rust versions, not action versions: the pin follows
+      # rust-toolchain.toml and is bumped by hand with it.
+      - dependency-name: dtolnay/rust-toolchain
