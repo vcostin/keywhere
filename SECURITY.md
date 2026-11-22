@@ -11,8 +11,9 @@ not as public issues.
   Nothing is parsed before the HMAC verifies. Every save uses a fresh salt and
   fresh keys, and the file is written atomically with a `.ibak` backup.
   Conflicting changes made by another device are detected.
-* **Memory while unlocked.** Only the stretched key is kept (in an `mlock`ed
-  page that core dumps exclude), never the master password. Decrypted fields
+* **Memory while unlocked.** Only the stretched key is kept, never the master
+  password. On Linux and macOS it sits in an `mlock`ed page (on Linux also
+  excluded from core dumps); Windows doesn't lock it yet. Decrypted fields
   are zeroized when the vault locks. A zeroizing global allocator wipes every
   freed heap block, including copies made by libraries such as the GUI text
   cache or the clipboard backend. On Linux, release builds turn off ptrace and
@@ -135,6 +136,6 @@ Known gaps:
 ## Defaults
 
 Closing the window locks the vault ("Lock and hide"). "Hide, keep unlocked"
-is an opt‑in under Settings → On close: the vault then stays unlocked in the
+is an opt‑in under Settings → Closing the window: the vault then stays unlocked in the
 background until the auto‑lock time, a screen lock, sleep, or tray → Lock.
 Settings files that already say `close_action = hide` keep that choice.
