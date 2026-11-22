@@ -13,7 +13,7 @@ blowfish = "0.9"
 byteorder = "1"
 sha1 = { version = "0.10", features = ["compress"] }
 sha2 = "0.10"
-hmac = "0.12"
+hmac = "0.13"
 subtle = "2"
 zeroize = { version = "1", features = ["derive"] }
 getrandom = "0.2"
