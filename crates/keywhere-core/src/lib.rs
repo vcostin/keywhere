@@ -886,12 +886,16 @@ impl Vault {
         if parent.starts_with(from) {
             return Err(GroupMoveError::IntoItself);
         }
+        let groups = self.all_groups();
+        if !groups.iter().any(|g| g == from) {
+            return Err(GroupMoveError::Invalid);
+        }
         let mut to = parent.to_vec();
         to.push(name.clone());
         if to == from {
             return Err(GroupMoveError::Unchanged);
         }
-        if self.all_groups().contains(&to) {
+        if groups.contains(&to) {
             return Err(GroupMoveError::Exists);
         }
         let rebase = |g: &[String]| -> Vec<String> {
@@ -913,6 +917,8 @@ impl Vault {
             }
         }
         self.keep_group(&from[..from.len() - 1]);
+        // An empty group it landed in is not empty any more.
+        self.prune_empty_groups();
         Ok(to)
     }
 
@@ -1525,6 +1531,10 @@ mod tests {
             s(&["Bank.ing"])
         );
         assert_eq!(v.records[0].group_path(), s(&["Bank.ing", "EU"]));
+        // Into an empty group: its marker goes, as when an entry lands there.
+        v.add_empty_group(&s(&["Dest"]));
+        v.move_group(&s(&["Bank.ing"]), &s(&["Dest"]), 9).unwrap();
+        assert!(!v.empty_groups().contains(&s(&["Dest"])));
     }
 
     #[test]
@@ -1536,6 +1546,7 @@ mod tests {
         assert_eq!(e(&mut v, &["A", "B"], &["A"]), GroupMoveError::Unchanged);
         assert_eq!(e(&mut v, &["A", "B"], &["C"]), GroupMoveError::Exists);
         assert_eq!(e(&mut v, &[], &["C"]), GroupMoveError::Invalid);
+        assert_eq!(e(&mut v, &["Gone"], &["C"]), GroupMoveError::Invalid);
         assert_eq!(v.records[0].group_path(), s(&["A", "B"]));
     }
 

@@ -998,6 +998,7 @@ impl Browser {
             && self.rekey.is_none()
             && self.confirm_delete.is_none()
             && self.upgrade.is_none()
+            && self.new_group.is_none()
     }
 
     fn selected_uuid(&self) -> Option<Vec<u8>> {
