@@ -270,7 +270,12 @@ impl TextField {
     }
 
     fn caret() -> gpui::Div {
-        div().flex_none().w(px(1.5)).h(px(15.)).bg(c(FOCUS))
+        div()
+            .flex_none()
+            .w(px(2.))
+            .h(px(16.))
+            .rounded(px(1.))
+            .bg(c(FOCUS))
     }
 
     /// One visual line; `caret_at` = byte offset inside `line` to draw the caret.
@@ -341,10 +346,24 @@ impl Render for TextField {
             .gap_2()
             .px_3()
             .rounded(px(if self.large { 9. } else { 7. }))
-            .bg(c(if self.large { SURFACE } else { BG }))
+            // Light mode: white like a sheet of paper, so a field never
+            // reads as greyed-out (disabled) on a white dialog.
+            .bg(if is_light() {
+                c(PANEL)
+            } else {
+                c(if self.large { SURFACE } else { BG })
+            })
             .border_1()
             .border_color(c(if focused { FOCUS } else { BORDER }))
-            .when(focused && self.large, |d| d.shadow_sm())
+            // Focus ring: the field taking typing has to be obvious at a glance.
+            .when(focused, |d| {
+                d.shadow(vec![gpui::BoxShadow {
+                    color: ca(FOCUS, 0x55).into(),
+                    offset: gpui::point(px(0.), px(0.)),
+                    blur_radius: px(1.),
+                    spread_radius: px(2.),
+                }])
+            })
             .cursor_text()
             .when_some(self.icon, |d, icon| {
                 d.child(svg().path(icon).size(px(14.)).text_color(c(MUTED)))
