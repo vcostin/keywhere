@@ -3,7 +3,7 @@
 `shoot.sh` takes screenshots of Keywhere on a hidden, headless KDE screen, to
 check how a screen looks (layout, wrapping, translations) without a person at
 the desktop. It needs KDE Plasma's `kwin_wayland` and `spectacle`, plus
-`dbus-daemon` and ImageMagick.
+`dbus-daemon`, `dbus-send`, `timeout` (coreutils) and ImageMagick.
 
 ```sh
 tools/screenshots/shoot.sh /tmp/shots                 # every shot

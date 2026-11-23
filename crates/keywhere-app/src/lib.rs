@@ -782,8 +782,6 @@ pub fn run_unlock_via_ui(path: PathBuf, password: zeroize::Zeroizing<String>) {
     run_inner(Some(path), None, None)
 }
 
-/// DEV ONLY (feature `devtools`): start with an already unlocked demo vault so
-/// screenshots can be automated. Not compiled into release builds by default.
 /// DEV ONLY (feature `devtools`): start on the unlock screen with the
 /// new-vault form for `path` (screenshots; nothing is written).
 #[cfg(feature = "devtools")]
@@ -793,6 +791,8 @@ pub fn run_create_form(path: PathBuf) {
     run_inner(None, None, Some(format!("create:{}", path.display())))
 }
 
+/// DEV ONLY (feature `devtools`): start with an already unlocked demo vault so
+/// screenshots can be automated. Not compiled into release builds by default.
 #[cfg(feature = "devtools")]
 pub fn run_preunlocked(path: PathBuf, vault: Vault, select: Option<String>) {
     #[cfg(unix)]

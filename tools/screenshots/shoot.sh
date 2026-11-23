@@ -28,7 +28,7 @@ ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 mkdir -p "$OUT"
 OUT=$(cd "$OUT" && pwd)
 
-for tool in kwin_wayland spectacle dbus-daemon dbus-send identify; do
+for tool in kwin_wayland spectacle dbus-daemon dbus-send identify timeout; do
     command -v "$tool" >/dev/null || { echo "missing: $tool" >&2; exit 2; }
 done
 
@@ -56,6 +56,12 @@ cleanup() {
     rm -rf "$W"
 }
 trap cleanup EXIT
+# Forget a PID once it has been reaped (exact match).
+untrack() {
+    local keep=() p
+    for p in "${pids[@]}"; do [ "$p" = "$1" ] || keep+=("$p"); done
+    pids=("${keep[@]}")
+}
 
 # Only the private session from here on.
 unset DISPLAY WAYLAND_DISPLAY DBUS_SESSION_BUS_ADDRESS
@@ -117,9 +123,13 @@ for s in "${SHOTS[@]}"; do
     # shellcheck disable=SC2086
     KEYWHERE_DEMO_PASSWORD=$DEMO_PW "$APP" $args >"$W/$s.log" 2>&1 &
     app=$!
+    # Tracked only while it runs: a reaped PID can be reused by another
+    # process, which the EXIT trap must never signal.
     pids+=("$app")
     sleep "${SHOT_WAIT:-8}"
     if ! kill -0 "$app" 2>/dev/null; then
+        wait "$app" 2>/dev/null || true
+        untrack "$app"
         echo "FAIL $s: the app exited; log:" >&2
         cat "$W/$s.log" >&2
         failed=1
@@ -130,6 +140,7 @@ for s in "${SHOTS[@]}"; do
     fi
     kill "$app" 2>/dev/null || true
     wait "$app" 2>/dev/null || true
+    untrack "$app"
     size=$( [ -f "$png" ] && identify -format '%wx%h' "$png" 2>/dev/null || echo none)
     if [ "$size" = "${W_PX}x${H_PX}" ]; then
         echo "ok   $png"
