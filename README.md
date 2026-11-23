@@ -171,6 +171,10 @@ cargo +nightly fuzz list         # in fuzz/: fuzz targets, see fuzz/README.md
 cargo run --release -p keywhere  # desktop app (Linux needs wayland/x11, xkbcommon, vulkan dev libs)
 ```
 
+UI checks: `tools/e2e/run.sh` drives the release binary on a virtual X display (see the script's
+header), and `tools/screenshots/shoot.sh` screenshots screens on a hidden KDE screen (see
+[tools/screenshots/README.md](tools/screenshots/README.md)).
+
 On macOS, building needs full Xcode for the Metal shader compiler (`metal`); the Command Line
 Tools alone aren't enough. Without Xcode, add `--features gpui/runtime_shaders` (shaders are then
 compiled when the app starts). The prebuilt app doesn't need Xcode.
