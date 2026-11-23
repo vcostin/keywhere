@@ -1,8 +1,9 @@
 // Fills the Download section from the latest GitHub release. This is the site's only network
 // request besides its own files. Nothing here names a version or a versioned file: release
 // files are sorted into types by their file name pattern, and a file that matches no pattern
-// still shows up under "Other files". Without the API (no JS, offline, rate-limited) every
-// link points at the Releases page.
+// still shows up under "Other files". The install notes only show commands for files the
+// release has. Without the API (no JS, offline, rate-limited) every link points at the Releases
+// page and no file is described.
 
 const REPO = "vcostin/keywhere";
 const RELEASES = `https://github.com/${REPO}/releases`;
@@ -172,14 +173,6 @@ function fileRow(type, asset) {
   return li;
 }
 
-/** Shows every known type without file names, all linking to the Releases page. */
-function renderGeneric() {
-  for (const card of cards) {
-    const rows = TYPES.filter((t) => t.os === card.dataset.os).map((t) => fileRow(t, null));
-    card.querySelector(".files").replaceChildren(...rows);
-  }
-}
-
 /**
  * The line under the big button: text plus an in-page link. A link to a platform card also opens
  * that card's install / first-start notes, so the answer is right there after the scroll.
@@ -199,8 +192,8 @@ function opensHowto(link, target) {
   if (howto) link.addEventListener("click", () => (howto.open = true));
 }
 
+/** Without release data the cards keep their plain link to GitHub Releases and no commands show. */
 function fallback(message) {
-  renderGeneric();
   setCta(`${message} `, "See all downloads", "download");
   setStatus(message + " All files are on ", { text: "GitHub Releases", href: LATEST });
 }
@@ -256,38 +249,35 @@ function renderCards(byType, version) {
 }
 
 /**
- * Commands that name a file are written with wildcards, which stay as the fallback. Once the
- * release is read, a <code data-types data-template> shows the real file names instead: one
- * command per matching file, with {name} and {sha256} filled in. Extra copies are clones of the
- * <pre>, so they keep its copy button (site.js handles copy clicks by delegation).
+ * Install notes and checks only describe files the release has. Every element with data-types
+ * stays hidden until the release has a file of one of those types ("sums" is SHA256SUMS). A
+ * <pre data-types> with <code data-template> gets one command per matching file, with {name}
+ * and {sha256} filled in; extra copies are clones of the <pre>, so they keep its copy button
+ * (site.js handles copy clicks by delegation).
  */
-function fillCommands(byType) {
-  for (const code of document.querySelectorAll("code[data-template]")) {
+function showCommands(byType, sums) {
+  const assetsOf = (node) =>
+    node.dataset.types.split(/\s+/).flatMap((id) => (id === "sums" ? (sums ? [sums] : []) : byType.get(id) ?? []));
+
+  for (const node of document.querySelectorAll("[data-types]:not(pre)")) node.hidden = !assetsOf(node).length;
+
+  for (const pre of document.querySelectorAll("pre[data-types]")) {
+    const code = pre.querySelector("code[data-template]");
     const template = code.dataset.template;
     const needsSum = template.includes("{sha256}");
-    const assets = code.dataset.types
-      .split(/\s+/)
-      .flatMap((id) => byType.get(id) ?? [])
-      .filter((asset) => !needsSum || sha256Of(asset));
+    const assets = assetsOf(pre).filter((asset) => !needsSum || sha256Of(asset));
+    pre.hidden = !assets.length;
     if (!assets.length) continue;
-    if (needsSum) code.closest(".verify-text")?.querySelector("#win-sum-hint")?.removeAttribute("hidden");
     // Function replacers: a "$" in a file name must not act as a replacement pattern.
     const text = (asset) =>
       template.replaceAll("{name}", () => asset.name).replaceAll("{sha256}", () => sha256Of(asset));
-    const pre = code.closest("pre");
-    let last = pre;
     code.textContent = text(assets[0]);
+    let last = pre;
     for (const asset of assets.slice(1)) {
       const copy = pre.cloneNode(true);
       copy.querySelector("code").textContent = text(asset);
       last.after(copy);
       last = copy;
-    }
-    // A Copy clicked before the release loaded no longer matches the text: show Copy again.
-    for (let p = pre; p && p !== last.nextElementSibling; p = p.nextElementSibling) {
-      const btn = p.querySelector(".copy-btn");
-      btn?.classList.remove("is-done");
-      btn?.setAttribute("aria-label", "Copy command");
     }
   }
 }
@@ -373,7 +363,7 @@ async function main() {
   if (sums) sumsLink.href = safeUrl(sums.browser_download_url) ?? LATEST;
 
   renderCards(byType, version);
-  fillCommands(byType);
+  showCommands(byType, sums);
   renderOther(other);
   renderPrimary(byType, version);
 }

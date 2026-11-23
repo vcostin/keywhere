@@ -1269,6 +1269,9 @@ kbd {
 .verify .cmd:last-child {
   margin-bottom: 0;
 }
+.verify div[data-types] + div[data-types] {
+  margin-top: 10px;
+}
 .verify .cmd-label {
   margin: 0 0 4px;
   font-size: 0.8rem;
