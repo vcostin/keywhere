@@ -39,10 +39,13 @@ impl Browser {
     }
 
     pub fn open_change_password(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if !self.can_change_password()
+        if self.vault.is_none()
+            || !self.can_change_password()
             || self.editor.is_some()
             || self.rekey.is_some()
             || self.upgrade.is_some()
+            || self.confirm_delete.is_some()
+            || self.new_group.is_some()
         {
             return;
         }
@@ -77,6 +80,7 @@ impl Browser {
             })
             .detach();
         }
+        self.group_menu = None;
         window.focus(&current.focus_handle(cx));
         self.rekey = Some(Rekey {
             current,
@@ -169,9 +173,15 @@ impl Browser {
         cx.spawn_in(window, async move |this, cx| {
             let res = task.await;
             this.update_in(cx, |this, window, cx| {
-                if let Some(r) = &mut this.rekey {
-                    r.busy = false;
+                // Dialog gone (session handed to the tray) or vault taken:
+                // drop the result, the session keeps its password.
+                if this.vault.is_none() {
+                    return;
                 }
+                let Some(r) = &mut this.rekey else {
+                    return;
+                };
+                r.busy = false;
                 match res {
                     Ok(key) => this.save_new_key(key, window, cx),
                     Err(Error::WrongPassword) => {
@@ -376,7 +386,7 @@ impl Browser {
                                 .flex()
                                 .justify_end()
                                 .gap_2()
-                                .child(btn("rekey-cancel", t("Cancel"), false).on_click(
+                                .child(btn("rekey-cancel", t("Cancel"), false).when(r.busy, |d| d.opacity(0.5)).on_click(
                                     cx.listener(|this, _, w, cx| this.close_change_password(w, cx)),
                                 ))
                                 .child(

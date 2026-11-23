@@ -762,8 +762,13 @@ impl Vault {
                     let _ = d.sync_all();
                 }
             }
-            // Track what really landed (normally exactly `bytes`).
-            self.disk_hash = Some(Sha256::digest(fs::read(path)?).into());
+            // The save has happened: from here on, nothing may report failure.
+            // Track what really landed (normally exactly `bytes`; if it can't
+            // be read back, what we wrote and verified).
+            self.disk_hash = Some(match fs::read(path) {
+                Ok(b) => Sha256::digest(&b).into(),
+                Err(_) => Sha256::digest(&bytes).into(),
+            });
             Ok(())
         })();
         if result.is_err() {
@@ -1017,7 +1022,7 @@ mod tests {
 
     #[test]
     fn password_change_checks_rekeys_and_rolls_back() {
-        let dir = std::env::temp_dir().join(format!("kw-rekey-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("kw-pwchange-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         let path = dir.join("v.psafe3");

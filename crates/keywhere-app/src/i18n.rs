@@ -272,7 +272,7 @@ static TABLE: &[(&str, &str)] = &[
     // change the master password
     ("Vault", "Seif"),
     ("Change master password…", "Schimbă parola principală…"),
-    ("Change master password", "Schimbarea parolei principale"),
+    ("Change master password", "Schimbă parola principală"),
     ("Current master password", "Parola principală actuală"),
     ("New master password", "Parola principală nouă"),
     ("Repeat new master password", "Repetă parola principală nouă"),

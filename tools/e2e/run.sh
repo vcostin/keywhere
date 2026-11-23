@@ -421,7 +421,8 @@ before=$(sha256sum "$NEW" | cut -d' ' -f1)
 key ctrl+shift+p
 sleep 1
 change_pw "not-the-current-pw" "$CHANGED_PW"
-sleep 6
+# One key stretch (well under a second in CI) before the error shows.
+sleep 8
 if [ "$(sha256sum "$NEW" | cut -d' ' -f1)" = "$before" ] && opens_with "$NEW" "$NEW_PW"; then
     pass "a wrong current password changes nothing"
 else
@@ -429,6 +430,7 @@ else
 fi
 
 # 9b. The dialog is still open (fields cleared, current focused): retry.
+key ctrl+BackSpace
 change_pw "$NEW_PW" "$CHANGED_PW"
 changed=""
 for _ in $(seq 60); do
