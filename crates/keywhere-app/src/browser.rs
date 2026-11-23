@@ -90,8 +90,11 @@ const SIDEBAR_MIN: f32 = 150.;
 const SIDEBAR_MAX: f32 = 420.;
 const LIST_MIN: f32 = 200.;
 const LIST_MAX: f32 = 600.;
-/// The detail pane never gets narrower than this from resizing.
-const DETAIL_MIN: f32 = 320.;
+/// The detail pane never gets narrower than this from resizing: room for
+/// the avatar, a readable title and the Favorite/Edit/Duplicate/Delete
+/// buttons (Romanian labels are the widest). With the sidebar and list at
+/// their minimums this still fits the 820 px minimum window.
+const DETAIL_MIN: f32 = 450.;
 
 /// What follows the mouse while an entry or group is dragged.
 struct DragPill {
@@ -2498,24 +2501,36 @@ impl Browser {
                             .flex_1()
                             .min_w_0()
                             .child(
+                                // One line, cut with "…": a narrow pane must
+                                // not wrap the title a letter per line.
                                 div()
                                     .text_size(px(18.))
                                     .font_weight(FontWeight::BOLD)
                                     .text_color(c(TEXT))
+                                    .whitespace_nowrap()
+                                    .overflow_hidden()
+                                    .text_ellipsis()
                                     .child(e.title.clone()),
                             )
-                            .child(div().text_size(px(11.5)).text_color(c(MUTED)).child(
-                                if e.group_label.is_empty() {
-                                    SharedString::from(crate::i18n::t("No group"))
-                                } else {
-                                    e.group_label.clone()
-                                },
-                            )),
+                            .child(
+                                div()
+                                    .text_size(px(11.5))
+                                    .text_color(c(MUTED))
+                                    .whitespace_nowrap()
+                                    .overflow_hidden()
+                                    .text_ellipsis()
+                                    .child(if e.group_label.is_empty() {
+                                        SharedString::from(crate::i18n::t("No group"))
+                                    } else {
+                                        e.group_label.clone()
+                                    }),
+                            ),
                     )
                     .when(!self.read_only(), |d| {
                         d.child(
                             div()
                                 .flex()
+                                .flex_none()
                                 .gap_1()
                                 .child(
                                     div()
