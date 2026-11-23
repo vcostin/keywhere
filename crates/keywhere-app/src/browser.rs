@@ -2743,7 +2743,7 @@ impl Render for Browser {
                 config::remember_pane_widths(self.sidebar_w, self.list_w);
             }
         }
-        let (sidebar_w, list_w) = self.pane_widths(f32::from(window.viewport_size().width));
+        let (sidebar_w, list_w) = self.pane_widths(f32::from(chrome::content_width(window)));
         let corner = chrome::corner_radius(window);
         let clip_left = self
             .clip_until
