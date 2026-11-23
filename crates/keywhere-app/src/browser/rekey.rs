@@ -92,6 +92,18 @@ impl Browser {
         cx.notify();
     }
 
+    /// DEV ONLY: the dialog with sample text in the fields (screenshots).
+    #[cfg(feature = "devtools")]
+    pub fn dev_change_password(&mut self, new: &str, window: &mut Window, cx: &mut Context<Self>) {
+        self.open_change_password(window, cx);
+        if let Some(r) = &self.rekey {
+            let (c, n, f) = (r.current.clone(), r.new.clone(), r.confirm.clone());
+            c.update(cx, |t, cx| t.set_text("current-password", cx));
+            n.update(cx, |t, cx| t.set_text(new, cx));
+            f.update(cx, |t, cx| t.set_text(new, cx));
+        }
+    }
+
     fn close_change_password(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.rekey.as_ref().is_some_and(|r| r.busy) {
             return;
@@ -377,7 +389,7 @@ impl Browser {
                                         .size(px(12.))
                                         .text_color(c(WARN)),
                                 )
-                                .child(div().flex_1().child(t(
+                                .child(div().flex_1().min_w_0().child(t(
                                     "If you forget the master password, the vault can't be opened. Nobody can recover it, not even Keywhere. Write it down and keep it somewhere safe.",
                                 ))),
                         )
