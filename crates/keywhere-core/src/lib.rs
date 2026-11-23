@@ -816,10 +816,123 @@ impl Vault {
         }
     }
 
+    /// Every group path in use: record groups (and their ancestors) plus
+    /// empty-group markers (and their ancestors).
+    fn all_groups(&self) -> Vec<Vec<String>> {
+        let mut out: Vec<Vec<String>> = Vec::new();
+        let leaves = self
+            .records
+            .iter()
+            .map(|r| r.group_path())
+            .chain(self.empty_groups());
+        for g in leaves {
+            for depth in 1..=g.len() {
+                let p = g[..depth].to_vec();
+                if !out.contains(&p) {
+                    out.push(p);
+                }
+            }
+        }
+        out
+    }
+
+    /// Keep `group` in the tree after its last entry moved away (an empty
+    /// group marker), unless something still lives in or under it.
+    fn keep_group(&mut self, group: &[String]) {
+        if group.is_empty() {
+            return;
+        }
+        let used = self
+            .records
+            .iter()
+            .any(|r| r.group_path().starts_with(group))
+            || self.empty_groups().iter().any(|g| g.starts_with(group));
+        if !used {
+            self.add_empty_group(group);
+        }
+    }
+
+    /// Move the record at `index` into `group` (empty = no group). The group
+    /// it leaves stays in the tree even if it is now empty. Returns false if
+    /// it was already there.
+    pub fn move_record(&mut self, index: usize, group: &[String], now: u32) -> bool {
+        let old = self.records[index].group_path();
+        if old == group {
+            return false;
+        }
+        let r = &mut self.records[index];
+        if group.is_empty() {
+            r.remove(rec::GROUP);
+        } else {
+            r.set_text(rec::GROUP, &encode_group_path(group));
+        }
+        r.set_time(rec::MTIME, now);
+        self.keep_group(&old);
+        self.prune_empty_groups();
+        true
+    }
+
+    /// Move group `from` (with its subgroups and entries) under `parent`
+    /// (empty = top level). Returns the group's new path.
+    pub fn move_group(
+        &mut self,
+        from: &[String],
+        parent: &[String],
+        now: u32,
+    ) -> Result<Vec<String>, GroupMoveError> {
+        let Some(name) = from.last() else {
+            return Err(GroupMoveError::Invalid);
+        };
+        if parent.starts_with(from) {
+            return Err(GroupMoveError::IntoItself);
+        }
+        let mut to = parent.to_vec();
+        to.push(name.clone());
+        if to == from {
+            return Err(GroupMoveError::Unchanged);
+        }
+        if self.all_groups().contains(&to) {
+            return Err(GroupMoveError::Exists);
+        }
+        let rebase = |g: &[String]| -> Vec<String> {
+            let mut p = to.clone();
+            p.extend_from_slice(&g[from.len()..]);
+            p
+        };
+        for r in &mut self.records {
+            let g = r.group_path();
+            if g.starts_with(from) {
+                r.set_text(rec::GROUP, &encode_group_path(&rebase(&g)));
+                r.set_time(rec::MTIME, now);
+            }
+        }
+        for g in self.empty_groups() {
+            if g.starts_with(from) {
+                self.remove_empty_group(&g);
+                self.add_empty_group(&rebase(&g));
+            }
+        }
+        self.keep_group(&from[..from.len() - 1]);
+        Ok(to)
+    }
+
     /// Index of the record with this UUID.
     pub fn find(&self, uuid: &[u8]) -> Option<usize> {
         self.records.iter().position(|r| r.uuid() == Some(uuid))
     }
+}
+
+/// Why [`Vault::move_group`] refused.
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
+pub enum GroupMoveError {
+    #[error("no group to move")]
+    Invalid,
+    #[error("a group cannot move into itself")]
+    IntoItself,
+    #[error("the group is already there")]
+    Unchanged,
+    #[error("a group with that name already exists there")]
+    Exists,
 }
 
 /// A master password change in progress; see [`Vault::password_change`].
@@ -1346,6 +1459,84 @@ mod tests {
         assert_eq!(v2.records[0].group_path(), vec!["Work", "Dev.ops"]);
         assert_eq!(v2.records[0].get(0x7e), Some(&[1u8, 2, 3][..]));
         assert!(v2.iterations() >= psafe3::MIN_ITERATIONS_ON_SAVE);
+    }
+
+    fn grouped(groups: &[&[&str]]) -> Vault {
+        let mut v = Vault::create(b"pw").unwrap();
+        for (i, g) in groups.iter().enumerate() {
+            let mut r = Record::new().unwrap();
+            r.set_text(rec::TITLE, &format!("e{i}"));
+            r.set_group_path(g);
+            v.records.push(r);
+        }
+        v
+    }
+
+    fn s(p: &[&str]) -> Vec<String> {
+        p.iter().map(|x| x.to_string()).collect()
+    }
+
+    #[test]
+    fn move_record_keeps_left_group() {
+        let mut v = grouped(&[&["Finance", "Investing"], &["Home"]]);
+        assert!(v.move_record(0, &s(&["Home"]), 42));
+        assert_eq!(v.records[0].group_path(), s(&["Home"]));
+        assert_eq!(v.records[0].time(rec::MTIME), Some(42));
+        // The group it left survives as an empty group.
+        assert_eq!(v.empty_groups(), vec![s(&["Finance", "Investing"])]);
+        // Moving back fills it again: the marker goes.
+        assert!(v.move_record(0, &s(&["Finance", "Investing"]), 43));
+        assert!(v.empty_groups().is_empty());
+        assert!(!v.move_record(0, &s(&["Finance", "Investing"]), 44));
+        // No group.
+        assert!(v.move_record(1, &[], 45));
+        assert_eq!(v.records[1].text(rec::GROUP), None);
+        assert_eq!(v.empty_groups(), vec![s(&["Home"])]);
+    }
+
+    #[test]
+    fn move_group_rebases_subtree() {
+        let mut v = grouped(&[
+            &["Finance", "Bank.ing", "EU"],
+            &["Finance", "Bank.ing"],
+            &["Personal"],
+        ]);
+        v.add_empty_group(&s(&["Finance", "Bank.ing", "Old"]));
+        let to = v
+            .move_group(&s(&["Finance", "Bank.ing"]), &s(&["Personal"]), 7)
+            .unwrap();
+        assert_eq!(to, s(&["Personal", "Bank.ing"]));
+        assert_eq!(
+            v.records[0].group_path(),
+            s(&["Personal", "Bank.ing", "EU"])
+        );
+        assert_eq!(v.records[1].group_path(), s(&["Personal", "Bank.ing"]));
+        assert_eq!(v.records[1].time(rec::MTIME), Some(7));
+        let mut empty = v.empty_groups();
+        empty.sort();
+        // Finance had nothing else: kept as an empty group.
+        assert_eq!(
+            empty,
+            vec![s(&["Finance"]), s(&["Personal", "Bank.ing", "Old"])]
+        );
+        // Back to the top level.
+        assert_eq!(
+            v.move_group(&s(&["Personal", "Bank.ing"]), &[], 8).unwrap(),
+            s(&["Bank.ing"])
+        );
+        assert_eq!(v.records[0].group_path(), s(&["Bank.ing", "EU"]));
+    }
+
+    #[test]
+    fn move_group_refusals() {
+        let mut v = grouped(&[&["A", "B"], &["C", "B"], &["A"]]);
+        let e = |v: &mut Vault, f: &[&str], p: &[&str]| v.move_group(&s(f), &s(p), 1).unwrap_err();
+        assert_eq!(e(&mut v, &["A"], &["A", "B"]), GroupMoveError::IntoItself);
+        assert_eq!(e(&mut v, &["A"], &["A"]), GroupMoveError::IntoItself);
+        assert_eq!(e(&mut v, &["A", "B"], &["A"]), GroupMoveError::Unchanged);
+        assert_eq!(e(&mut v, &["A", "B"], &["C"]), GroupMoveError::Exists);
+        assert_eq!(e(&mut v, &[], &["C"]), GroupMoveError::Invalid);
+        assert_eq!(v.records[0].group_path(), s(&["A", "B"]));
     }
 
     fn tmpdir(tag: &str) -> PathBuf {

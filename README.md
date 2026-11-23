@@ -145,8 +145,8 @@ Keywhere keeps the format you already have and adds a calm, keyboard‑first UI 
 
 - Create, open and save `.psafe3` files, interoperable with Password Safe 1.x and Password Gorilla; open and
   save Password Gorilla v2 `.dat` files, with an upgrade to v3
-- Three‑pane browser: smart views (favorites, weak, reused, expiring), group tree, instant search,
-  detail card
+- Three‑pane browser with resizable panes: smart views (favorites, weak, reused, expiring), group tree,
+  instant search, detail card; drag entries onto a group, or groups onto each other, to reorganize
 - One‑click copy with clipboard auto‑clear and clipboard‑history exclusion
 - Auto‑lock on idle, sleep and screen lock
 - Tray icon (Open / Lock / Quit), `keywhere --show` for a global shortcut, password generator, expiry view

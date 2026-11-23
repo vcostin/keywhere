@@ -73,6 +73,26 @@ pub fn write_file(name: &str, text: &str) {
     }
 }
 
+/// Pane widths (sidebar, entry list) in logical pixels, as last resized.
+pub fn pane_widths() -> Option<(f32, f32)> {
+    let text = read_file("layout")?;
+    let get = |key: &str| -> Option<f32> {
+        text.lines()
+            .filter_map(|l| l.split_once('='))
+            .find(|(k, _)| k.trim() == key)
+            .and_then(|(_, v)| v.trim().parse::<f32>().ok())
+            .filter(|v| v.is_finite())
+    };
+    Some((get("sidebar")?, get("list")?))
+}
+
+pub fn remember_pane_widths(sidebar: f32, list: f32) {
+    write_file(
+        "layout",
+        &format!("sidebar = {}\nlist = {}\n", sidebar.round(), list.round()),
+    );
+}
+
 /// Was this vault path last seen as Password Safe v3? Used to refuse a
 /// silent v3 → v2 downgrade (someone replacing the file with an old v2 copy,
 /// which has weak key stretching and no tamper detection).
