@@ -1192,7 +1192,7 @@ kbd {
   font-size: 0.8rem;
   line-height: 1.55;
 }
-/* The code scrolls, not the pre, so the copy button stays pinned to the right edge. */
+/* The code scrolls if it must, not the pre, so the copy button stays pinned to the right edge. */
 .cmd code {
   display: block;
   overflow-x: auto;
@@ -1201,8 +1201,9 @@ kbd {
   margin-right: 40px; /* scroll area stops short of the copy button */
   padding: 10px 4px 10px 12px;
   font-size: inherit;
-  overflow-wrap: normal;
-  white-space: pre;
+  /* Wrap, so every command shows its full file name (the Windows ones differ only at the end). */
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
 }
 .copy-btn {
   position: absolute;

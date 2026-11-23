@@ -255,6 +255,35 @@ function renderCards(byType, version) {
   }
 }
 
+/**
+ * Commands that name a file are written with wildcards, which stay as the fallback. Once the
+ * release is read, a <code data-types data-template> shows the real file names instead: one
+ * command per matching file, with {name} and {sha256} filled in. Extra copies are clones of the
+ * <pre>, so they keep its copy button (site.js handles copy clicks by delegation).
+ */
+function fillCommands(byType) {
+  for (const code of document.querySelectorAll("code[data-template]")) {
+    const template = code.dataset.template;
+    const needsSum = template.includes("{sha256}");
+    const assets = code.dataset.types
+      .split(/\s+/)
+      .flatMap((id) => byType.get(id) ?? [])
+      .filter((asset) => !needsSum || sha256Of(asset));
+    if (!assets.length) continue;
+    if (needsSum) code.closest(".verify-text")?.querySelector("#win-sum-hint")?.removeAttribute("hidden");
+    const text = (asset) => template.replaceAll("{name}", asset.name).replaceAll("{sha256}", sha256Of(asset));
+    const pre = code.closest("pre");
+    let last = pre;
+    code.textContent = text(assets[0]);
+    for (const asset of assets.slice(1)) {
+      const copy = pre.cloneNode(true);
+      copy.querySelector("code").textContent = text(asset);
+      last.after(copy);
+      last = copy;
+    }
+  }
+}
+
 function renderOther(other) {
   if (!other.length) return;
   const list = otherFiles.querySelector("ul");
@@ -336,6 +365,7 @@ async function main() {
   if (sums) sumsLink.href = safeUrl(sums.browser_download_url) ?? LATEST;
 
   renderCards(byType, version);
+  fillCommands(byType);
   renderOther(other);
   renderPrimary(byType, version);
 }

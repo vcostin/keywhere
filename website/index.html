@@ -415,12 +415,12 @@
               <details class="howto">
                 <summary>How to install</summary>
                 <p>AppImage: make it executable, then run it.</p>
-                <pre class="cmd"><code>chmod +x Keywhere-*.AppImage
+                <pre class="cmd"><code data-types="appimage" data-template="chmod +x {name}&#10;./{name}">chmod +x Keywhere-*.AppImage
 ./Keywhere-*.AppImage</code></pre>
                 <p>Or install a package with your package manager:</p>
-                <pre class="cmd"><code>sudo apt install ./keywhere_*.deb</code></pre>
-                <pre class="cmd"><code>sudo dnf install ./keywhere-*.rpm</code></pre>
-                <pre class="cmd"><code>sudo zypper install --allow-unsigned-rpm ./keywhere-*.rpm</code></pre>
+                <pre class="cmd"><code data-types="deb" data-template="sudo apt install ./{name}">sudo apt install ./keywhere_*.deb</code></pre>
+                <pre class="cmd"><code data-types="rpm" data-template="sudo dnf install ./{name}">sudo dnf install ./keywhere-*.rpm</code></pre>
+                <pre class="cmd"><code data-types="rpm" data-template="sudo zypper install --allow-unsigned-rpm ./{name}">sudo zypper install --allow-unsigned-rpm ./keywhere-*.rpm</code></pre>
                 <p>The tray icon works on KDE, and on GNOME with the AppIndicator extension.</p>
               </details>
             </article>
@@ -471,7 +471,7 @@
                 <summary>First start</summary>
                 <p>Run the installer, or put the portable <code>.exe</code> anywhere, even on a USB stick, and run it. Settings go to <code>%APPDATA%\keywhere</code>.</p>
                 <p>SmartScreen warns on the first start: choose <strong>More info</strong> → <strong>Run anyway</strong>. Or unblock the file in PowerShell first:</p>
-                <pre class="cmd"><code>Unblock-File .\Keywhere-*-windows-x64*</code></pre>
+                <pre class="cmd"><code data-types="win-setup win-portable win-msi" data-template="Unblock-File .\{name}">Unblock-File .\Keywhere-*-windows-x64*</code></pre>
               </details>
             </article>
           </div>
@@ -487,8 +487,8 @@
               <pre class="cmd"><code>sha256sum -c SHA256SUMS --ignore-missing</code></pre>
               <p class="cmd-label">macOS</p>
               <pre class="cmd"><code>shasum -a 256 -c SHA256SUMS --ignore-missing</code></pre>
-              <p class="cmd-label">Windows (PowerShell)</p>
-              <pre class="cmd"><code>$f = Get-ChildItem Keywhere-*-windows-*; if (-not $f) { "No Keywhere-*-windows-* file in this folder" }; foreach ($x in $f) { if (Select-String -Quiet -SimpleMatch (Get-FileHash $x.FullName).Hash SHA256SUMS) { "OK   $($x.Name)" } else { "FAIL $($x.Name)" } }</code></pre>
+              <p class="cmd-label">Windows (PowerShell)<span id="win-sum-hint" hidden>: run the line for your file, it prints True when the file matches</span></p>
+              <pre class="cmd"><code data-types="win-setup win-portable win-msi" data-template="(Get-FileHash .\{name}).Hash -eq '{sha256}'">$f = Get-ChildItem Keywhere-*-windows-*; if (-not $f) { "No Keywhere-*-windows-* file in this folder" }; foreach ($x in $f) { if (Select-String -Quiet -SimpleMatch (Get-FileHash $x.FullName).Hash SHA256SUMS) { "OK   $($x.Name)" } else { "FAIL $($x.Name)" } }</code></pre>
             </div>
             <ul class="verify-links">
               <li><a id="sums-link" href="https://github.com/vcostin/keywhere/releases/latest">SHA256SUMS</a></li>

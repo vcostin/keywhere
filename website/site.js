@@ -78,21 +78,25 @@ if (navigator.clipboard) {
     btn.className = "copy-btn";
     btn.setAttribute("aria-label", "Copy command");
     btn.innerHTML = COPY_ICON;
-    btn.addEventListener("click", async () => {
-      try {
-        await navigator.clipboard.writeText(pre.querySelector("code").textContent);
-        btn.classList.add("is-done");
-        btn.innerHTML = DONE_ICON;
-        btn.setAttribute("aria-label", "Copied");
-        setTimeout(() => {
-          btn.classList.remove("is-done");
-          btn.innerHTML = COPY_ICON;
-          btn.setAttribute("aria-label", "Copy command");
-        }, 1600);
-      } catch {
-        /* clipboard refused: leave the text selectable */
-      }
-    });
     pre.append(btn);
   }
+  // Delegated, so commands that download.js adds later (clones of these blocks) copy too.
+  document.addEventListener("click", async (event) => {
+    const btn = event.target.closest(".copy-btn");
+    const code = btn?.closest("pre.cmd")?.querySelector("code");
+    if (!code) return;
+    try {
+      await navigator.clipboard.writeText(code.textContent);
+      btn.classList.add("is-done");
+      btn.innerHTML = DONE_ICON;
+      btn.setAttribute("aria-label", "Copied");
+      setTimeout(() => {
+        btn.classList.remove("is-done");
+        btn.innerHTML = COPY_ICON;
+        btn.setAttribute("aria-label", "Copy command");
+      }, 1600);
+    } catch {
+      /* clipboard refused: leave the text selectable */
+    }
+  });
 }
