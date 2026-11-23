@@ -52,6 +52,11 @@ file name, and type the new master password twice (at least 8 characters). The n
 straight away, empty. Keywhere never replaces an existing file. **Nobody can recover a forgotten
 master password, Keywhere included**, so write it down and keep it somewhere safe.
 
+**Change the master password:** with the vault unlocked, Settings → *Vault* → **Change master
+password…** (or `Ctrl+Shift+P`). Type the current password, then the new one twice. The vault is
+saved with the new password straight away; its `.ibak` backup keeps the previous version, which
+still opens with the old password, so delete it if the old password may be known to someone else.
+
 | Shortcut (Ctrl → ⌘ on macOS) | Action |
 |---|---|
 | `Ctrl+N` on the unlock screen | Create a new vault |
@@ -65,6 +70,7 @@ master password, Keywhere included**, so write it down and keep it somewhere saf
 | `Ctrl+N` / `Ctrl+E` / `Ctrl+D` | New / edit / duplicate entry |
 | `Delete` | Delete entry (asks first) |
 | `Enter` / `Ctrl+Enter` in editor | Save (in notes `Enter` is a new line; `Esc` cancels) |
+| `Ctrl+Shift+P` | Change the master password |
 | `Ctrl+L` | Lock (also automatic after 5 min idle) |
 | `Ctrl+,` | Settings |
 | `Ctrl+Q` | Quit |
@@ -164,6 +170,10 @@ cargo test -p keywhere-core      # vault engine tests
 cargo +nightly fuzz list         # in fuzz/: fuzz targets, see fuzz/README.md
 cargo run --release -p keywhere  # desktop app (Linux needs wayland/x11, xkbcommon, vulkan dev libs)
 ```
+
+UI checks: `tools/e2e/run.sh` drives the release binary on a virtual X display (see the script's
+header), and `tools/screenshots/shoot.sh` screenshots screens on a hidden KDE screen (see
+[tools/screenshots/README.md](tools/screenshots/README.md)).
 
 On macOS, building needs full Xcode for the Metal shader compiler (`metal`); the Command Line
 Tools alone aren't enough. Without Xcode, add `--features gpui/runtime_shaders` (shaders are then

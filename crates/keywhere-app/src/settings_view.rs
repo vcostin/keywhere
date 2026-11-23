@@ -12,10 +12,13 @@ use crate::theme::{ThemeChoice, *};
 
 pub enum SettingsEvent {
     Close,
+    /// "Change master password…" (only offered for an unlocked, writable v3 vault).
+    ChangeMasterPassword,
 }
 
 pub struct SettingsView {
     focus: FocusHandle,
+    can_change_password: bool,
     idle: Entity<Select>,
     language: Entity<Select>,
     theme: Entity<Select>,
@@ -81,7 +84,7 @@ fn language_index(choice: Option<Lang>) -> usize {
 }
 
 impl SettingsView {
-    pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub fn new(can_change_password: bool, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let focus = cx.focus_handle();
         window.focus(&focus);
         let st = settings::get();
@@ -118,6 +121,7 @@ impl SettingsView {
         .detach();
         SettingsView {
             focus,
+            can_change_password,
             idle,
             language,
             theme,
@@ -322,6 +326,21 @@ impl Render for SettingsView {
                         .text_size(px(12.))
                         .text_color(c(WARN))
                         .child(t(crate::memlock::message_en())),
+                ))
+            })
+            .when(self.can_change_password, |d| {
+                d.child(Self::section("Vault")).child(Self::row(
+                    "Master password",
+                    div().flex().child(
+                        Self::chip(
+                            "change-master-password".into(),
+                            t("Change master password…").into(),
+                            false,
+                        )
+                        .on_click(
+                            cx.listener(|_, _, _, cx| cx.emit(SettingsEvent::ChangeMasterPassword)),
+                        ),
+                    ),
                 ))
             })
             .child(Self::section("Appearance"))

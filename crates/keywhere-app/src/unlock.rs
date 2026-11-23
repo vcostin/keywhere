@@ -108,6 +108,20 @@ impl UnlockView {
         self.unlock(window, cx);
     }
 
+    /// DEV ONLY: the new-vault form for `path`, both fields holding `pw`.
+    #[cfg(feature = "devtools")]
+    pub fn dev_create_form(
+        &mut self,
+        path: PathBuf,
+        pw: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.start_create(path, window, cx);
+        self.password.update(cx, |f, cx| f.set_text(pw, cx));
+        self.confirm.update(cx, |f, cx| f.set_text(pw, cx));
+    }
+
     fn unlock(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.busy {
             return;
@@ -451,7 +465,7 @@ fn already_exists(path: &Path) -> SharedString {
 }
 
 /// Rough strength label for a new master password (UI hint only).
-fn strength_hint(pw: &str) -> Option<(String, bool)> {
+pub(crate) fn strength_hint(pw: &str) -> Option<(String, bool)> {
     if pw.is_empty() {
         return None;
     }
@@ -614,7 +628,7 @@ impl Render for UnlockView {
                                                 .size(px(12.))
                                                 .text_color(c(WARN)),
                                         )
-                                        .child(div().flex_1().child(crate::i18n::t(
+                                        .child(div().flex_1().min_w_0().child(crate::i18n::t(
                                             "If you forget the master password, the vault can't be opened. Nobody can recover it, not even Keywhere. Write it down and keep it somewhere safe.",
                                         ))),
                                 )

@@ -192,6 +192,33 @@ impl KeyMaterial {
             p_prime: LockedKey::new(p_prime),
         })
     }
+
+    /// What checking a password against this key needs, without the key:
+    /// salt, rounds and H(P') (which the file header stores anyway).
+    pub fn check(&self) -> KeyCheck {
+        KeyCheck {
+            salt: self.salt,
+            iterations: self.iterations,
+            hp: Sha256::digest(self.p_prime.get()).into(),
+        }
+    }
+}
+
+/// See [`KeyMaterial::check`]. Holds no secret beyond what the file holds.
+pub struct KeyCheck {
+    salt: [u8; 32],
+    pub iterations: u32,
+    hp: [u8; 32],
+}
+
+impl KeyCheck {
+    /// Is `password` the one this key was made from? Slow (key stretching);
+    /// compared in constant time.
+    pub fn matches(&self, password: &[u8]) -> bool {
+        let p = stretch(password, &self.salt, self.iterations);
+        let hp: [u8; 32] = Sha256::digest(&p[..]).into();
+        bool::from(hp.ct_eq(&self.hp))
+    }
 }
 
 impl KeyMaterial {

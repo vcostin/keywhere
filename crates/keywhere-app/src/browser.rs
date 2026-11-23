@@ -18,6 +18,8 @@ use crate::i18n::tf;
 use crate::model::{self, EntryVm, Filter, GroupNode};
 use crate::{chrome, config, theme::*};
 
+mod rekey;
+
 actions!(
     keywhere,
     [
@@ -32,7 +34,8 @@ actions!(
         NewEntry,
         EditEntry,
         DuplicateEntry,
-        DeleteEntry
+        DeleteEntry,
+        ChangeMasterPassword
     ]
 );
 
@@ -88,6 +91,8 @@ pub struct Browser {
     confirm_delete: Option<(Vec<u8>, SharedString)>,
     /// "Upgrade to v3" dialog: master-password field + error.
     upgrade: Option<(Entity<TextField>, Option<SharedString>)>,
+    /// "Change master password" dialog.
+    rekey: Option<rekey::Rekey>,
     dialog_focus: FocusHandle,
     _ticker: Task<()>,
     _on_quit: gpui::Subscription,
@@ -218,6 +223,7 @@ impl Browser {
             group_menu: None,
             new_group: None,
             upgrade: None,
+            rekey: None,
             dialog_focus: cx.focus_handle(),
             _ticker: ticker,
             _on_quit: on_quit,
@@ -254,6 +260,9 @@ impl Browser {
         self.rescue_unsaved();
         self.editor = None;
         self.confirm_delete = None;
+        // An unfinished password change is abandoned: the hidden session
+        // keeps the current password (a running job's result is dropped).
+        self.rekey = None;
         let v = self.vault.take()?;
         Some((v, self.vault_lock.take()))
     }
@@ -343,12 +352,7 @@ impl Browser {
         };
         match res {
             Ok(()) => {
-                self.conflict = false;
-                self.save_error = None;
-                self.exposed = keywhere_core::readable_by_others(&self.path);
-                if self.vault().format() == Format::V3 {
-                    config::remember_format(&self.path, true);
-                }
+                self.saved(cx);
                 self.toast(crate::i18n::t("Saved"));
                 true
             }
@@ -361,6 +365,17 @@ impl Browser {
                 false
             }
         }
+    }
+
+    /// Bookkeeping after a successful save.
+    fn saved(&mut self, cx: &mut Context<Self>) {
+        self.conflict = false;
+        self.save_error = None;
+        self.exposed = keywhere_core::readable_by_others(&self.path);
+        if self.vault().format() == Format::V3 {
+            config::remember_format(&self.path, true);
+        }
+        cx.notify();
     }
 
     #[cfg(feature = "devtools")]
@@ -433,7 +448,7 @@ impl Browser {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.read_only() {
+        if self.read_only() || self.rekey.is_some() {
             return;
         }
         // Never silently replace an open form; focus it instead.
@@ -509,7 +524,7 @@ impl Browser {
     }
 
     fn toggle_favorite(&mut self, cx: &mut Context<Self>) {
-        if self.read_only() {
+        if self.read_only() || self.rekey.is_some() {
             return;
         }
         let Some(sel) = self.selected else { return };
@@ -522,7 +537,7 @@ impl Browser {
     }
 
     fn duplicate(&mut self, cx: &mut Context<Self>) {
-        if self.read_only() || self.editor.is_some() {
+        if self.read_only() || self.editor.is_some() || self.rekey.is_some() {
             return;
         }
         let Some(src) = self.selected_record().cloned() else {
@@ -547,7 +562,7 @@ impl Browser {
 
     /// Ask (in-app dialog) before deleting the selected entry.
     pub fn delete(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.read_only() || self.editor.is_some() {
+        if self.read_only() || self.editor.is_some() || self.rekey.is_some() {
             return;
         }
         let Some(r) = self.selected_record() else {
@@ -591,7 +606,7 @@ impl Browser {
     }
 
     pub fn open_upgrade(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.read_only() || self.editor.is_some() {
+        if self.read_only() || self.editor.is_some() || self.rekey.is_some() {
             return;
         }
         let f =
@@ -767,7 +782,7 @@ impl Browser {
     }
 
     fn open_new_group(&mut self, parent: Vec<String>, window: &mut Window, cx: &mut Context<Self>) {
-        if self.read_only() {
+        if self.read_only() || self.rekey.is_some() {
             return;
         }
         let f = cx.new(|cx| TextField::new(cx, "Group name", false).with_icon("icons/folder.svg"));
@@ -2404,6 +2419,9 @@ impl Render for Browser {
             .on_action(cx.listener(|this, _: &OpenUrl, _, cx| this.open_url(cx)))
             .on_action(cx.listener(|this, _: &ToggleReveal, _, cx| this.toggle_reveal(cx)))
             .on_action(cx.listener(|this, _: &NewEntry, w, cx| this.start_edit(true, w, cx)))
+            .on_action(cx.listener(|this, _: &ChangeMasterPassword, w, cx| {
+                this.open_change_password(w, cx)
+            }))
             .on_action(cx.listener(|this, _: &EditEntry, w, cx| {
                 if this.editor.is_none() {
                     this.start_edit(false, w, cx)
@@ -2679,6 +2697,7 @@ impl Render for Browser {
             )
             .children(self.render_confirm_delete(corner, cx))
             .children(self.render_upgrade(corner, cx))
+            .children(self.render_rekey(corner, cx))
             .children(self.render_group_menu(cx))
             .children(self.render_new_group(corner, cx))
             .into_any_element()

@@ -23,7 +23,11 @@
 #   8. Ctrl+N on the unlock screen creates a new vault: it never replaces an
 #      existing file, it gets the `.psafe3` extension, it opens straight away,
 #      locks and unlocks again with the new master password, and an entry
-#      added to it is saved.
+#      added to it is saved;
+#   9. Ctrl+Shift+P changes that vault's master password: a wrong current
+#      password changes nothing; afterwards only the new password opens the
+#      file, the `.ibak` backup still opens with the old one, and the app
+#      locks and unlocks with the new one.
 set -euo pipefail
 
 if [ -z "${KEYWHERE_E2E_INNER:-}" ]; then
@@ -392,6 +396,81 @@ if [ "$(cat "$XDG_CONFIG_HOME/keywhere/last-vault" 2>/dev/null)" = "$NEW" ]; the
 else
     fail "last-vault is not the new vault"
 fi
+
+# ---- 9. change the master password -----------------------------------------
+CHANGED_PW=e2e-changed-master-pw
+opens_with() { KEYWHERE_PASSWORD=$2 "$VAULT_TOOL" titles "$1" >/dev/null 2>&1; }
+# The three fields: current, new, repeat (Enter moves to the next one).
+change_pw() {
+    type_text "$1"
+    key Return
+    type_text "$2"
+    key Return
+    type_text "$2"
+    key Return
+}
+
+start_app "$NEW"
+focus_app
+unlock_with "$NEW_PW"
+wait_file 30 "${NEW%.psafe3}.plk" || die "the new vault did not unlock for check 9"
+sleep 1
+before=$(sha256sum "$NEW" | cut -d' ' -f1)
+
+# 9a. Wrong current password: refused, the file is untouched.
+key ctrl+shift+p
+sleep 1
+change_pw "not-the-current-pw" "$CHANGED_PW"
+# One key stretch (well under a second in CI) before the error shows.
+sleep 8
+if [ "$(sha256sum "$NEW" | cut -d' ' -f1)" = "$before" ] && opens_with "$NEW" "$NEW_PW"; then
+    pass "a wrong current password changes nothing"
+else
+    fail "a wrong current password changed the vault file"
+fi
+
+# 9b. The dialog is still open (fields cleared, current focused): retry.
+key ctrl+BackSpace
+change_pw "$NEW_PW" "$CHANGED_PW"
+changed=""
+for _ in $(seq 60); do
+    opens_with "$NEW" "$CHANGED_PW" && changed=1 && break
+    sleep 0.5
+done
+if [ -n "$changed" ]; then
+    pass "Ctrl+Shift+P changes the master password, and the file opens with the new one"
+else
+    die "the master password was not changed"
+fi
+if opens_with "$NEW" "$NEW_PW"; then
+    fail "the old master password still opens the vault"
+else
+    pass "the old master password no longer opens the vault"
+fi
+if opens_with "${NEW%.psafe3}.ibak" "$NEW_PW"; then
+    pass "the .ibak backup still opens with the old master password"
+else
+    fail "the .ibak backup does not open with the old master password"
+fi
+titles=$(KEYWHERE_PASSWORD=$CHANGED_PW "$VAULT_TOOL" titles "$NEW" || true)
+if [ "$titles" = "In the new vault" ]; then
+    pass "the entries are kept"
+else
+    fail "after the change the vault holds: $(echo "$titles" | tr '\n' ',')"
+fi
+
+# 9c. Lock, and unlock with the new password.
+focus_app
+key ctrl+l
+wait_file 10 "${NEW%.psafe3}.plk" gone || fail "Ctrl+L did not lock after the change"
+focus_app
+unlock_with "$CHANGED_PW"
+if wait_file 30 "${NEW%.psafe3}.plk"; then
+    pass "the app unlocks with the new master password"
+else
+    fail "the app did not unlock with the new master password"
+fi
+quit_app
 
 if [ "$failures" -gt 0 ]; then
     echo "$failures check(s) failed"

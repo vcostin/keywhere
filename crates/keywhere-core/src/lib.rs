@@ -563,6 +563,27 @@ impl Vault {
         }
     }
 
+    /// Start changing the master password with the slow part off the UI
+    /// thread: `password_change()` here, [`PasswordChange::run`] on any
+    /// thread, then [`Vault::replace_key`] and a save. `None` for a v2
+    /// vault (upgrade it to v3 first).
+    pub fn password_change(&self) -> Option<PasswordChange> {
+        match &self.key {
+            VaultKey::V3(k) => Some(PasswordChange { check: k.check() }),
+            VaultKey::V2 { .. } => None,
+        }
+    }
+
+    /// Use `key` from now on (the next save writes with it) and return the
+    /// previous one, to put back if that save fails. On a v2 vault nothing
+    /// changes and `key` comes back.
+    pub fn replace_key(&mut self, key: NewKey) -> NewKey {
+        match &mut self.key {
+            VaultKey::V3(k) => NewKey(std::mem::replace(k, key.0)),
+            VaultKey::V2 { .. } => key,
+        }
+    }
+
     /// Re-key with a new master password (fresh salt; K/L/IV are fresh on
     /// every save anyway).
     pub fn change_password(&mut self, new_password: &[u8]) -> Result<(), Error> {
@@ -741,8 +762,13 @@ impl Vault {
                     let _ = d.sync_all();
                 }
             }
-            // Track what really landed (normally exactly `bytes`).
-            self.disk_hash = Some(Sha256::digest(fs::read(path)?).into());
+            // The save has happened: from here on, nothing may report failure.
+            // Track what really landed (normally exactly `bytes`; if it can't
+            // be read back, what we wrote and verified).
+            self.disk_hash = Some(match fs::read(path) {
+                Ok(b) => Sha256::digest(&b).into(),
+                Err(_) => Sha256::digest(&bytes).into(),
+            });
             Ok(())
         })();
         if result.is_err() {
@@ -793,6 +819,27 @@ impl Vault {
     /// Index of the record with this UUID.
     pub fn find(&self, uuid: &[u8]) -> Option<usize> {
         self.records.iter().position(|r| r.uuid() == Some(uuid))
+    }
+}
+
+/// A master password change in progress; see [`Vault::password_change`].
+/// Holds no key, only what checking the current password needs.
+pub struct PasswordChange {
+    check: psafe3::KeyCheck,
+}
+
+/// A key made by [`PasswordChange::run`], for [`Vault::replace_key`].
+pub struct NewKey(KeyMaterial);
+
+impl PasswordChange {
+    /// Check `current`, then make a key for `new` (fresh salt, same number
+    /// of stretching rounds, at least the save minimum). Slow: two key
+    /// stretches. [`Error::WrongPassword`] if `current` is wrong.
+    pub fn run(self, current: &[u8], new: &[u8]) -> Result<NewKey, Error> {
+        if !self.check.matches(current) {
+            return Err(Error::WrongPassword);
+        }
+        Ok(NewKey(KeyMaterial::derive(new, self.check.iterations)?))
     }
 }
 
@@ -970,6 +1017,44 @@ mod tests {
             .file_type()
             .is_symlink());
         assert_eq!(Vault::open(&real, b"pw-for-test").unwrap().records.len(), 1);
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn password_change_checks_rekeys_and_rolls_back() {
+        let dir = std::env::temp_dir().join(format!("kw-pwchange-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("v.psafe3");
+        let mut v = Vault::create(b"old-password").unwrap();
+        v.records.push(Record::new().unwrap());
+        v.save_new(&path).unwrap();
+
+        let wrong = v.password_change().unwrap().run(b"not-it", b"new-password");
+        assert!(matches!(wrong, Err(Error::WrongPassword)));
+
+        let key = v
+            .password_change()
+            .unwrap()
+            .run(b"old-password", b"new-password")
+            .unwrap();
+        let old = v.replace_key(key);
+        v.save(&path).unwrap();
+        assert!(matches!(
+            Vault::open(&path, b"old-password"),
+            Err(Error::WrongPassword)
+        ));
+        let reopened = Vault::open(&path, b"new-password").unwrap();
+        assert_eq!(reopened.records.len(), 1);
+        assert!(reopened.iterations() >= psafe3::MIN_ITERATIONS_ON_SAVE);
+        // The .ibak backup is the file as it was: the old password opens it.
+        assert!(Vault::open(&path.with_extension("ibak"), b"old-password").is_ok());
+
+        // Rolling back restores the previous key for the next save.
+        let new = v.replace_key(old);
+        drop(new);
+        v.save(&path).unwrap();
+        assert!(Vault::open(&path, b"old-password").is_ok());
         fs::remove_dir_all(&dir).unwrap();
     }
 

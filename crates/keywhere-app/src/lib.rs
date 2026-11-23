@@ -164,6 +164,18 @@ impl Shell {
                 u.update(cx, |u, cx| u.dev_type_and_unlock(&pw, window, cx));
             }
         }
+        // Dev screenshots of the unlock screen: "create:<path>" shows the
+        // new-vault form for that file.
+        #[cfg(feature = "devtools")]
+        if let (Some(p), Screen::Unlock(u)) = (
+            select.as_deref().and_then(|t| t.strip_prefix("create:")),
+            &this.screen,
+        ) {
+            let p = PathBuf::from(p);
+            u.update(cx, |u, cx| {
+                u.dev_create_form(p, "correct horse battery", window, cx)
+            });
+        }
         if let (Some((v, lock)), Some(p)) = (preunlocked, path) {
             this.show_vault(p, v, lock, window, cx);
             if matches!(
@@ -198,6 +210,12 @@ impl Shell {
                         b.start_edit(false, window, cx);
                     }
                     _ if t == "new" => b.start_edit(true, window, cx),
+                    #[cfg(feature = "devtools")]
+                    _ if t == "rekey" => {
+                        b.dev_change_password("correct horse battery staple", window, cx)
+                    }
+                    #[cfg(feature = "devtools")]
+                    _ if t == "rekey-short" => b.dev_change_password("horse", window, cx),
                     _ if t == "upgrade" => b.open_upgrade(window, cx),
                     #[cfg(feature = "devtools")]
                     _ if t.starts_with("fold:") => b.dev_fold(&t["fold:".len()..], cx),
@@ -338,9 +356,19 @@ impl Shell {
         if self.settings.is_some() {
             return;
         }
-        let v = cx.new(|cx| settings_view::SettingsView::new(window, cx));
+        let can_change_password = match &self.screen {
+            Screen::Vault(b) => b.read(cx).can_change_password(),
+            Screen::Unlock(_) => false,
+        };
+        let v = cx.new(|cx| settings_view::SettingsView::new(can_change_password, window, cx));
         cx.subscribe_in(&v, window, |this, _, ev, window, cx| match ev {
             settings_view::SettingsEvent::Close => this.close_settings(window, cx),
+            settings_view::SettingsEvent::ChangeMasterPassword => {
+                this.close_settings(window, cx);
+                if let Screen::Vault(b) = &this.screen {
+                    b.update(cx, |b, cx| b.open_change_password(window, cx));
+                }
+            }
         })
         .detach();
         self.settings = Some(v);
@@ -754,6 +782,15 @@ pub fn run_unlock_via_ui(path: PathBuf, password: zeroize::Zeroizing<String>) {
     run_inner(Some(path), None, None)
 }
 
+/// DEV ONLY (feature `devtools`): start on the unlock screen with the
+/// new-vault form for `path` (screenshots; nothing is written).
+#[cfg(feature = "devtools")]
+pub fn run_create_form(path: PathBuf) {
+    #[cfg(unix)]
+    sys::instance::use_dev_socket();
+    run_inner(None, None, Some(format!("create:{}", path.display())))
+}
+
 /// DEV ONLY (feature `devtools`): start with an already unlocked demo vault so
 /// screenshots can be automated. Not compiled into release builds by default.
 #[cfg(feature = "devtools")]
@@ -787,6 +824,7 @@ fn run_inner(path: Option<PathBuf>, preunlocked: Preunlocked, select: Option<Str
             KeyBinding::new("secondary-n", NewEntry, Some("Browser")),
             KeyBinding::new("secondary-e", EditEntry, Some("Browser")),
             KeyBinding::new("secondary-d", DuplicateEntry, Some("Browser")),
+            KeyBinding::new("secondary-shift-p", ChangeMasterPassword, Some("Browser")),
             KeyBinding::new(
                 "delete",
                 DeleteEntry,
