@@ -1269,7 +1269,7 @@ kbd {
 .verify .cmd:last-child {
   margin-bottom: 0;
 }
-.verify div[data-types] + div[data-types] {
+.verify-text > div[data-types]:not([hidden]) ~ div[data-types] {
   margin-top: 10px;
 }
 .verify .cmd-label {

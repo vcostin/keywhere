@@ -155,20 +155,17 @@ function setStatus(text, link) {
   dlStatus.replaceChildren(...parts);
 }
 
-/** One download row. Without an asset it describes the type and links to the Releases page. */
+/** One download row for a release file. */
 function fileRow(type, asset) {
   const li = el("li", "file");
   li.dataset.type = type.id;
   const a = el("a", "file-link");
-  a.href = (asset && safeUrl(asset.browser_download_url)) ?? LATEST;
+  a.href = safeUrl(asset.browser_download_url) ?? LATEST;
   const kind = el("span", "file-kind", type.kind);
   if (type.tag) kind.append(" ", el("span", "tag tag-accent", type.tag));
-  a.append(kind, el("span", "file-desc", type.desc));
-  if (asset) {
-    a.append(el("span", "file-name", asset.name));
-    const size = formatBytes(asset.size);
-    if (size) a.append(el("span", "file-meta", size));
-  }
+  a.append(kind, el("span", "file-desc", type.desc), el("span", "file-name", asset.name));
+  const size = formatBytes(asset.size);
+  if (size) a.append(el("span", "file-meta", size));
   li.append(a);
   return li;
 }
@@ -259,8 +256,6 @@ function showCommands(byType, sums) {
   const assetsOf = (node) =>
     node.dataset.types.split(/\s+/).flatMap((id) => (id === "sums" ? (sums ? [sums] : []) : byType.get(id) ?? []));
 
-  for (const node of document.querySelectorAll("[data-types]:not(pre)")) node.hidden = !assetsOf(node).length;
-
   for (const pre of document.querySelectorAll("pre[data-types]")) {
     const code = pre.querySelector("code[data-template]");
     const template = code.dataset.template;
@@ -279,6 +274,12 @@ function showCommands(byType, sums) {
       last.after(copy);
       last = copy;
     }
+  }
+  // A wrapper shows when one of its commands did (a {sha256} command needs digests), or, if it
+  // has no filled commands, when the release has a file of one of its types.
+  for (const node of document.querySelectorAll("[data-types]:not(pre)")) {
+    const pres = node.querySelectorAll("pre[data-types]");
+    node.hidden = pres.length ? ![...pres].some((pre) => !pre.hidden) : !assetsOf(node).length;
   }
 }
 
