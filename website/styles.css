@@ -1463,10 +1463,6 @@ kbd {
   .platforms {
     max-width: 620px;
   }
-  /* One column: the visitor's own platform comes first. */
-  .platform.is-yours {
-    order: -1;
-  }
 }
 
 @media (max-width: 640px) {

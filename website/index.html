@@ -488,7 +488,7 @@
               <p class="cmd-label">macOS</p>
               <pre class="cmd"><code>shasum -a 256 -c SHA256SUMS --ignore-missing</code></pre>
               <p class="cmd-label">Windows (PowerShell)</p>
-              <pre class="cmd"><code>Get-ChildItem Keywhere-*-windows-* | ForEach-Object { if (Select-String -Quiet -SimpleMatch (Get-FileHash $_.FullName).Hash SHA256SUMS) { "OK   $($_.Name)" } else { "FAIL $($_.Name)" } }</code></pre>
+              <pre class="cmd"><code>$f = Get-ChildItem Keywhere-*-windows-*; if (-not $f) { "No Keywhere-*-windows-* file in this folder" }; foreach ($x in $f) { if (Select-String -Quiet -SimpleMatch (Get-FileHash $x.FullName).Hash SHA256SUMS) { "OK   $($x.Name)" } else { "FAIL $($x.Name)" } }</code></pre>
             </div>
             <ul class="verify-links">
               <li><a id="sums-link" href="https://github.com/vcostin/keywhere/releases/latest">SHA256SUMS</a></li>

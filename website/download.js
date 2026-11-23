@@ -139,6 +139,8 @@ function markYours() {
   const card = cards.find((c) => c.dataset.os === os);
   if (!card) return;
   card.classList.add("is-yours");
+  // The visitor's platform comes first, in the DOM so focus and reading order match the screen.
+  card.parentElement.prepend(card);
   card.querySelector(".platform-head").append(el("span", "tag tag-ok yours-badge", "Your system"));
 }
 
