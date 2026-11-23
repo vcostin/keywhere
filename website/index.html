@@ -414,13 +414,17 @@
               </ul>
               <details class="howto">
                 <summary>How to install</summary>
-                <p>AppImage: make it executable, then run it.</p>
-                <pre class="cmd"><code>chmod +x Keywhere-*.AppImage
-./Keywhere-*.AppImage</code></pre>
-                <p>Or install a package with your package manager:</p>
-                <pre class="cmd"><code>sudo apt install ./keywhere_*.deb</code></pre>
-                <pre class="cmd"><code>sudo dnf install ./keywhere-*.rpm</code></pre>
-                <pre class="cmd"><code>sudo zypper install --allow-unsigned-rpm ./keywhere-*.rpm</code></pre>
+                <!-- Commands appear only for files the latest release has; download.js fills in the names. -->
+                <div data-types="appimage" hidden>
+                  <p>AppImage: make it executable, then run it.</p>
+                  <pre class="cmd" data-types="appimage"><code data-template="chmod +x {name}&#10;./{name}"></code></pre>
+                </div>
+                <div data-types="deb rpm" hidden>
+                  <p>Package: install it with your package manager.</p>
+                  <pre class="cmd" data-types="deb"><code data-template="sudo apt install ./{name}"></code></pre>
+                  <pre class="cmd" data-types="rpm"><code data-template="sudo dnf install ./{name}"></code></pre>
+                  <pre class="cmd" data-types="rpm"><code data-template="sudo zypper install --allow-unsigned-rpm ./{name}"></code></pre>
+                </div>
                 <p>The tray icon works on KDE, and on GNOME with the AppIndicator extension.</p>
               </details>
             </article>
@@ -470,8 +474,11 @@
               <details class="howto">
                 <summary>First start</summary>
                 <p>Run the installer, or put the portable <code>.exe</code> anywhere, even on a USB stick, and run it. Settings go to <code>%APPDATA%\keywhere</code>.</p>
-                <p>SmartScreen warns on the first start: choose <strong>More info</strong> → <strong>Run anyway</strong>. Or unblock the file in PowerShell first:</p>
-                <pre class="cmd"><code>Unblock-File .\Keywhere-*-windows-x64*</code></pre>
+                <p>SmartScreen warns on the first start: choose <strong>More info</strong> → <strong>Run anyway</strong>.</p>
+                <div data-types="win-setup win-portable win-msi" hidden>
+                  <p>Or unblock the file in PowerShell first:</p>
+                  <pre class="cmd" data-types="win-setup win-portable win-msi"><code data-template="Unblock-File .\{name}"></code></pre>
+                </div>
               </details>
             </article>
           </div>
@@ -480,10 +487,19 @@
             <div class="verify-text">
               <h3>Check before you run</h3>
               <p>
-                Every release lists the SHA‑256 of each file in <code>SHA256SUMS</code>. Check a download
-                against it before you allow it to run, especially the unsigned previews.
+                Every release lists the SHA‑256 of each file in <code>SHA256SUMS</code>. Save it next to your
+                download and check before you allow it to run, especially the unsigned previews.
               </p>
-              <pre class="cmd"><code>sha256sum -c SHA256SUMS --ignore-missing</code></pre>
+              <div data-types="sums" hidden>
+                <p class="cmd-label">Linux</p>
+                <pre class="cmd"><code>sha256sum -c SHA256SUMS --ignore-missing</code></pre>
+                <p class="cmd-label">macOS</p>
+                <pre class="cmd"><code>shasum -a 256 -c SHA256SUMS --ignore-missing</code></pre>
+              </div>
+              <div data-types="win-setup win-portable win-msi" hidden>
+                <p class="cmd-label">Windows (PowerShell): run the line for your file, it prints True when the file matches</p>
+                <pre class="cmd" data-types="win-setup win-portable win-msi"><code data-template="(Get-FileHash .\{name}).Hash -eq '{sha256}'"></code></pre>
+              </div>
             </div>
             <ul class="verify-links">
               <li><a id="sums-link" href="https://github.com/vcostin/keywhere/releases/latest">SHA256SUMS</a></li>

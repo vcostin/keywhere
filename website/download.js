@@ -1,8 +1,9 @@
 // Fills the Download section from the latest GitHub release. This is the site's only network
 // request besides its own files. Nothing here names a version or a versioned file: release
 // files are sorted into types by their file name pattern, and a file that matches no pattern
-// still shows up under "Other files". Without the API (no JS, offline, rate-limited) every
-// link points at the Releases page.
+// still shows up under "Other files". The install notes only show commands for files the
+// release has. Without the API (no JS, offline, rate-limited) every link points at the Releases
+// page and no file is described.
 
 const REPO = "vcostin/keywhere";
 const RELEASES = `https://github.com/${REPO}/releases`;
@@ -139,6 +140,8 @@ function markYours() {
   const card = cards.find((c) => c.dataset.os === os);
   if (!card) return;
   card.classList.add("is-yours");
+  // The visitor's platform comes first, in the DOM so focus and reading order match the screen.
+  card.parentElement.prepend(card);
   card.querySelector(".platform-head").append(el("span", "tag tag-ok yours-badge", "Your system"));
 }
 
@@ -152,30 +155,19 @@ function setStatus(text, link) {
   dlStatus.replaceChildren(...parts);
 }
 
-/** One download row. Without an asset it describes the type and links to the Releases page. */
+/** One download row for a release file. */
 function fileRow(type, asset) {
   const li = el("li", "file");
   li.dataset.type = type.id;
   const a = el("a", "file-link");
-  a.href = (asset && safeUrl(asset.browser_download_url)) ?? LATEST;
+  a.href = safeUrl(asset.browser_download_url) ?? LATEST;
   const kind = el("span", "file-kind", type.kind);
   if (type.tag) kind.append(" ", el("span", "tag tag-accent", type.tag));
-  a.append(kind, el("span", "file-desc", type.desc));
-  if (asset) {
-    a.append(el("span", "file-name", asset.name));
-    const size = formatBytes(asset.size);
-    if (size) a.append(el("span", "file-meta", size));
-  }
+  a.append(kind, el("span", "file-desc", type.desc), el("span", "file-name", asset.name));
+  const size = formatBytes(asset.size);
+  if (size) a.append(el("span", "file-meta", size));
   li.append(a);
   return li;
-}
-
-/** Shows every known type without file names, all linking to the Releases page. */
-function renderGeneric() {
-  for (const card of cards) {
-    const rows = TYPES.filter((t) => t.os === card.dataset.os).map((t) => fileRow(t, null));
-    card.querySelector(".files").replaceChildren(...rows);
-  }
 }
 
 /**
@@ -186,14 +178,19 @@ function setCta(text, linkText, target) {
   if (!linkText) return ctaStatus.replaceChildren(text);
   const a = el("a", "", linkText);
   a.href = `#${target}`;
-  const card = document.getElementById(target);
-  const howto = card?.classList.contains("platform") ? card.querySelector(".howto") : null;
-  if (howto) a.addEventListener("click", () => (howto.open = true));
+  opensHowto(a, target);
   ctaStatus.replaceChildren(text, a, ".");
 }
 
+/** A link to a platform card also opens that card's install / first-start notes. */
+function opensHowto(link, target) {
+  const card = document.getElementById(target);
+  const howto = card?.classList.contains("platform") ? card.querySelector(".howto") : null;
+  if (howto) link.addEventListener("click", () => (howto.open = true));
+}
+
+/** Without release data the cards keep their plain link to GitHub Releases and no commands show. */
 function fallback(message) {
-  renderGeneric();
   setCta(`${message} `, "See all downloads", "download");
   setStatus(message + " All files are on ", { text: "GitHub Releases", href: LATEST });
 }
@@ -248,6 +245,44 @@ function renderCards(byType, version) {
   }
 }
 
+/**
+ * Install notes and checks only describe files the release has. Every element with data-types
+ * stays hidden until the release has a file of one of those types ("sums" is SHA256SUMS). A
+ * <pre data-types> with <code data-template> gets one command per matching file, with {name}
+ * and {sha256} filled in; extra copies are clones of the <pre>, so they keep its copy button
+ * (site.js handles copy clicks by delegation).
+ */
+function showCommands(byType, sums) {
+  const assetsOf = (node) =>
+    node.dataset.types.split(/\s+/).flatMap((id) => (id === "sums" ? (sums ? [sums] : []) : byType.get(id) ?? []));
+
+  for (const pre of document.querySelectorAll("pre[data-types]")) {
+    const code = pre.querySelector("code[data-template]");
+    const template = code.dataset.template;
+    const needsSum = template.includes("{sha256}");
+    const assets = assetsOf(pre).filter((asset) => !needsSum || sha256Of(asset));
+    pre.hidden = !assets.length;
+    if (!assets.length) continue;
+    // Function replacers: a "$" in a file name must not act as a replacement pattern.
+    const text = (asset) =>
+      template.replaceAll("{name}", () => asset.name).replaceAll("{sha256}", () => sha256Of(asset));
+    code.textContent = text(assets[0]);
+    let last = pre;
+    for (const asset of assets.slice(1)) {
+      const copy = pre.cloneNode(true);
+      copy.querySelector("code").textContent = text(asset);
+      last.after(copy);
+      last = copy;
+    }
+  }
+  // A wrapper shows when one of its commands did (a {sha256} command needs digests), or, if it
+  // has no filled commands, when the release has a file of one of its types.
+  for (const node of document.querySelectorAll("[data-types]:not(pre)")) {
+    const pres = node.querySelectorAll("pre[data-types]");
+    node.hidden = pres.length ? ![...pres].some((pre) => !pre.hidden) : !assetsOf(node).length;
+  }
+}
+
 function renderOther(other) {
   if (!other.length) return;
   const list = otherFiles.querySelector("ul");
@@ -282,6 +317,7 @@ function renderPrimary(byType, version) {
     else setCta("Unsigned preview: ", "other Windows files and first start", "dl-windows");
   } else if (hasAny) {
     primary.href = `#dl-${os}`;
+    opensHowto(primary, `dl-${os}`);
     primaryLabel.textContent = `Download for ${name}`;
     primaryMeta.textContent = os === "macos" ? `Apple silicon or Intel · ${version}` : `Version ${version}`;
     if (os === "linux") setCta("", "All Linux downloads", "dl-linux");
@@ -328,6 +364,7 @@ async function main() {
   if (sums) sumsLink.href = safeUrl(sums.browser_download_url) ?? LATEST;
 
   renderCards(byType, version);
+  showCommands(byType, sums);
   renderOther(other);
   renderPrimary(byType, version);
 }
