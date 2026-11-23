@@ -67,9 +67,11 @@ tabs.forEach((tab, i) => {
 });
 
 /* ── Copy buttons on command snippets ─────────────────── */
+// Both icons are in every button; CSS shows the check while .is-done is set, so resetting a
+// button (download.js does, when it rewrites a command) only means removing the class.
 const COPY_ICON =
-  '<svg viewBox="0 0 20 20" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="2"/><path d="M13 7V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2"/></svg>';
-const DONE_ICON = '<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 10.5l4 4 8-9"/></svg>';
+  '<svg class="icon-copy" viewBox="0 0 20 20" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="2"/><path d="M13 7V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2"/></svg>';
+const DONE_ICON = '<svg class="icon-done" viewBox="0 0 20 20" aria-hidden="true"><path d="M4 10.5l4 4 8-9"/></svg>';
 
 if (navigator.clipboard) {
   for (const pre of document.querySelectorAll("pre.cmd")) {
@@ -77,7 +79,7 @@ if (navigator.clipboard) {
     btn.type = "button";
     btn.className = "copy-btn";
     btn.setAttribute("aria-label", "Copy command");
-    btn.innerHTML = COPY_ICON;
+    btn.innerHTML = COPY_ICON + DONE_ICON;
     pre.append(btn);
   }
   // Delegated, so commands that download.js adds later (clones of these blocks) copy too.
@@ -88,11 +90,9 @@ if (navigator.clipboard) {
     try {
       await navigator.clipboard.writeText(code.textContent);
       btn.classList.add("is-done");
-      btn.innerHTML = DONE_ICON;
       btn.setAttribute("aria-label", "Copied");
       setTimeout(() => {
         btn.classList.remove("is-done");
-        btn.innerHTML = COPY_ICON;
         btn.setAttribute("aria-label", "Copy command");
       }, 1600);
     } catch {

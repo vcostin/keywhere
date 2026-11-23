@@ -1232,6 +1232,13 @@ kbd {
   stroke-linecap: round;
   stroke-linejoin: round;
 }
+.copy-btn .icon-done,
+.copy-btn.is-done .icon-copy {
+  display: none;
+}
+.copy-btn.is-done .icon-done {
+  display: block;
+}
 .copy-btn.is-done {
   color: var(--ok-text);
 }

@@ -271,7 +271,9 @@ function fillCommands(byType) {
       .filter((asset) => !needsSum || sha256Of(asset));
     if (!assets.length) continue;
     if (needsSum) code.closest(".verify-text")?.querySelector("#win-sum-hint")?.removeAttribute("hidden");
-    const text = (asset) => template.replaceAll("{name}", asset.name).replaceAll("{sha256}", sha256Of(asset));
+    // Function replacers: a "$" in a file name must not act as a replacement pattern.
+    const text = (asset) =>
+      template.replaceAll("{name}", () => asset.name).replaceAll("{sha256}", () => sha256Of(asset));
     const pre = code.closest("pre");
     let last = pre;
     code.textContent = text(assets[0]);
@@ -280,6 +282,12 @@ function fillCommands(byType) {
       copy.querySelector("code").textContent = text(asset);
       last.after(copy);
       last = copy;
+    }
+    // A Copy clicked before the release loaded no longer matches the text: show Copy again.
+    for (let p = pre; p && p !== last.nextElementSibling; p = p.nextElementSibling) {
+      const btn = p.querySelector(".copy-btn");
+      btn?.classList.remove("is-done");
+      btn?.setAttribute("aria-label", "Copy command");
     }
   }
 }
