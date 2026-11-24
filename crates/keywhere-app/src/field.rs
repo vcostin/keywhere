@@ -428,7 +428,7 @@ impl TextField {
             return self.buf.len();
         };
         // Rows are from the last frame: the buffer may have shrunk since.
-        if row.start > self.buf.len() {
+        if row.start > self.buf.len() || !self.buf.is_char_boundary(row.start) {
             return self.buf.len();
         }
         let mut di = row
