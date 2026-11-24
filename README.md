@@ -3,6 +3,14 @@
 <p align="center">A modern, cross‑platform password manager for <b>Password Safe v3</b> (<code>.psafe3</code>) vaults.<br>
 Works with files from Password Safe and Password Gorilla. No cloud account, no subscription, no nags.</p>
 
+<p align="center">
+  <a href="https://github.com/vcostin/keywhere/actions/workflows/ci.yml?query=branch%3Amain"><img src="https://github.com/vcostin/keywhere/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI status"></a>
+  <a href="https://github.com/vcostin/keywhere/releases/latest"><img src="https://img.shields.io/github/v/release/vcostin/keywhere?label=release" alt="Latest release"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/vcostin/keywhere" alt="License: MIT"></a>
+</p>
+
+<p align="center"><b><a href="https://vcostin.github.io/keywhere/#download">Download Keywhere</a></b> for Linux, macOS and Windows · <a href="https://vcostin.github.io/keywhere/">Website</a></p>
+
 > **Status: v0.1.6, young but usable (M4 polish done, M5 packaging in progress).** The vault
 > engine is tested against Password Safe and Password Gorilla; the app unlocks, browses, searches,
 > copies, adds, edits, duplicates and deletes entries, generates passwords, and shows weak, reused
@@ -14,6 +22,10 @@ Works with files from Password Safe and Password Gorilla. No cloud account, no s
 <p align="center"><img src="docs/screenshots/generator.png" width="820" alt="New entry with password generator"></p>
 
 ## Using it
+
+The [download page](https://vcostin.github.io/keywhere/#download) picks the right file for your
+system and lists checksums. All files are also on
+[Releases](https://github.com/vcostin/keywhere/releases/latest).
 
 **Linux:** from [Releases](https://github.com/vcostin/keywhere/releases/latest) take
 * the **AppImage** (any distribution; updates itself): `chmod +x Keywhere-*.AppImage` and run it, or
