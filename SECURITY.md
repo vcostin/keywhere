@@ -120,8 +120,10 @@ as **unsigned previews**. They have:
 
 * auto-lock on screen lock, user switch and sleep, and on Windows also when
   the display turns off (`WTS_SESSION_LOCK`, `PBT_APMSUSPEND`,
-  `GUID_CONSOLE_DISPLAY_STATE`; the macOS screen-locked, screens-did-sleep,
-  session-resign-active and will-sleep notifications);
+  `GUID_CONSOLE_DISPLAY_STATE`; the macOS screen-locked, screens-did-sleep
+  and session-resign-active notifications, and IOKit's system-will-sleep,
+  which holds sleep until the locked view has been drawn, like the logind
+  delay inhibitor on Linux);
 * process hardening:
   * Windows: no error-report dumps, and a process access list that denies
     other programs of the same user memory access, thread injection and
@@ -132,8 +134,6 @@ as **unsigned previews**. They have:
 
 Known gaps:
 
-* macOS's will-sleep notification is not a barrier: the Mac may sleep before
-  the lock has painted. IOKit power handling is to do.
 * The macOS build is untested on real hardware.
 * Neither build is code-signed.
 
