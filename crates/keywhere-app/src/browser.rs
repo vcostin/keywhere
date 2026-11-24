@@ -1504,6 +1504,12 @@ impl Browser {
 
     fn tick(&mut self, cx: &mut Context<Self>) {
         let now = Instant::now();
+        // Vault text copied out of a text field (editor, dialogs) gets the
+        // same auto-clear as the copy buttons.
+        if let Some(h) = crate::sys::clipboard::take_field_copy() {
+            self.clip_hash = Some(h);
+            self.clip_until = Some(now + crate::settings::get().clipboard_clear());
+        }
         if self.clip_until.is_some_and(|t| now >= t) {
             self.clear_clipboard_if_ours(cx);
         }
@@ -1521,7 +1527,9 @@ impl Browser {
 
     /// Only clears if the clipboard still holds what we put there.
     pub fn clear_clipboard_if_ours(&mut self, cx: &mut Context<Self>) {
-        if let Some(h) = self.clip_hash.take() {
+        // A text field's copy not yet adopted by `tick` counts too.
+        let field_copy = crate::sys::clipboard::take_field_copy();
+        for h in [self.clip_hash.take(), field_copy].into_iter().flatten() {
             let current = crate::sys::clipboard::get_text().or_else(|| {
                 cx.read_from_clipboard()
                     .and_then(|c| c.text())
