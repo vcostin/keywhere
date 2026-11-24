@@ -87,9 +87,7 @@ enum DragKind {
 const SIDEBAR_W: f32 = 200.;
 const LIST_W: f32 = 270.;
 const SIDEBAR_MIN: f32 = 150.;
-const SIDEBAR_MAX: f32 = 420.;
 const LIST_MIN: f32 = 200.;
-const LIST_MAX: f32 = 600.;
 /// The detail pane never gets narrower than this from resizing: room for
 /// the avatar, a readable title and the Favorite/Edit/Duplicate/Delete
 /// buttons (Romanian labels are the widest). With the sidebar and list at
@@ -352,8 +350,8 @@ impl Browser {
             upgrade: None,
             rekey: None,
             dialog_focus: cx.focus_handle(),
-            sidebar_w: sidebar_w.clamp(SIDEBAR_MIN, SIDEBAR_MAX),
-            list_w: list_w.clamp(LIST_MIN, LIST_MAX),
+            sidebar_w: sidebar_w.max(SIDEBAR_MIN),
+            list_w: list_w.max(LIST_MIN),
             layout_dirty: false,
             drag: None,
             _ticker: ticker,
@@ -1094,14 +1092,12 @@ impl Browser {
         let (sidebar, _) = self.pane_widths(total);
         match *ev.drag(cx) {
             Splitter::Sidebar => {
-                self.sidebar_w = x
-                    .min(total - LIST_MIN - DETAIL_MIN)
-                    .clamp(SIDEBAR_MIN, SIDEBAR_MAX);
+                self.sidebar_w = x.min(total - LIST_MIN - DETAIL_MIN).max(SIDEBAR_MIN);
             }
             Splitter::List => {
                 self.list_w = (x - sidebar)
                     .min(total - sidebar - DETAIL_MIN)
-                    .clamp(LIST_MIN, LIST_MAX);
+                    .max(LIST_MIN);
             }
         }
         self.layout_dirty = true;
