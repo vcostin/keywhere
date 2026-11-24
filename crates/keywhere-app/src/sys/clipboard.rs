@@ -60,3 +60,25 @@ pub fn get_text() -> Option<Zeroizing<String>> {
 pub fn clear() {
     with(|cb| cb.clear().ok());
 }
+
+/// SHA-256 of vault text a text field just copied (a revealed password, a
+/// note…), waiting for the unlocked view to adopt it into its clipboard
+/// auto-clear timer. Only the digest is kept, never the text.
+static FIELD_COPY: Mutex<Option<[u8; 32]>> = Mutex::new(None);
+
+/// Copy vault text out of a text field: the secure path (history exclusion)
+/// plus auto-clear like the copy buttons. Returns false if no OS clipboard is
+/// reachable.
+pub fn copy_from_field(text: &str) -> bool {
+    use sha2::{Digest, Sha256};
+    if !set_secret(text) {
+        return false;
+    }
+    *FIELD_COPY.lock().unwrap_or_else(|e| e.into_inner()) = Some(Sha256::digest(text).into());
+    true
+}
+
+/// The digest of the last field copy not yet put on an auto-clear timer.
+pub fn take_field_copy() -> Option<[u8; 32]> {
+    FIELD_COPY.lock().unwrap_or_else(|e| e.into_inner()).take()
+}

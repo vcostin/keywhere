@@ -1504,6 +1504,12 @@ impl Browser {
 
     fn tick(&mut self, cx: &mut Context<Self>) {
         let now = Instant::now();
+        // Vault text copied out of a text field (editor, dialogs) gets the
+        // same auto-clear as the copy buttons.
+        if let Some(h) = crate::sys::clipboard::take_field_copy() {
+            self.clip_hash = Some(h);
+            self.clip_until = Some(now + crate::settings::get().clipboard_clear());
+        }
         if self.clip_until.is_some_and(|t| now >= t) {
             self.clear_clipboard_if_ours(cx);
         }
