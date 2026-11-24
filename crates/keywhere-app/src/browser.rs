@@ -1958,14 +1958,19 @@ impl Browser {
                             )
                     }),
             )
-            .when(g.path.len() == 1, |d| {
-                d.child(
-                    svg()
-                        .path("icons/folder.svg")
-                        .size(px(13.))
-                        .text_color(c(if on { TEXT } else { MUTED })),
-                )
-            })
+            // Every group is a folder (and a drop target); an expanded one
+            // shows as open.
+            .child(
+                svg()
+                    .path(if has_children && !collapsed {
+                        "icons/folder-open.svg"
+                    } else {
+                        "icons/folder.svg"
+                    })
+                    .size(px(13.))
+                    .flex_none()
+                    .text_color(c(if on { TEXT } else { MUTED })),
+            )
             .child(
                 div()
                     .ml_1()
