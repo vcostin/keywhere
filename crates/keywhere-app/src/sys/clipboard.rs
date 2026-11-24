@@ -27,6 +27,7 @@ fn with<R>(f: impl FnOnce(&mut arboard::Clipboard) -> Option<R>) -> Option<R> {
 /// Put a secret on the clipboard, excluded from clipboard history where the
 /// OS supports it. Returns false if no OS clipboard is reachable.
 pub fn set_secret(text: &str) -> bool {
+    bump();
     with(|cb| {
         let set = cb.set();
         #[cfg(target_os = "linux")]
@@ -56,8 +57,17 @@ pub fn get_text() -> Option<Zeroizing<String>> {
     with(|cb| cb.get_text().ok().map(Zeroizing::new))
 }
 
+/// Bumped by every field copy and every clear: a field copy's own timer
+/// only acts while nothing has happened to the clipboard through us since.
+static EPOCH: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+fn bump() -> u64 {
+    EPOCH.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1
+}
+
 /// Empty the clipboard.
 pub fn clear() {
+    bump();
     with(|cb| cb.clear().ok());
 }
 
@@ -72,21 +82,27 @@ fn digest(text: &str) -> [u8; 32] {
 }
 
 /// Copy vault text out of a text field through the secure path (history
-/// exclusion). Returns its digest for [`clear_if`] (the field's own
-/// auto-clear timer), or `None` if no OS clipboard is reachable. The
-/// unlocked view also adopts it, for its countdown and to clear on lock.
-pub fn copy_from_field(text: &str) -> Option<[u8; 32]> {
+/// exclusion). Returns a ticket for [`clear_if`] (the field's own auto-clear
+/// timer), or `None` if no OS clipboard is reachable. The unlocked view also
+/// adopts the digest, for its countdown and to clear on lock.
+pub fn copy_from_field(text: &str) -> Option<([u8; 32], u64)> {
     if !set_secret(text) {
         return None;
     }
     let h = digest(text);
     *FIELD_COPY.lock().unwrap_or_else(|e| e.into_inner()) = Some(h);
-    Some(h)
+    Some((h, bump()))
 }
 
-/// Empty the clipboard if it still holds the text with digest `h` (or
-/// can't be read, so it might).
-pub fn clear_if(h: [u8; 32]) {
+/// The timer of the field copy with this ticket ran out: empty the
+/// clipboard if it still holds that text (or can't be read, so it might).
+/// A no-op once we cleared or copied again since: then that copy is gone
+/// or has its own timer, and a stale timer must not wipe what the user
+/// copied later.
+pub fn clear_if((h, epoch): ([u8; 32], u64)) {
+    if EPOCH.load(std::sync::atomic::Ordering::SeqCst) != epoch {
+        return;
+    }
     match get_text() {
         Some(t) if digest(&t) != h => {}
         _ => clear(),

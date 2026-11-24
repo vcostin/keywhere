@@ -462,11 +462,11 @@ impl TextField {
         if self.secret || self.sensitive {
             // Cleared after the usual time even with no unlocked view (the
             // unlock screen) or after this field is gone.
-            if let Some(h) = crate::sys::clipboard::copy_from_field(&text) {
+            if let Some(ticket) = crate::sys::clipboard::copy_from_field(&text) {
                 let wait = crate::settings::get().clipboard_clear();
                 cx.spawn(async move |_, cx| {
                     cx.background_executor().timer(wait).await;
-                    crate::sys::clipboard::clear_if(h);
+                    crate::sys::clipboard::clear_if(ticket);
                 })
                 .detach();
             }
