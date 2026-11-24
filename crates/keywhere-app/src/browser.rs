@@ -4,12 +4,12 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use gpui::{
-    actions, div, prelude::*, px, svg, uniform_list, App, ClipboardItem, Context, Entity,
-    EventEmitter, FocusHandle, Focusable, FontWeight, ScrollStrategy, SharedString, Task,
-    UniformListScrollHandle, Window,
+    actions, div, prelude::*, px, svg, uniform_list, App, ClipboardItem, Context, DragMoveEvent,
+    Entity, EventEmitter, FocusHandle, Focusable, FontWeight, ScrollStrategy, SharedString, Task,
+    UniformListScrollHandle, WeakEntity, Window,
 };
 use keywhere_core::lock::{LockState, VaultLock};
-use keywhere_core::{now_secs, rec, Error, Format, Record, Vault};
+use keywhere_core::{now_secs, rec, Error, Format, GroupMoveError, Record, Vault};
 use sha2::{Digest, Sha256};
 
 use crate::editor::{EditorEvent, EntryEditor};
@@ -45,6 +45,123 @@ pub enum BrowserEvent {
     LockRequested,
     /// The session moved to another file (v2 → v3 upgrade).
     PathChanged(PathBuf),
+}
+
+/// An entry being dragged onto a group.
+#[derive(Clone)]
+struct DraggedEntry {
+    uuid: Vec<u8>,
+    title: SharedString,
+}
+
+/// A group (with its subtree) being dragged onto another group.
+#[derive(Clone)]
+struct DraggedGroup {
+    path: Vec<String>,
+}
+
+impl DraggedGroup {
+    /// Can it move under `parent`? Not into itself or a descendant, and not
+    /// where it already is.
+    fn fits_under(&self, parent: &[String]) -> bool {
+        !parent.starts_with(&self.path) && self.path[..self.path.len() - 1] != *parent
+    }
+}
+
+/// The handle between two panes being dragged.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Splitter {
+    Sidebar,
+    List,
+}
+
+/// What a drag in progress carries (drop targets that only make sense
+/// while dragging, and the active splitter's highlight, read this).
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum DragKind {
+    Entry,
+    Group,
+    Resize(Splitter),
+}
+
+const SIDEBAR_W: f32 = 200.;
+const LIST_W: f32 = 270.;
+const SIDEBAR_MIN: f32 = 150.;
+const LIST_MIN: f32 = 200.;
+/// The detail pane never gets narrower than this from resizing: room for
+/// the avatar, a readable title and the Favorite/Edit/Duplicate/Delete
+/// buttons (Romanian labels are the widest). With the sidebar and list at
+/// their minimums this still fits the 820 px minimum window.
+const DETAIL_MIN: f32 = 450.;
+
+/// What follows the mouse while an entry or group is dragged.
+struct DragPill {
+    icon: &'static str,
+    label: SharedString,
+    /// Where the drag started inside the source element; the pill is drawn
+    /// just below-right of the cursor rather than over the source's origin.
+    offset: gpui::Point<gpui::Pixels>,
+}
+
+impl Render for DragPill {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .pl(self.offset.x + px(14.))
+            .pt(self.offset.y + px(8.))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .px_2()
+                    .h(px(26.))
+                    .max_w(px(260.))
+                    .rounded(px(7.))
+                    .bg(c(PANEL))
+                    .border_1()
+                    .border_color(c(ACCENT))
+                    .shadow_lg()
+                    .text_size(px(12.))
+                    .text_color(c(TEXT))
+                    .child(
+                        svg()
+                            .path(self.icon)
+                            .size(px(13.))
+                            .flex_none()
+                            .text_color(c(MUTED)),
+                    )
+                    .child(
+                        div()
+                            .overflow_hidden()
+                            .whitespace_nowrap()
+                            .text_ellipsis()
+                            .child(self.label.clone()),
+                    ),
+            )
+    }
+}
+
+/// Splitter drags show nothing at the cursor.
+struct NoPreview;
+
+impl Render for NoPreview {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        div()
+    }
+}
+
+/// Note what kind of drag started (for the view) and build its preview.
+fn start_drag<V: Render>(
+    this: &WeakEntity<Browser>,
+    kind: DragKind,
+    cx: &mut App,
+    preview: impl FnOnce(&mut Context<V>) -> V,
+) -> Entity<V> {
+    let _ = this.update(cx, |b, cx| {
+        b.drag = Some(kind);
+        cx.notify();
+    });
+    cx.new(preview)
 }
 
 pub struct Browser {
@@ -94,6 +211,13 @@ pub struct Browser {
     /// "Change master password" dialog.
     rekey: Option<rekey::Rekey>,
     dialog_focus: FocusHandle,
+    /// Pane widths as the user resized them (clamped to the window when drawn).
+    sidebar_w: f32,
+    list_w: f32,
+    /// A splitter moved; save the widths once the drag ends.
+    layout_dirty: bool,
+    /// The drag in progress, if one of ours.
+    drag: Option<DragKind>,
     _ticker: Task<()>,
     _on_quit: gpui::Subscription,
 }
@@ -193,6 +317,7 @@ impl Browser {
 
         let focus = cx.focus_handle();
         window.focus(&focus);
+        let (sidebar_w, list_w) = config::pane_widths().unwrap_or((SIDEBAR_W, LIST_W));
         let mut this = Self {
             path,
             vault: Some(vault),
@@ -225,6 +350,10 @@ impl Browser {
             upgrade: None,
             rekey: None,
             dialog_focus: cx.focus_handle(),
+            sidebar_w: sidebar_w.max(SIDEBAR_MIN),
+            list_w: list_w.max(LIST_MIN),
+            layout_dirty: false,
+            drag: None,
             _ticker: ticker,
             _on_quit: on_quit,
         };
@@ -863,6 +992,162 @@ impl Browser {
         cx.notify();
     }
 
+    /// Drag and drop is an edit: not while read-only or another edit is open.
+    fn can_rearrange(&self) -> bool {
+        !self.read_only()
+            && self.editor.is_none()
+            && self.rekey.is_none()
+            && self.confirm_delete.is_none()
+            && self.upgrade.is_none()
+            && self.new_group.is_none()
+    }
+
+    fn selected_uuid(&self) -> Option<Vec<u8>> {
+        self.selected_record()
+            .and_then(Record::uuid)
+            .map(<[u8]>::to_vec)
+    }
+
+    /// An entry was dropped on a group (empty = "No group").
+    fn move_entry(&mut self, d: &DraggedEntry, group: Vec<String>, cx: &mut Context<Self>) {
+        if !self.can_rearrange() {
+            return;
+        }
+        let Some(i) = self.vault().find(&d.uuid) else {
+            return;
+        };
+        let keep = self.selected_uuid();
+        if !self.vault_mut().move_record(i, &group, now_secs()) {
+            return;
+        }
+        self.rebuild(keep, cx);
+        if self.persist(false, cx) {
+            let to = if group.is_empty() {
+                crate::i18n::t("No group").to_string()
+            } else {
+                keywhere_core::display_safe(&group.join(" / ")).into_owned()
+            };
+            self.toast(tf(
+                "Moved “{title}” to {group}",
+                &[("title", &d.title), ("group", &to)],
+            ));
+        }
+        cx.notify();
+    }
+
+    /// A group was dropped on another group (empty `parent` = top level).
+    fn move_group(&mut self, d: &DraggedGroup, parent: Vec<String>, cx: &mut Context<Self>) {
+        if !self.can_rearrange() {
+            return;
+        }
+        let from = d.path.clone();
+        let to = match self.vault_mut().move_group(&from, &parent, now_secs()) {
+            Ok(to) => to,
+            Err(GroupMoveError::Exists) => {
+                self.toast(crate::i18n::t(
+                    "A group with that name already exists there",
+                ));
+                cx.notify();
+                return;
+            }
+            Err(_) => return,
+        };
+        let rebase = |p: &Vec<String>| -> Vec<String> {
+            if p.starts_with(&from) {
+                let mut n = to.clone();
+                n.extend_from_slice(&p[from.len()..]);
+                n
+            } else {
+                p.clone()
+            }
+        };
+        self.collapsed = self.collapsed.iter().map(rebase).collect();
+        // Show where it went.
+        for depth in 1..=parent.len() {
+            self.collapsed.remove(&parent[..depth]);
+        }
+        if let Filter::Group(p) = &self.filter {
+            self.filter = Filter::Group(rebase(p));
+        }
+        let keep = self.selected_uuid();
+        self.rebuild(keep, cx);
+        self.persist(false, cx);
+        cx.notify();
+    }
+
+    /// Effective pane widths for a window `total` pixels wide: what the user
+    /// chose, squeezed so the detail pane keeps `DETAIL_MIN`.
+    fn pane_widths(&self, total: f32) -> (f32, f32) {
+        let sidebar = self
+            .sidebar_w
+            .min(total - LIST_MIN - DETAIL_MIN)
+            .max(SIDEBAR_MIN);
+        let list = self.list_w.min(total - sidebar - DETAIL_MIN).max(LIST_MIN);
+        (sidebar, list)
+    }
+
+    fn resize_pane(&mut self, ev: &DragMoveEvent<Splitter>, cx: &mut Context<Self>) {
+        let total = f32::from(ev.bounds.size.width);
+        let x = f32::from(ev.event.position.x - ev.bounds.left());
+        let (sidebar, _) = self.pane_widths(total);
+        match *ev.drag(cx) {
+            Splitter::Sidebar => {
+                self.sidebar_w = x.min(total - LIST_MIN - DETAIL_MIN).max(SIDEBAR_MIN);
+            }
+            Splitter::List => {
+                self.list_w = (x - sidebar)
+                    .min(total - sidebar - DETAIL_MIN)
+                    .max(LIST_MIN);
+            }
+        }
+        self.layout_dirty = true;
+        cx.notify();
+    }
+
+    /// The grab handle on the border between two panes, `x` from the left.
+    /// Double-click puts that pane back to its default width.
+    fn splitter(&self, which: Splitter, x: f32, cx: &mut Context<Self>) -> impl IntoElement {
+        let this = cx.entity().downgrade();
+        let (id, group) = match which {
+            Splitter::Sidebar => ("split-sidebar", "split-sidebar-g"),
+            Splitter::List => ("split-list", "split-list-g"),
+        };
+        let active = self.drag == Some(DragKind::Resize(which));
+        div()
+            .id(id)
+            .group(group)
+            .absolute()
+            .top_0()
+            .bottom_0()
+            .left(px(x - 3.))
+            .w(px(6.))
+            .flex()
+            .justify_center()
+            .cursor_col_resize()
+            .on_drag(which, move |_, _, _, cx| {
+                start_drag(&this, DragKind::Resize(which), cx, |_| NoPreview)
+            })
+            .on_click(cx.listener(move |this, ev: &gpui::ClickEvent, _, cx| {
+                if ev.click_count() >= 2 {
+                    match which {
+                        Splitter::Sidebar => this.sidebar_w = SIDEBAR_W,
+                        Splitter::List => this.list_w = LIST_W,
+                    }
+                    config::remember_pane_widths(this.sidebar_w, this.list_w);
+                    cx.notify();
+                }
+            }))
+            .child(
+                div()
+                    .w(px(2.))
+                    .h_full()
+                    .when(active, |d| d.bg(c(ACCENT)))
+                    .when(!active, |d| {
+                        d.group_hover(group, |d| d.bg(ca(ACCENT, 0x80)))
+                    }),
+            )
+    }
+
     fn render_new_group(
         &self,
         corner: gpui::Pixels,
@@ -1418,7 +1703,8 @@ impl Browser {
             })
     }
 
-    fn render_sidebar(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render_sidebar(&self, width: f32, cx: &mut Context<Self>) -> impl IntoElement {
+        let rearrange = self.can_rearrange();
         let now = now_secs() as u64;
         let expiring = self
             .entries
@@ -1430,7 +1716,7 @@ impl Browser {
         let reused = self.entries.iter().filter(|e| e.reused_with > 0).count();
         let mut col = div()
             .id("sidebar")
-            .w(px(200.))
+            .w(px(width))
             .flex_none()
             .h_full()
             .overflow_y_scroll()
@@ -1493,14 +1779,40 @@ impl Browser {
                 cx,
             ))
             .child(
+                // Dropping a group here moves it to the top level.
                 div()
+                    .id("groups-head")
                     .mt_3()
                     .mb_1()
                     .px_2()
+                    .py(px(3.))
+                    .rounded(px(6.))
+                    .flex()
+                    .items_center()
+                    .gap_2()
                     .text_size(px(10.))
                     .font_weight(FontWeight::SEMIBOLD)
                     .text_color(c(DIM))
-                    .child(crate::i18n::t("GROUPS")),
+                    .child(crate::i18n::t("GROUPS"))
+                    .when(self.drag == Some(DragKind::Group), |d| {
+                        d.child(
+                            div()
+                                .font_weight(FontWeight::NORMAL)
+                                .child(crate::i18n::t("drop here for top level")),
+                        )
+                    })
+                    .when(rearrange, |d| {
+                        d.drag_over::<DraggedGroup>(|s, _, _, _| {
+                            s.bg(ca(ACCENT, 0x33)).text_color(c(TEXT))
+                        })
+                        .can_drop(|v, _, _| {
+                            v.downcast_ref::<DraggedGroup>()
+                                .is_some_and(|g| g.fits_under(&[]))
+                        })
+                        .on_drop(cx.listener(
+                            |this, d: &DraggedGroup, _, cx| this.move_group(d, vec![], cx),
+                        ))
+                    }),
             );
         for (i, g) in self.groups.iter().enumerate() {
             // Hidden if any ancestor is collapsed.
@@ -1513,11 +1825,20 @@ impl Browser {
                 .is_some_and(|n| n.path.len() > g.path.len() && n.path.starts_with(&g.path));
             col = col.child(self.group_row(i, g, has_children, cx));
         }
-        // Entries that aren't in any group (only shown when there are some).
+        // Entries that aren't in any group (only shown when there are some,
+        // or while an entry is dragged: dropping it here ungroups it).
         let ungrouped = self.entries.iter().filter(|e| e.group.is_empty()).count();
-        if ungrouped > 0 {
+        if ungrouped > 0 || self.drag == Some(DragKind::Entry) {
             col = col.child(
                 div()
+                    .id("nogroup-drop")
+                    .rounded(px(6.))
+                    .when(rearrange, |d| {
+                        d.drag_over::<DraggedEntry>(|s, _, _, _| s.bg(ca(ACCENT, 0x33)))
+                            .on_drop(cx.listener(|this, d: &DraggedEntry, _, cx| {
+                                this.move_entry(d, vec![], cx)
+                            }))
+                    })
                     .on_mouse_down(
                         gpui::MouseButton::Right,
                         cx.listener(|this, ev: &gpui::MouseDownEvent, _, cx| {
@@ -1554,6 +1875,14 @@ impl Browser {
         let collapsed = self.collapsed.contains(&g.path);
         let path = g.path.clone();
         let label: SharedString = g.path.last().cloned().unwrap_or_default().into();
+        let rearrange = self.can_rearrange();
+        let this = cx.entity().downgrade();
+        let drag_value = DraggedGroup {
+            path: g.path.clone(),
+        };
+        let drop_entry = g.path.clone();
+        let drop_group = g.path.clone();
+        let fits = g.path.clone();
         div()
             .id(SharedString::from(format!("g{i}")))
             .flex()
@@ -1568,6 +1897,29 @@ impl Browser {
             .when(on, |d| d.bg(c(SELECTION)))
             .when(!on, |d| d.hover(|d| d.bg(c(HOVER))))
             .on_click(cx.listener(move |this, _, _, cx| this.set_filter(filter.clone(), cx)))
+            .when(rearrange, |d| {
+                let pill = label.clone();
+                d.on_drag(drag_value, move |_, offset, _, cx| {
+                    let label = pill.clone();
+                    start_drag(&this, DragKind::Group, cx, move |_| DragPill {
+                        icon: "icons/folder.svg",
+                        label,
+                        offset,
+                    })
+                })
+                .drag_over::<DraggedEntry>(|s, _, _, _| s.bg(ca(ACCENT, 0x33)).text_color(c(TEXT)))
+                .drag_over::<DraggedGroup>(|s, _, _, _| s.bg(ca(ACCENT, 0x33)).text_color(c(TEXT)))
+                .can_drop(move |v, _, _| {
+                    v.downcast_ref::<DraggedGroup>()
+                        .is_none_or(|g| g.fits_under(&fits))
+                })
+                .on_drop(cx.listener(move |this, d: &DraggedEntry, _, cx| {
+                    this.move_entry(d, drop_entry.clone(), cx)
+                }))
+                .on_drop(cx.listener(move |this, d: &DraggedGroup, _, cx| {
+                    this.move_group(d, drop_group.clone(), cx)
+                }))
+            })
             .on_mouse_down(gpui::MouseButton::Right, {
                 let path = g.path.clone();
                 cx.listener(move |this, ev: &gpui::MouseDownEvent, _, cx| {
@@ -1606,14 +1958,19 @@ impl Browser {
                             )
                     }),
             )
-            .when(g.path.len() == 1, |d| {
-                d.child(
-                    svg()
-                        .path("icons/folder.svg")
-                        .size(px(13.))
-                        .text_color(c(if on { TEXT } else { MUTED })),
-                )
-            })
+            // Every group is a folder (and a drop target); an expanded one
+            // shows as open.
+            .child(
+                svg()
+                    .path(if has_children && !collapsed {
+                        "icons/folder-open.svg"
+                    } else {
+                        "icons/folder.svg"
+                    })
+                    .size(px(13.))
+                    .flex_none()
+                    .text_color(c(if on { TEXT } else { MUTED })),
+            )
             .child(
                 div()
                     .ml_1()
@@ -1630,7 +1987,7 @@ impl Browser {
             )
     }
 
-    fn render_list(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render_list(&self, width: f32, cx: &mut Context<Self>) -> impl IntoElement {
         let title: SharedString = match &self.filter {
             Filter::All => crate::i18n::t("All entries").into(),
             Filter::Expiring => crate::i18n::t("Expiring").into(),
@@ -1642,7 +1999,7 @@ impl Browser {
         };
         let n = self.visible.len();
         div()
-            .w(px(270.))
+            .w(px(width))
             .flex_none()
             .h_full()
             .flex()
@@ -1727,6 +2084,15 @@ impl Browser {
                 (format!("{}d", (t - now).div_ceil(86_400)), WARN)
             }
         });
+        let rearrange = self.can_rearrange();
+        let this = cx.entity().downgrade();
+        let drag_value = DraggedEntry {
+            uuid: self.vault().records[e.index]
+                .uuid()
+                .map(<[u8]>::to_vec)
+                .unwrap_or_default(),
+            title: e.title.clone(),
+        };
         div()
             .id(pos)
             .w_full()
@@ -1750,6 +2116,17 @@ impl Browser {
                     this.start_edit(false, window, cx);
                 }
             }))
+            // Drag onto a group in the sidebar to move the entry there.
+            .when(rearrange && !drag_value.uuid.is_empty(), |d| {
+                d.on_drag(drag_value, move |v, offset, _, cx| {
+                    let label = v.title.clone();
+                    start_drag(&this, DragKind::Entry, cx, move |_| DragPill {
+                        icon: "icons/file.svg",
+                        label,
+                        offset,
+                    })
+                })
+            })
             .child(
                 div()
                     .size(px(30.))
@@ -2125,24 +2502,36 @@ impl Browser {
                             .flex_1()
                             .min_w_0()
                             .child(
+                                // One line, cut with "…": a narrow pane must
+                                // not wrap the title a letter per line.
                                 div()
                                     .text_size(px(18.))
                                     .font_weight(FontWeight::BOLD)
                                     .text_color(c(TEXT))
+                                    .whitespace_nowrap()
+                                    .overflow_hidden()
+                                    .text_ellipsis()
                                     .child(e.title.clone()),
                             )
-                            .child(div().text_size(px(11.5)).text_color(c(MUTED)).child(
-                                if e.group_label.is_empty() {
-                                    SharedString::from(crate::i18n::t("No group"))
-                                } else {
-                                    e.group_label.clone()
-                                },
-                            )),
+                            .child(
+                                div()
+                                    .text_size(px(11.5))
+                                    .text_color(c(MUTED))
+                                    .whitespace_nowrap()
+                                    .overflow_hidden()
+                                    .text_ellipsis()
+                                    .child(if e.group_label.is_empty() {
+                                        SharedString::from(crate::i18n::t("No group"))
+                                    } else {
+                                        e.group_label.clone()
+                                    }),
+                            ),
                     )
                     .when(!self.read_only(), |d| {
                         d.child(
                             div()
                                 .flex()
+                                .flex_none()
                                 .gap_1()
                                 .child(
                                     div()
@@ -2362,6 +2751,15 @@ impl Render for Browser {
             // Session handed off (window closing): draw nothing.
             return div().size_full().bg(c(BG)).into_any_element();
         }
+        if !cx.has_active_drag() {
+            // A drag ended (dropped or released anywhere).
+            self.drag = None;
+            if self.layout_dirty {
+                self.layout_dirty = false;
+                config::remember_pane_widths(self.sidebar_w, self.list_w);
+            }
+        }
+        let (sidebar_w, list_w) = self.pane_widths(f32::from(chrome::content_width(window)));
         let corner = chrome::corner_radius(window);
         let clip_left = self
             .clip_until
@@ -2609,12 +3007,20 @@ impl Render for Browser {
             .when_some(self.save_error.clone(), |d, e| d.child(Self::banner("saveerr", DANGER, e)))
             .child(
                 div()
+                    .id("panes")
                     .flex_1()
                     .min_h_0()
                     .flex()
-                    .child(self.render_sidebar(cx))
-                    .child(self.render_list(cx))
-                    .child(self.render_detail(cx)),
+                    .relative()
+                    .on_drag_move(cx.listener(|this, ev: &DragMoveEvent<Splitter>, _, cx| {
+                        this.resize_pane(ev, cx)
+                    }))
+                    .child(self.render_sidebar(sidebar_w, cx))
+                    .child(self.render_list(list_w, cx))
+                    .child(self.render_detail(cx))
+                    // Drawn last so they sit above the panes' edges.
+                    .child(self.splitter(Splitter::Sidebar, sidebar_w, cx))
+                    .child(self.splitter(Splitter::List, sidebar_w + list_w, cx)),
             )
             // status bar
             .child(

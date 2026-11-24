@@ -180,6 +180,18 @@ fn resize_edge(pos: Point<Pixels>, inset: Pixels, size: Size<Pixels>) -> Option<
     Some(edge)
 }
 
+/// Width left for the app content inside [`frame`]: the viewport minus the
+/// resize margin and 1 px border on each side while floating client-decorated.
+pub fn content_width(window: &Window) -> Pixels {
+    let width = window.viewport_size().width;
+    match window.window_decorations() {
+        Decorations::Client { tiling } if !tiling.is_tiled() && !window.is_maximized() => {
+            width - (RESIZE_INSET + px(1.)) * 2.
+        }
+        _ => width,
+    }
+}
+
 /// Wrap the app content in a client-decorated frame: rounded corners, border,
 /// shadow and resize edges while floating; edge-to-edge when maximised/tiled.
 pub fn frame(window: &mut Window, content: impl IntoElement) -> Div {

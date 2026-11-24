@@ -224,6 +224,9 @@ static TABLE: &[(&str, &str)] = &[
     ("Enter a name.", "Introduceți un nume."),
     ("That group already exists.", "Grupul există deja."),
     ("Delete empty group", "Șterge grupul gol"),
+    ("Moved “{title}” to {group}", "„{title}” a fost mutat în {group}"),
+    ("A group with that name already exists there", "Acolo există deja un grup cu acest nume"),
+    ("drop here for top level", "plasează aici pentru nivelul de sus"),
     (
         "Group created; v2 files keep it only once it has an entry",
         "Grup creat; fișierele v2 îl păstrează doar după ce are o intrare",
