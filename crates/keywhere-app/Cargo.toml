@@ -31,7 +31,7 @@ semver = "1.0.28"
 serde_json = "1.0.154"
 serde = { version = "1.0.229", features = ["derive"] }
 resvg = { version = "0.45", default-features = false }
-getrandom = "0.2"
+getrandom = "0.4"
 raw-window-handle = "0.6"
 
 [target.'cfg(unix)'.dependencies]
