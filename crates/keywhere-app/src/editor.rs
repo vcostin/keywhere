@@ -726,8 +726,17 @@ impl EntryEditor {
             )
             // overflow_hidden + min_w_0: long content (e.g. a passphrase) must
             // never set this column's minimum width (GPUI measures text's
-            // min-content as the whole unwrapped line).
-            .child(div().flex_1().min_w_0().overflow_hidden().child(field))
+            // min-content as the whole unwrapped line). The 3 px padding,
+            // cancelled by a -3 px margin, keeps the focus ring inside the clip.
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .overflow_hidden()
+                    .p(px(3.))
+                    .m(px(-3.))
+                    .child(field),
+            )
     }
 
     fn chip(id: &'static str, label: &'static str, on: bool) -> gpui::Stateful<gpui::Div> {
