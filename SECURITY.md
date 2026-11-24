@@ -122,8 +122,8 @@ as **unsigned previews**. They have:
   the display turns off (`WTS_SESSION_LOCK`, `PBT_APMSUSPEND`,
   `GUID_CONSOLE_DISPLAY_STATE`; the macOS screen-locked, screens-did-sleep
   and session-resign-active notifications, and IOKit's system-will-sleep,
-  which holds sleep until the locked view has been drawn, like the logind
-  delay inhibitor on Linux);
+  which, like the logind delay inhibitor on Linux, holds sleep until the
+  app has locked and had time to draw the locked view);
 * process hardening:
   * Windows: no error-report dumps, and a process access list that denies
     other programs of the same user memory access, thread injection and
@@ -134,7 +134,10 @@ as **unsigned previews**. They have:
 
 Known gaps:
 
-* The macOS build is untested on real hardware.
+* Sleep waits at most about 3 seconds for the lock (Windows: 1.5 s). If the
+  app doesn't answer in time, the system sleeps anyway, and the window may
+  show the unlocked vault briefly on wake.
+* The macOS build is only partly tested on real hardware (#33).
 * Neither build is code-signed.
 
 ## Defaults

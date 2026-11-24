@@ -7,9 +7,11 @@
 //! Sleep goes through IOKit instead of `NSWorkspaceWillSleepNotification`,
 //! which is only a notice: the Mac may sleep before the locked view has been
 //! drawn, leaving a frame with secrets in the window server's buffers. IOKit
-//! waits for `IOAllowPowerChange` (up to 30 s), so we lock, give the app time
-//! to draw the locked view, and only then let the Mac sleep — the same
-//! handshake as the logind delay inhibitor on Linux.
+//! waits for `IOAllowPowerChange` (up to 30 s), so we ask the app to lock,
+//! wait for its ack, give it time to draw the locked view and flush the old
+//! frames, and only then let the Mac sleep — the same handshake as the
+//! logind delay inhibitor on Linux. The wait is bounded: if the app doesn't
+//! ack within 3 s (a hung UI), the Mac sleeps anyway.
 
 use std::ffi::c_void;
 use std::ptr::NonNull;
@@ -101,6 +103,9 @@ mod power {
         ) -> IoConnect;
         fn IONotificationPortGetRunLoopSource(port: NotificationPort) -> RunLoopSource;
         fn IOAllowPowerChange(root: IoConnect, id: isize) -> i32;
+        fn IODeregisterForSystemPower(notifier: *mut IoObject) -> i32;
+        fn IONotificationPortDestroy(port: NotificationPort);
+        fn IOServiceClose(connect: IoConnect) -> i32;
     }
 
     #[link(name = "CoreFoundation", kind = "framework")]
@@ -128,20 +133,33 @@ mod power {
                 // IOServiceInterestCallback and refcon outlives the thread.
                 let root =
                     unsafe { IORegisterForSystemPower(refcon, &mut port, on_power, &mut notifier) };
-                if root == 0 || port.is_null() {
-                    // SAFETY: refcon came from Box::into_raw above and was
-                    // never handed to a live registration.
-                    drop(unsafe { Box::from_raw(refcon.cast::<EventTx>()) });
+                // SAFETY: port is checked before use.
+                let source = if port.is_null() {
+                    std::ptr::null_mut()
+                } else {
+                    unsafe { IONotificationPortGetRunLoopSource(port) }
+                };
+                if root == 0 || source.is_null() {
+                    // SAFETY: undo whatever half of the registration took;
+                    // no run loop ever served it, so refcon (from
+                    // Box::into_raw above) is no longer reachable by IOKit.
+                    unsafe {
+                        if root != 0 {
+                            IODeregisterForSystemPower(&mut notifier);
+                            IOServiceClose(root);
+                        }
+                        if !port.is_null() {
+                            IONotificationPortDestroy(port);
+                        }
+                        drop(Box::from_raw(refcon.cast::<EventTx>()));
+                    }
                     let _ = ok_tx.send(false);
                     return;
                 }
                 ROOT.store(root, Ordering::SeqCst);
-                // SAFETY: port is a valid notification port; the source and
-                // run loop belong to this thread, which never returns.
-                unsafe {
-                    let source = IONotificationPortGetRunLoopSource(port);
-                    CFRunLoopAddSource(CFRunLoopGetCurrent(), source, kCFRunLoopDefaultMode);
-                }
+                // SAFETY: source is our notification port's run-loop source;
+                // the run loop belongs to this thread, which never returns.
+                unsafe { CFRunLoopAddSource(CFRunLoopGetCurrent(), source, kCFRunLoopDefaultMode) };
                 let _ = ok_tx.send(true);
                 // SAFETY: runs this thread's run loop for the process lifetime.
                 unsafe { CFRunLoopRun() };
@@ -164,13 +182,15 @@ mod power {
                 let tx = unsafe { &*refcon.cast::<EventTx>() };
                 let before = super::super::lock_ack();
                 if tx.unbounded_send(SysEvent::LockForSleep).is_ok() {
-                    // Wait for the app to lock and ask for a locked frame,
-                    // then give the window server a moment to present it.
+                    // Wait for the app to lock and ask for a locked frame.
+                    // Its ack comes before that frame is drawn, and its
+                    // frame flush (the old layouts freed) runs ~240 ms
+                    // after, so give both time, as on Windows.
                     let deadline = Instant::now() + Duration::from_secs(3);
                     while super::super::lock_ack() == before && Instant::now() < deadline {
                         thread::sleep(Duration::from_millis(20));
                     }
-                    thread::sleep(Duration::from_millis(150));
+                    thread::sleep(Duration::from_millis(300));
                 }
                 // SAFETY: as above.
                 unsafe { IOAllowPowerChange(root, arg as isize) };
