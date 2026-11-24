@@ -205,13 +205,14 @@ fn watch_logind(tx: &EventTx) -> zbus::Result<()> {
                 if tx.unbounded_send(SysEvent::LockForSleep).is_err() {
                     break;
                 }
-                // Wait for the app to confirm the lock (and draw one
-                // non-secret frame), then let the system sleep.
+                // Wait for the app to confirm the lock, then give it time to
+                // draw the locked view and run its frame flush (~240 ms,
+                // after the ack), then let the system sleep.
                 let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
                 while super::lock_ack() == before && std::time::Instant::now() < deadline {
                     thread::sleep(std::time::Duration::from_millis(20));
                 }
-                thread::sleep(std::time::Duration::from_millis(150));
+                thread::sleep(std::time::Duration::from_millis(300));
                 inhibitor = None; // closing the fd releases the inhibitor
             }
             Ok(false) => {
