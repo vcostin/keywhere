@@ -66,16 +66,31 @@ pub fn clear() {
 /// auto-clear timer. Only the digest is kept, never the text.
 static FIELD_COPY: Mutex<Option<[u8; 32]>> = Mutex::new(None);
 
-/// Copy vault text out of a text field: the secure path (history exclusion)
-/// plus auto-clear like the copy buttons. Returns false if no OS clipboard is
-/// reachable.
-pub fn copy_from_field(text: &str) -> bool {
+fn digest(text: &str) -> [u8; 32] {
     use sha2::{Digest, Sha256};
+    Sha256::digest(text).into()
+}
+
+/// Copy vault text out of a text field through the secure path (history
+/// exclusion). Returns its digest for [`clear_if`] (the field's own
+/// auto-clear timer), or `None` if no OS clipboard is reachable. The
+/// unlocked view also adopts it, for its countdown and to clear on lock.
+pub fn copy_from_field(text: &str) -> Option<[u8; 32]> {
     if !set_secret(text) {
-        return false;
+        return None;
     }
-    *FIELD_COPY.lock().unwrap_or_else(|e| e.into_inner()) = Some(Sha256::digest(text).into());
-    true
+    let h = digest(text);
+    *FIELD_COPY.lock().unwrap_or_else(|e| e.into_inner()) = Some(h);
+    Some(h)
+}
+
+/// Empty the clipboard if it still holds the text with digest `h` (or
+/// can't be read, so it might).
+pub fn clear_if(h: [u8; 32]) {
+    match get_text() {
+        Some(t) if digest(&t) != h => {}
+        _ => clear(),
+    }
 }
 
 /// The digest of the last field copy not yet put on an auto-clear timer.

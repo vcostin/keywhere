@@ -159,8 +159,12 @@ impl TextField {
         &self.buf
     }
 
+    /// Replace the content programmatically (loading an entry, a generated
+    /// password): a new starting point, so the undo history is dropped.
     pub fn set_text(&mut self, s: &str, cx: &mut Context<Self>) {
-        self.checkpoint(EditKind::Other);
+        self.undo.clear();
+        self.redo.clear();
+        self.last_edit = None;
         self.buf = Zeroizing::new(s.to_string());
         self.cursor = self.buf.len();
         self.anchor = None;
@@ -423,9 +427,23 @@ impl TextField {
         else {
             return self.buf.len();
         };
-        let di = row.shaped.closest_index_for_x(p.x - row.bounds.left());
-        let chars = row.shown[..di.min(row.shown.len())].chars().count();
-        let line = &self.buf[row.start..row.end.min(self.buf.len())];
+        // Rows are from the last frame: the buffer may have shrunk since.
+        if row.start > self.buf.len() {
+            return self.buf.len();
+        }
+        let mut di = row
+            .shaped
+            .closest_index_for_x(p.x - row.bounds.left())
+            .min(row.shown.len());
+        while !row.shown.is_char_boundary(di) {
+            di -= 1;
+        }
+        let chars = row.shown[..di].chars().count();
+        let mut end = row.end.min(self.buf.len());
+        while !self.buf.is_char_boundary(end) {
+            end -= 1;
+        }
+        let line = &self.buf[row.start..end];
         row.start
             + line
                 .char_indices()
@@ -442,7 +460,16 @@ impl TextField {
         }
         let text = Zeroizing::new(self.buf[r].to_string());
         if self.secret || self.sensitive {
-            crate::sys::clipboard::copy_from_field(&text);
+            // Cleared after the usual time even with no unlocked view (the
+            // unlock screen) or after this field is gone.
+            if let Some(h) = crate::sys::clipboard::copy_from_field(&text) {
+                let wait = crate::settings::get().clipboard_clear();
+                cx.spawn(async move |_, cx| {
+                    cx.background_executor().timer(wait).await;
+                    crate::sys::clipboard::clear_if(h);
+                })
+                .detach();
+            }
         } else {
             cx.write_to_clipboard(ClipboardItem::new_string(text.to_string()));
         }
@@ -479,9 +506,17 @@ impl TextField {
                 }
                 self.copy(cx);
             }
-            "insert" if m.control && !shift => self.copy(cx),
+            "insert" if m.control && !shift => {
+                if self.selection().is_none() {
+                    return;
+                }
+                self.copy(cx);
+            }
             "x" if shortcut && !shift => {
-                if self.selection().is_some() && !self.masked() {
+                if self.selection().is_none() {
+                    return;
+                }
+                if !self.masked() {
                     self.copy(cx);
                     changed = self.delete(self.cursor..self.cursor);
                 }
@@ -803,9 +838,18 @@ impl Render for TextField {
                 }
                 let on_move = this.clone();
                 window.on_mouse_event(move |ev: &MouseMoveEvent, phase, _, cx| {
-                    if phase.bubble() && ev.pressed_button == Some(MouseButton::Left) {
-                        let _ = on_move.update(cx, |t, cx| t.on_drag_select(ev.position, cx));
+                    if !phase.bubble() {
+                        return;
                     }
+                    let _ = on_move.update(cx, |t, cx| {
+                        if ev.pressed_button == Some(MouseButton::Left) {
+                            t.on_drag_select(ev.position, cx);
+                        } else {
+                            // The release was missed (outside the window…).
+                            t.drag_from = None;
+                            cx.notify();
+                        }
+                    });
                 });
                 let on_up = this.clone();
                 window.on_mouse_event(move |ev: &MouseUpEvent, phase, _, cx| {

@@ -1527,7 +1527,9 @@ impl Browser {
 
     /// Only clears if the clipboard still holds what we put there.
     pub fn clear_clipboard_if_ours(&mut self, cx: &mut Context<Self>) {
-        if let Some(h) = self.clip_hash.take() {
+        // A text field's copy not yet adopted by `tick` counts too.
+        let field_copy = crate::sys::clipboard::take_field_copy();
+        for h in [self.clip_hash.take(), field_copy].into_iter().flatten() {
             let current = crate::sys::clipboard::get_text().or_else(|| {
                 cx.read_from_clipboard()
                     .and_then(|c| c.text())
