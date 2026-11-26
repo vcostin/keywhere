@@ -1,6 +1,6 @@
 <p align="center"><img src="assets/keywhere-key.svg" width="96" alt="Keywhere logo"></p>
 <h1 align="center">Keywhere</h1>
-<p align="center">A modern, cross‑platform password manager for <b>Password Safe v3</b> (<code>.psafe3</code>) vaults.<br>
+<p align="center">A calm desktop password manager for your <b>Password Safe v3</b> (<code>.psafe3</code>) vault.<br>
 Works with files from Password Safe and Password Gorilla. No cloud account, no subscription, no nags.</p>
 
 <p align="center">
@@ -148,10 +148,21 @@ honours Password Safe's `.plk` lock file and opens read‑only while another app
 
 * **Password Gorilla** is discontinued and its Tcl/Tk UI shows its age.
 * **Password Safe** is solid but cluttered.
-* **Strongbox** looks great but is macOS‑only and keeps pushing Pro.
 
 Keywhere keeps the format you already have and adds a calm, keyboard‑first UI built with
 [GPUI](https://gpui.rs) (the GPU‑accelerated Rust UI framework behind Zed).
+
+## Who it's for
+
+* People who already keep their passwords in a Password Safe or Password Gorilla vault, mainly on
+  Linux and macOS, and want a maintained desktop app for it. The file stays in the same format, so
+  you can go back to the old apps at any time.
+* People who want one local encrypted file in a folder they sync themselves, and a quiet UI.
+
+If you're happy with the password manager you use now, there's no need to switch.
+
+**Not planned:** browser autofill, a mobile app, TOTP codes, passkeys, YubiKey unlock, and cloud
+sync or accounts. On a phone, use any psafe3‑compatible mobile app with the same file.
 
 ## Features (roadmap: [docs/PLAN.md](docs/PLAN.md))
 

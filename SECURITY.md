@@ -91,12 +91,12 @@ All in [docs/security](docs/security):
 
 * [Threat model](docs/security/threat-model.md): the requirements the app is built against.
 * [RAM residue test](docs/security/ram-test.md): measured, repeatable.
-* Independent code audits: [Cursor](docs/security/audit-cursor.md),
+* AI‑assisted code reviews: [Cursor](docs/security/audit-cursor.md),
   [DeepSeek](docs/security/audit-deepseek.md), and a memory and hardware focused one by
-  [Grok](docs/security/audit-memory-grok.md).
-* [Review of the fixes](docs/security/audit-fixes-review-cursor.md) for those audits.
+  [Grok](docs/security/audit-memory-grok.md). No human security firm has audited Keywhere yet.
+* [Review of the fixes](docs/security/audit-fixes-review-cursor.md) for those reviews.
 
-Each audit describes the code at the commit it names. The fixes review records what was fixed
+Each review describes the code at the commit it names. The fixes review records what was fixed
 and which residuals were accepted; this file describes the current behaviour and limits.
 
 ### Accepted residuals

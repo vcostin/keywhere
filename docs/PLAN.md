@@ -6,17 +6,20 @@ existing vault opens unchanged and stays usable in those apps. There is no cloud
 account and no "Pro" upsell. Sync is whatever folder you keep the file in (Google Drive, Dropbox,
 Syncthing).
 
+It is meant for people who already have a psafe3 or Password Gorilla vault, not as a
+general password manager. Positioning and priorities: [STRATEGY.md](STRATEGY.md); roadmap: §7.
+
 ## 1. What we learned from the apps we're replacing
 
-| | Password Gorilla | Password Safe 1.x | Strongbox (macOS) | **Keywhere takeaway** |
-|---|---|---|---|---|
-| Stack / look | Tcl/Tk, 2000s widgets, project discontinued | wxWidgets, dense toolbar, many modal dialogs | Native AppKit/SwiftUI, modern, 3‑pane | GPU‑rendered GPUI UI, one consistent look on every OS |
-| Formats | psafe3 + v2 | psafe3 (reference implementation) | KeePass + psafe3 | psafe3 first‑class; v1/v2 import for old Gorilla files |
-| Navigation | Single tree | Tree **or** list toggle | Sidebar (groups/tags/smart views) + list + detail | Sidebar + list + detail. Smart views: Favorites, Expiring, Weak/Reused |
-| Search | Basic find dialog | Find toolbar | Instant search | Instant fuzzy search and a Ctrl/⌘‑K command palette |
-| Quick access | none | System tray menu with entry tree | Menu‑bar quick search | Tray popover with search, ⏎ copies the password, then lock |
-| Security UX | Clipboard clear | Lock on idle/minimise, YubiKey | Auto‑lock, Touch ID | Auto‑lock on idle/sleep/screen‑lock, clipboard auto‑clear; no keychain unlock (decision 2026‑11‑20) |
-| Pain points | Unmaintained, ugly, HiDPI broken | Cluttered, dated dialogs | Nags for Pro, macOS only | Fast, calm, keyboard‑first, no nags |
+| | Password Gorilla | Password Safe 1.x | **Keywhere takeaway** |
+|---|---|---|---|
+| Stack / look | Tcl/Tk, 2000s widgets, project discontinued | wxWidgets, dense toolbar, many modal dialogs | GPU‑rendered GPUI UI, one consistent look on every OS |
+| Formats | psafe3 + v2 | psafe3 (reference implementation) | psafe3 first‑class; v1/v2 import for old Gorilla files |
+| Navigation | Single tree | Tree **or** list toggle | Sidebar + list + detail. Smart views: Favorites, Expiring, Weak/Reused |
+| Search | Basic find dialog | Find toolbar | Instant fuzzy search and a Ctrl/⌘‑K command palette |
+| Quick access | none | System tray menu with entry tree | Tray popover with search, ⏎ copies the password, then lock |
+| Security UX | Clipboard clear | Lock on idle/minimise, YubiKey | Auto‑lock on idle/sleep/screen‑lock, clipboard auto‑clear; no keychain unlock (decision 2026‑11‑20) |
+| Pain points | Unmaintained, ugly, HiDPI broken | Cluttered, dated dialogs | Fast, calm, keyboard‑first, no nags |
 
 ## 2. Visual direction
 
@@ -107,7 +110,7 @@ Next for the engine:
 | **M2 Editor** | Add/edit/delete/move, groups drag & drop, generator, password history, expiry, safe save + conflict dialog |
 | **M3 Tray & quick access** | Tray popover, global hotkey, lock‑on‑sleep/screen‑lock, start minimised |
 | **M4 Polish (done)** | Settings page (auto‑lock, clipboard, close behaviour, theme, language), English/Romanian UI, dropdown + group combobox, group fold/new/delete, "No group" view, health views (weak/reused/expiring), favorites, light theme, Password Gorilla v2 read/write + upgrade. Favicons deferred. |
-| **M5 Ship** | Packages: AppImage (done), Flatpak, .dmg (notarised), MSI. Signed releases with in‑app updates (AppImage done: minisign‑signed manifest, opt‑in checks). Reproducible builds |
+| **M5 Ship** | Packages (done): AppImage, .deb, .rpm, macOS .dmg, Windows portable exe, setup and MSI. macOS and Windows are unsigned. In‑app updates with a minisign‑signed manifest and opt‑in checks (done). Next: reproducible builds. Flatpak only if asked. Code signing and notarization deferred (see §7) |
 
 ## 6. Security posture (summary; full threat model in `docs/security/threat-model.md`)
 
@@ -117,4 +120,19 @@ Next for the engine:
 * SHOULD: mlock, no core dumps, conflict detection, `.plk` lock, fuzzing, dependency auditing.
 * WON'T (for now, owner decision 2026‑11‑20): OS keychain / biometric quick‑unlock. The master password
   stays the only way in; nothing derived from it is handed to KWallet/Secret Service/Keychain.
-* COULD: YubiKey challenge‑response (Password Safe compatible).
+* WON'T (owner decision 2026‑11‑26): YubiKey challenge‑response. Vaults that need a YubiKey can't be
+  opened.
+
+## 7. Roadmap after v0.1.6
+
+Why this order: [STRATEGY.md](STRATEGY.md). The project runs at maintenance pace: small releases
+when something needs fixing, no feature schedule.
+
+| When | What |
+|---|---|
+| **Now** | README says who Keywhere is for and what's not planned · SECURITY.md calls the AI reviews "AI‑assisted", not audits · keep dependency updates merged |
+| **When something bites** | Bugs from real users, Linux first · platform gaps when someone hits them: Windows single instance, Windows `VirtualLock`, macOS hardware test pass (#33) · reproducible builds (#31) |
+| **Only if people ask** (a GitHub issue counts) | CSV import · KDBX import · Flatpak (#28). A CSV export writes every password in plain text, so it needs a warning and a mode‑0600 file |
+| **Deferred** | Code signing and notarization (#29, #30), until there's a budget |
+| **Not planned** | Browser autofill, a mobile app, TOTP, passkeys, YubiKey unlock, cloud sync, accounts, sharing |
+| **Waiting** | GPUI or Tauri 2 for the UI: decide after Discord publishes its GPUI migration. `keywhere-core` has no UI dependency and stays either way |
