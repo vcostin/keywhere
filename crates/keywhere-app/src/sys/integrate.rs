@@ -103,7 +103,7 @@ fn write_temp(path: &Path, data: &[u8]) -> std::io::Result<PathBuf> {
     let dir = path.parent().ok_or(std::io::ErrorKind::InvalidInput)?;
     fs::create_dir_all(dir)?;
     let mut rnd = [0u8; 8];
-    getrandom::getrandom(&mut rnd).map_err(std::io::Error::other)?;
+    getrandom::fill(&mut rnd).map_err(std::io::Error::other)?;
     let name = format!(
         ".{}.{}.tmp",
         path.file_name()

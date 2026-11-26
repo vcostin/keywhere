@@ -100,7 +100,7 @@ pub struct RawDbV2 {
 
 fn random<const N: usize>() -> Result<[u8; N], Error> {
     let mut b = [0u8; N];
-    getrandom::getrandom(&mut b).map_err(|_| Error::Rng)?;
+    getrandom::fill(&mut b).map_err(|_| Error::Rng)?;
     Ok(b)
 }
 

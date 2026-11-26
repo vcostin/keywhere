@@ -114,7 +114,7 @@ fn uniform(n: usize) -> Result<usize, Error> {
     let zone = u32::MAX - (u32::MAX % n);
     loop {
         let mut b = [0u8; 4];
-        getrandom::getrandom(&mut b).map_err(|_| Error::Rng)?;
+        getrandom::fill(&mut b).map_err(|_| Error::Rng)?;
         let v = u32::from_le_bytes(b);
         if v < zone {
             return Ok((v % n) as usize);
