@@ -6,7 +6,7 @@
     <title>Keywhere — your passwords, right where you left them</title>
     <meta
       name="description"
-      content="Keywhere is a modern desktop password manager for Password Safe v3 (.psafe3) vaults, written in Rust with GPUI. One encrypted file, no cloud account, no subscription, no nags."
+      content="Keywhere is a calm desktop password manager for Password Safe v3 (.psafe3) vaults, written in Rust with GPUI. One encrypted file, no cloud account, no subscription, no nags."
     />
     <meta
       http-equiv="Content-Security-Policy"
@@ -26,7 +26,7 @@
     <meta property="og:title" content="Keywhere — your passwords, right where you left them" />
     <meta
       property="og:description"
-      content="A modern desktop password manager for Password Safe v3 vaults. One encrypted file, no account, no subscription."
+      content="A calm desktop password manager for Password Safe v3 vaults. One encrypted file, no account, no subscription."
     />
     <meta property="og:url" content="https://vcostin.github.io/keywhere/" />
     <meta property="og:image" content="https://vcostin.github.io/keywhere/og.png" />
@@ -281,7 +281,7 @@
               tried it, and stayed. It's still a great experiment, and the UI is vibrant. I like it.
             </p>
             <p>
-              Keywhere is desktop only for now: Linux first, macOS and Windows as previews. A mobile version
+              Keywhere is desktop only: Linux first, macOS and Windows as previews. A mobile version
               was considered and set aside.
             </p>
             <p class="story-sign">— vcostin</p>
@@ -546,8 +546,12 @@
               <p>Yes. It's open source under the MIT licence. There is no account, no subscription and no paid tier.</p>
             </details>
             <details>
+              <summary>Who is Keywhere for?</summary>
+              <p>People who already keep their passwords in a Password Safe or Password Gorilla vault, mainly on Linux and macOS, and want a maintained desktop app for it. And people who want one local encrypted file in a folder they sync themselves. If you're happy with the password manager you use now, there's no need to switch.</p>
+            </details>
+            <details>
               <summary>Will it open my Password Safe or Password Gorilla vault?</summary>
-              <p>Yes. Keywhere reads and writes Password Safe v3 (<code>.psafe3</code>) files and keeps fields it doesn't know about, so the file stays usable in Password Safe and Password Gorilla. Legacy v2 files (Password Gorilla's <code>.dat</code>) open and are saved back as v2. A banner explains v2's weaknesses and offers <strong>Upgrade to v3…</strong>, which writes a new <code>.psafe3</code> next to the original and leaves the v2 file untouched.</p>
+              <p>Yes. Keywhere reads and writes Password Safe v3 (<code>.psafe3</code>) files and keeps fields it doesn't know about, so the file stays usable in Password Safe and Password Gorilla. Legacy v2 files (Password Gorilla's <code>.dat</code>) open and are saved back as v2. A banner explains v2's weaknesses and offers <strong>Upgrade to v3…</strong>, which writes a new <code>.psafe3</code> next to the original and leaves the v2 file untouched. Vaults set up to need a YubiKey don't open in Keywhere.</p>
             </details>
             <details>
               <summary>How do I use one vault on several computers?</summary>
@@ -562,12 +566,16 @@
               <p>The macOS and Windows builds are previews and aren't code‑signed yet, so the system asks before running them. The Download section shows how to start them. Check the file against <code>SHA256SUMS</code> first.</p>
             </details>
             <details>
-              <summary>Can I unlock with my fingerprint or the system keychain?</summary>
-              <p>No, by design for now: the master password stays the only way in, and nothing derived from it is handed to the system keychain.</p>
+              <summary>Can I unlock with my fingerprint, a YubiKey or the system keychain?</summary>
+              <p>No, by design: the master password stays the only way in, and nothing derived from it is handed to the system keychain.</p>
             </details>
             <details>
               <summary>Is there a mobile app?</summary>
-              <p>No. Keywhere is a desktop app for Linux, macOS and Windows. Mobile was considered and set aside for now.</p>
+              <p>No, and none is planned. Keywhere is a desktop app for Linux, macOS and Windows. The vault is a standard <code>.psafe3</code> file, so on a phone you can open the same file from your synced folder with any psafe3‑compatible mobile app.</p>
+            </details>
+            <details>
+              <summary>Will it fill in passwords in my browser, or store TOTP codes and passkeys?</summary>
+              <p>No, and these aren't planned: no browser autofill, TOTP codes, passkeys, cloud sync or accounts. Keywhere stays a focused desktop app for your vault, which also keeps its attack surface small. Fields other apps store in the file, such as TOTP or passkeys, are kept unchanged when Keywhere saves.</p>
             </details>
             <details>
               <summary>Is it ready for my real passwords?</summary>
