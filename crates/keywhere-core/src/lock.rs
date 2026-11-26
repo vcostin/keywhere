@@ -276,7 +276,7 @@ pub fn sanitize_holder(h: &str) -> String {
 
 fn rand_u32() -> u32 {
     let mut b = [0u8; 4];
-    let _ = getrandom::getrandom(&mut b);
+    let _ = getrandom::fill(&mut b);
     u32::from_le_bytes(b)
 }
 

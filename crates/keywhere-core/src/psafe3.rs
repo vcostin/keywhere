@@ -109,7 +109,7 @@ fn ecb_encrypt_32(cipher: &Twofish, input: &[u8; 32]) -> [u8; 32] {
 
 fn random<const N: usize>() -> Result<[u8; N], Error> {
     let mut b = [0u8; N];
-    getrandom::getrandom(&mut b).map_err(|_| Error::Rng)?;
+    getrandom::fill(&mut b).map_err(|_| Error::Rng)?;
     Ok(b)
 }
 
@@ -441,7 +441,7 @@ fn push_field(
     // Pad with random bytes, as Password Safe does.
     let pad = total - (5 + data.len());
     let mut padding = vec![0u8; pad];
-    getrandom::getrandom(&mut padding).map_err(|_| Error::Rng)?;
+    getrandom::fill(&mut padding).map_err(|_| Error::Rng)?;
     out.extend_from_slice(&padding);
     debug_assert_eq!(out.len() - start, total);
     Ok(())

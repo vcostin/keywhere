@@ -138,7 +138,7 @@ pub struct Record {
 impl Record {
     pub fn new() -> Result<Self, Error> {
         let mut uuid = [0u8; 16];
-        getrandom::getrandom(&mut uuid).map_err(|_| Error::Rng)?;
+        getrandom::fill(&mut uuid).map_err(|_| Error::Rng)?;
         // RFC 4122 v4 bits, as Password Safe generates.
         uuid[6] = (uuid[6] & 0x0f) | 0x40;
         uuid[8] = (uuid[8] & 0x3f) | 0x80;
@@ -431,7 +431,7 @@ impl Vault {
             if !ok {
                 let mut u = [0u8; 16];
                 loop {
-                    getrandom::getrandom(&mut u).map_err(|_| Error::Rng)?;
+                    getrandom::fill(&mut u).map_err(|_| Error::Rng)?;
                     u[6] = (u[6] & 0x0f) | 0x40;
                     u[8] = (u[8] & 0x3f) | 0x80;
                     if seen.insert(u.to_vec()) {
@@ -508,7 +508,7 @@ impl Vault {
             return Err(Error::WrongPassword);
         }
         let mut uuid = [0u8; 16];
-        getrandom::getrandom(&mut uuid).map_err(|_| Error::Rng)?;
+        getrandom::fill(&mut uuid).map_err(|_| Error::Rng)?;
         self.header = vec![
             Field {
                 kind: hdr::VERSION,
@@ -530,7 +530,7 @@ impl Vault {
     /// A new, empty vault.
     pub fn create(password: &[u8]) -> Result<Self, Error> {
         let mut uuid = [0u8; 16];
-        getrandom::getrandom(&mut uuid).map_err(|_| Error::Rng)?;
+        getrandom::fill(&mut uuid).map_err(|_| Error::Rng)?;
         let header = vec![
             Field {
                 kind: hdr::VERSION,
@@ -1060,7 +1060,7 @@ pub fn restrict_permissions(path: &Path) -> std::io::Result<()> {
 
 fn temp_path(path: &Path) -> Result<PathBuf, Error> {
     let mut r = [0u8; 8];
-    getrandom::getrandom(&mut r).map_err(|_| Error::Rng)?;
+    getrandom::fill(&mut r).map_err(|_| Error::Rng)?;
     let hex: String = r.iter().map(|b| format!("{b:02x}")).collect();
     let mut name = path.as_os_str().to_owned();
     name.push(format!(".tmp.{hex}"));

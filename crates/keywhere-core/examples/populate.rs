@@ -10,7 +10,7 @@ fn gen_password(len: usize) -> String {
     let mut out = String::new();
     while out.len() < len {
         let mut b = [0u8; 1];
-        getrandom::getrandom(&mut b).unwrap();
+        getrandom::fill(&mut b).unwrap();
         // rejection sampling: no modulo bias
         if (b[0] as usize) < 256 - 256 % SET.len() {
             out.push(SET[b[0] as usize % SET.len()] as char);
